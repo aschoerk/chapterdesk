@@ -1098,4 +1098,99 @@ describe('LLM synchronization — excludeFromContext flag in the request builder
     expect(lore2.content).toContain('Ashley is married to Dr. Harvey.');
     vi.unstubAllGlobals();
   });
+
+  function loreText(): string {
+    return buildLoreNodeContent('Ashley is married to Dr. Harvey.');
+  }
+
+  /** Parse the messages of the FIRST chat-completion fetch (streaming) call. */
+  function firstFetchBodyText(): string {
+    const init = fetchMock.mock.calls[0]?.[1] as { body?: string };
+    const payload = JSON.parse(init?.body ?? '{}');
+    const msgs = Array.isArray(payload.messages) ? payload.messages : [];
+    return msgs.map((m: { role?: string; content?: unknown }) => String(m.content ?? '')).join('\n');
+  }
+
+  it('send-regenerate: clears the exclude flag of the lore node before the assistant and re-sends the lore', async () => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(sseResponse(['A freshly told ring.']));
+    // State after the first send: L (dir/lore) → D (direction) → A (answer),
+    // with L deactivated (excludeFromContext) because it was already sent once.
+    const chatService = await openChat([
+      makeNode({ id: 'L', role: 'user', content: loreText(), isCurrent: true, excludeFromContext: true, excludeAfterSend: false }),
+      makeNode({ id: 'D', parentId: 'L', role: 'user', content: 'Describe the ring.', isCurrent: true }),
+      makeNode({ id: 'A', parentId: 'D', role: 'assistant', content: 'The ring glints.', isCurrent: true })
+    ]);
+    await chatService.patchChatMeta(CHAT_ID, { lore: 'Ashley is married to Dr. Harvey.' });
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'A')!,
+      usecase: 'send-regenerate',
+      vars: {}
+    });
+
+    // The re-sent request carries the lore (it was re-armed before the send).
+    expect(firstFetchBodyText()).toContain('Ashley is married to Dr. Harvey.');
+    // After the regenerated send the lore node is deactivated again.
+    const lore = chatService.nodes().find(n => n.id === 'L')!;
+    expect(isChatLoreNode(lore)).toBe(true);
+    expect(lore.excludeFromContext).toBe(true);
+    expect(lore.excludeAfterSend).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('send-rewrite: clears the exclude flag of the lore node before the assistant and re-sends the lore', async () => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(sseResponse(['A rewritten ring.']));
+    const chatService = await openChat([
+      makeNode({ id: 'L', role: 'user', content: loreText(), isCurrent: true, excludeFromContext: true, excludeAfterSend: false }),
+      makeNode({ id: 'D', parentId: 'L', role: 'user', content: 'Describe the ring.', isCurrent: true }),
+      makeNode({ id: 'A', parentId: 'D', role: 'assistant', content: 'The ring glints.', isCurrent: true })
+    ]);
+    await chatService.patchChatMeta(CHAT_ID, { lore: 'Ashley is married to Dr. Harvey.' });
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'A')!,
+      usecase: 'send-rewrite',
+      vars: {}
+    });
+
+    expect(firstFetchBodyText()).toContain('Ashley is married to Dr. Harvey.');
+    const lore = chatService.nodes().find(n => n.id === 'L')!;
+    expect(lore.excludeFromContext).toBe(true);
+    expect(lore.excludeAfterSend).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('send-insert: re-arms the shared lore node of the direction being inserted above so the new direction gets the lore', async () => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(sseResponse(['An inserted direction answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'L', role: 'user', content: loreText(), isCurrent: true, excludeFromContext: true, excludeAfterSend: false }),
+      makeNode({ id: 'D', parentId: 'L', role: 'user', content: 'Describe the ring.', isCurrent: true })
+    ]);
+    await chatService.patchChatMeta(CHAT_ID, { lore: 'Ashley is married to Dr. Harvey.' });
+    const d = chatService.nodes().find(n => n.id === 'D')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: d,
+      usecase: 'send-insert',
+      vars: { content: 'Inserted direction.', modelId: 'alpha/model', providerId: 'prov-1' }
+    });
+
+    expect(firstFetchBodyText()).toContain('Ashley is married to Dr. Harvey.');
+    const lore = chatService.nodes().find(n => n.id === 'L')!;
+    expect(lore.excludeFromContext).toBe(true);
+    expect(lore.excludeAfterSend).toBe(false);
+    vi.unstubAllGlobals();
+  });
 });

@@ -324,11 +324,13 @@ const sendRegenerate: FlowController = async env => {
     return { error: makeSlot('error', 'http', 'No question node to regenerate.', {}) };
   }
 
-  await env.chatService.deleteNode(chatId, node.id);
-
-  // Current chat-lore: materialize a lore node in front of the direction being
-  // regenerated (it is being sent again).
+  // Current chat-lore: the direction being regenerated sits behind a lore
+  // node that was deactivated after its first send — (re-)arm it (clear its
+  // excludeFromContext flag) BEFORE anything is deleted, so the re-sent
+  // request carries the lore again.
   await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+
+  await env.chatService.deleteNode(chatId, node.id);
 
   const prep = await prepareTextSend(env, chatId, question, {
     content: question.content,
@@ -354,12 +356,14 @@ const sendRewrite: FlowController = async env => {
     return { error: makeSlot('error', 'http', 'No question node to rewrite.', {}) };
   }
 
+  // Current chat-lore: the direction being rewritten in place sits behind a
+  // lore node deactivated after its first send — (re-)arm it (clear its
+  // excludeFromContext flag) BEFORE anything is removed, so the re-sent
+  // request carries the lore again.
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+
   const adoptNodeIds = env.chatService.getChildren(node.id).map(c => c.id);
   await env.chatService.deleteNode(chatId, node.id, { keepChildren: true });
-
-  // Current chat-lore: materialize a lore node in front of the direction being
-  // rewritten (it is being sent again).
-  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
 
   const prep = await prepareTextSend(env, chatId, question, {
     content: question.content,
