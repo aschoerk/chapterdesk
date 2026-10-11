@@ -6,6 +6,35 @@ import {NodeEditSession} from './node-edit-session';
 const LS_CHAT  = 'chat.currentChatId';
 const LS_SCROLL = 'chat.scrollByChatId';
 
+/**
+ * Markers that wrap the raw chat-lore text when it is materialized as a node,
+ * so the model unmistakably treats it as LORE/canon rather than story prose.
+ */
+const LORE_NODE_PREFIX =
+  '[Current chat-lore — fixed canon that must be respected and never contradicted]';
+const LORE_NODE_SUFFIX = '[/End of chat-lore]';
+
+/**
+ * Build the lore node content: the raw lore text wrapped in a prefix AND a
+ * suffix, so the LLM accepts it as current chat-lore. Empty when no lore.
+ */
+export function buildLoreNodeContent(lore: string | null | undefined): string {
+  const text = (lore ?? '').trim();
+  if (!text) return '';
+  return `${LORE_NODE_PREFIX}\n${text}\n${LORE_NODE_SUFFIX}`;
+}
+
+/** True when a node is one of our materialized chat-lore nodes. */
+export function isChatLoreNode(
+  node: Pick<ChatNode, 'role' | 'content'> | null | undefined
+): boolean {
+  return !!node &&
+    node.role === 'user' &&
+    typeof node.content === 'string' &&
+    node.content.includes(LORE_NODE_PREFIX) &&
+    node.content.includes(LORE_NODE_SUFFIX);
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -215,6 +244,88 @@ export class ChatService {
       list.map(c => (c.id === chatId ? chat : c))
     );
     return chat;
+  }
+
+  /** Patch per-chat meta (lore text, auto-exclude-directions mode) and refresh the local list. */
+  async patchChatMeta(
+    chatId: string,
+    changes: { lore?: string | null; autoExcludeDirections?: boolean }
+  ): Promise<Chat> {
+    const chat = await this.api.patchChat(chatId, changes);
+    this._chats.update(list =>
+      list.map(c => (c.id === chatId ? chat : c))
+    );
+    return chat;
+  }
+
+  /**
+   * Insert a fresh chat-lore node IN FRONT OF a direction node (as its new
+   * parent) right before that direction is sent, so the model sees the lore
+   * immediately before the direction. The node is materialized with
+   * `excludeAfterSend` — it is sent with that ONE direction, then flipped to
+   * `excludeFromContext` by `markSentOnceExcluded` (deactivated). The next
+   * direction gets a NEW lore node generated in front of it.
+   *
+   * Content = `buildLoreNodeContent` (prefix + lore + suffix, so the LLM
+   * accepts it as lore). The lore is read live from `chat.lore`, so editing
+   * it updates upcoming lore nodes. No-op when `chat.lore` is empty.
+   * Idempotent: a direction that already sits behind a pending lore node with
+   * the current text is left untouched (a re-send of the same direction
+   * re-arms that node with the up-to-date text).
+   */
+  async ensureLoreNodeBefore(chatId: string, directionNodeId: string): Promise<void> {
+    const chat = this.chats().find(c => c.id === chatId);
+    const content = buildLoreNodeContent(chat?.lore ?? null);
+    const direction = this.nodes().find(n => n.id === directionNodeId);
+    if (!direction) return;
+    const dirParentId = direction.parentId ?? null;
+    const parent = dirParentId ? this.nodes().find(n => n.id === dirParentId) : null;
+    const existingLore = isChatLoreNode(parent) ? parent : null;
+
+    if (!content) {
+      // Lore cleared/empty: deactivate a pending (not-yet-sent) lore node so
+      // no stale lore is ever sent.
+      if (existingLore && existingLore.excludeAfterSend && !existingLore.excludeFromContext) {
+        await this.patchNode(chatId, existingLore.id, {
+          excludeFromContext: true,
+          excludeAfterSend: false
+        });
+      }
+      return;
+    }
+
+    if (existingLore) {
+      // Already materialized in front of this direction: keep the current
+      // text and (re-)arm it so the send carries the up-to-date lore.
+      if (
+        existingLore.content !== content ||
+        existingLore.excludeFromContext ||
+        !existingLore.excludeAfterSend
+      ) {
+        await this.patchNode(chatId, existingLore.id, {
+          content,
+          excludeFromContext: false,
+          excludeAfterSend: true
+        });
+      }
+      return;
+    }
+
+    // Materialize a fresh lore node as the direction's new parent, so the
+    // active path flows … → lore → direction → (answer).
+    const created = await this.addNode(chatId, {
+      parentId: dirParentId,
+      role: 'user',
+      content,
+      excludeAfterSend: true
+    });
+    await this.patchNode(chatId, direction.id, { parentId: created.id });
+    this._activeChildMap.update(m => {
+      const next = { ...m };
+      next[dirParentId ?? 'root'] = created.id;
+      next[created.id] = direction.id;
+      return next;
+    });
   }
 
 
@@ -694,11 +805,41 @@ export class ChatService {
       modelId?: string;
       providerId?: string;
       parentId?: string | null;
+      excludeFromContext?: boolean;
+      excludeAfterSend?: boolean;
     }
   ): Promise<ChatNode> {
     const node = await this.api.patchNode(chatId, nodeId, data);
     this._nodes.update(list => list.map(n => (n.id === nodeId ? { ...n, ...node } : n)));
     return this._nodes().find(n => n.id === nodeId) ?? node;
+  }
+
+  /**
+   * After a send completed, flip any one-shot `excludeAfterSend` nodes on the
+   * question's path to `excludeFromContext` (clearing `excludeAfterSend`). A
+   * lore node therefore reaches the model exactly once, then documents itself
+   * in history without re-shipping. Best effort — never throws.
+   */
+  async markSentOnceExcluded(chatId: string, nodeId: string): Promise<void> {
+    try {
+      const map = new Map(this._nodes().map(n => [n.id, n]));
+      const path: ChatNode[] = [];
+      let cur: ChatNode | undefined = map.get(nodeId);
+      while (cur) {
+        path.unshift(cur);
+        cur = cur.parentId ? map.get(cur.parentId) : undefined;
+      }
+      for (const n of path) {
+        if (n.excludeAfterSend && !n.excludeFromContext) {
+          await this.patchNode(chatId, n.id, {
+            excludeFromContext: true,
+            excludeAfterSend: false
+          });
+        }
+      }
+    } catch {
+      // Best effort — a failed flag flip must not surface as an error.
+    }
   }
 
   /**

@@ -161,7 +161,9 @@ class InMemoryChatApi implements Pick<
       createdAt: now,
       updatedAt: now,
       attachments: data.attachments ?? [],
-      position: data.position ?? null
+      position: data.position ?? null,
+      excludeFromContext: data.excludeFromContext ?? false,
+      excludeAfterSend: data.excludeAfterSend ?? false
     };
     this.nodes.push(row);
     return row;

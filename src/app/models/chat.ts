@@ -34,6 +34,10 @@ export interface Chat {
   title: string;
   projectId?: string | null;
   chatParametersId?: string | null;
+  /** Per-story lore: a small text of never-miss world facts, editable from the chat UI. */
+  lore?: string | null;
+  /** When true, newly created direction nodes are automatically excluded from the LLM context after they were sent the first time. */
+  autoExcludeDirections?: boolean;
   node_number: number;
   created_at: string;
   updated_at: string;
@@ -69,6 +73,10 @@ export interface ChatNode {
   chatParametersId?: string | null;
   /** Position among its siblings (1-based). Older rows carry no position and sort after positioned ones. */
   position?: number | null;
+  /** When set, the node is stored + shown but EXCLUDED from the message stream sent to the LLM while it is in history. The active (final) question is always sent regardless. */
+  excludeFromContext?: boolean;
+  /** One-shot: the node is included in the LLM context ONCE, then automatically marked `excludeFromContext` (used for the chat-lore node, which documents "sent once" then stops re-shipping). */
+  excludeAfterSend?: boolean;
 }
 
 export interface CreateNodeRequest {
@@ -82,6 +90,10 @@ export interface CreateNodeRequest {
   chatParametersId?: string | null;
   /** Optional explicit position among siblings (used by multi-paste reordering). */
   position?: number | null;
+  /** Exclude from the LLM context (history) — see ChatNode.excludeFromContext. */
+  excludeFromContext?: boolean;
+  /** One-shot context node — see ChatNode.excludeAfterSend. */
+  excludeAfterSend?: boolean;
 }
 
 export interface Persona {

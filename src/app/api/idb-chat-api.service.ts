@@ -278,6 +278,8 @@ export class IdbChatApiService implements ChatApiPort {
         title: data.title?.trim() ? data.title.trim() : row.title,
         projectId: data.projectId !== undefined ? data.projectId : row.projectId,
         chatParametersId: data.chatParametersId !== undefined ? data.chatParametersId : row.chatParametersId,
+        lore: data.lore !== undefined ? data.lore : row.lore,
+        autoExcludeDirections: data.autoExcludeDirections !== undefined ? data.autoExcludeDirections : row.autoExcludeDirections,
         updated_at: this.now()
       };
       await this.req(store.put(next));
@@ -315,7 +317,9 @@ export class IdbChatApiService implements ChatApiPort {
       version: 1, previousVersionId: null, isCurrent: true,
       createdAt: this.now(), updatedAt: this.now(),
       attachments: data.attachments ?? [], chatParametersId: (data as any).chatParametersId ?? null,
-      position: data.position ?? null
+      position: data.position ?? null,
+      excludeFromContext: data.excludeFromContext ?? false,
+      excludeAfterSend: data.excludeAfterSend ?? false
     };
     await this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       await this.req(tx.objectStore('nodes').put(row));
@@ -352,7 +356,7 @@ export class IdbChatApiService implements ChatApiPort {
     });
   }
 
-  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string; parentId?: string | null; position?: number | null }): Promise<ChatNode> {
+  async patchNode(chatId: string, nodeId: string, data: { content?: string; thinking?: string; attachments?: NodeAttachment[]; modelId?: string; providerId?: string; parentId?: string | null; position?: number | null; excludeFromContext?: boolean; excludeAfterSend?: boolean }): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(store.get(nodeId));
@@ -388,6 +392,8 @@ export class IdbChatApiService implements ChatApiPort {
         providerId: data.providerId !== undefined ? data.providerId : old.providerId,
         parentId,
         position: data.position !== undefined ? data.position : old.position,
+        excludeFromContext: data.excludeFromContext !== undefined ? data.excludeFromContext : old.excludeFromContext,
+        excludeAfterSend: data.excludeAfterSend !== undefined ? data.excludeAfterSend : old.excludeAfterSend,
         updatedAt: this.now()
       };
       await this.req(store.put(next));

@@ -384,6 +384,11 @@ export class ChatComponent implements OnInit {
   readonly chatParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
   readonly chatParamsInherited = signal<ResolvedChatParameters | null>(null);
   readonly chatParamsSummary = signal('defaults');
+
+  /** Per-story lore dialog (chat.lore + auto-exclude-directions toggle). */
+  readonly showLoreDialog = signal(false);
+  readonly loreDraft = signal('');
+  readonly loreAutoExclude = signal(false);
   readonly isGeneratingStructure = signal(false);
   readonly pendingStructure = signal<string | null>(null);
 
@@ -890,6 +895,35 @@ export class ChatComponent implements OnInit {
   onChatParamsChanged(event: { override: boolean; draft: ChatParametersDraft }) {
     this.chatParamsOverride.set(event.override);
     this.chatParamsDraft.set(event.draft);
+  }
+
+  /** Open the lore dialog pre-filled from the current chat. */
+  openLoreDialog(): void {
+    const chat = this.currentChat();
+    this.loreDraft.set(chat?.lore ?? '');
+    this.loreAutoExclude.set(!!chat?.autoExcludeDirections);
+    this.showLoreDialog.set(true);
+  }
+
+  closeLoreDialog(): void {
+    this.showLoreDialog.set(false);
+  }
+
+  /**
+   * Save lore text + the auto-exclude mode. The lore text is stored on the
+   * chat; a lore node is materialized lazily IN FRONT OF each direction when
+   * it is sent (see `ChatService.ensureLoreNodeBefore`), sent once with that
+   * direction, then deactivated — the next direction gets a fresh one.
+   */
+  async saveLoreDialog(): Promise<void> {
+    const chat = this.currentChat();
+    if (!chat) return;
+    const lore = this.loreDraft().trim();
+    await this.chatService.patchChatMeta(chat.id, {
+      lore: lore || null,
+      autoExcludeDirections: this.loreAutoExclude()
+    });
+    this.showLoreDialog.set(false);
   }
 
   /** Abort the current generation AND any running multi-call operation

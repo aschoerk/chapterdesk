@@ -85,6 +85,11 @@
               {{ i18n.t('chat.params') }}
             </button>
             <span class="params-summary">{{ chatParamsSummary() }}</span>
+            <button class="btn small" type="button"
+                    (click)="openLoreDialog()"
+                    [title]="i18n.t('chat.loreTitle')">
+              {{ currentChat()?.lore ? i18n.t('chat.lore') + ' ✓' : i18n.t('chat.lore') }}
+            </button>
             <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
                     (click)="generateTitle()"
                     [title]="i18n.t('chat.titleTitle')">
@@ -250,7 +255,33 @@
             </div>
           }
 
-          @if (getActivePath().length > 0) {
+          @if (showLoreDialog()) {
+            <div class="elaborate-backdrop">
+              <div class="elaborate-dialog" role="dialog" aria-modal="true"
+                   [attr.aria-label]="i18n.t('chat.loreTitle')">
+                <h3>{{ i18n.t('chat.loreTitle') }}</h3>
+                <p class="elaborate-hint">{{ i18n.t('chat.loreHint') }}</p>
+                <label class="elaborate-field elaborate-hints">
+                  <span>{{ i18n.t('chat.loreLabel') }}</span>
+                  <textarea rows="6" [ngModel]="loreDraft()"
+                            (ngModelChange)="loreDraft.set($event)"
+                            [placeholder]="i18n.t('chat.lorePlaceholder')"></textarea>
+                </label>
+                <label class="elaborate-field elaborate-stick"
+                       [title]="i18n.t('chat.loreAutoExcludeTitle')">
+                  <input type="checkbox" [ngModel]="loreAutoExclude()"
+                         (ngModelChange)="loreAutoExclude.set($event)" />
+                  <span>{{ i18n.t('chat.loreAutoExclude') }}</span>
+                </label>
+                <div class="elaborate-actions">
+                  <button class="btn" type="button" (click)="closeLoreDialog()">{{ i18n.t('common.cancel') }}</button>
+                  <button class="btn primary" type="button" (click)="saveLoreDialog()">{{ i18n.t('common.save') }}</button>
+                </div>
+              </div>
+            </div>
+          }
+
+        @if (getActivePath().length > 0) {
             <div class="node-nav-bar">
               @if (navHasSelection()) {
                 <div class="nav-tools">

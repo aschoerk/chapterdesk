@@ -223,6 +223,10 @@ async function streamAnswerNode(
     return { answerNodeId: answerId, slots };
   } finally {
     chatService.clearGeneration();
+    // One-shot excluded nodes (e.g. the chat-lore node created with
+    // `excludeAfterSend`) have now been sent as part of this request: flip
+    // them to permanently excluded so they are documented but never re-shipped.
+    await chatService.markSentOnceExcluded(chatId, questionNodeId);
   }
 }
 
@@ -258,6 +262,9 @@ const sendBranch: FlowController = async env => {
       });
   env.chatService.setActiveChild(newQuestion.parentId, newQuestion.id);
 
+  // Current chat-lore: materialize a lore node in front of the new direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, newQuestion.id);
+
   const prep = await prepareTextSend(env, chatId, newQuestion, { content, attachments: carried });
   await persistInterpretation(env, chatId, newQuestion, prep);
   const { answerNodeId, slots } = await streamAnswerNode(env, chatId, newQuestion.id, prep.messages);
@@ -285,6 +292,9 @@ const sendInsert: FlowController = async env => {
   const adoptNodeIds = env.chatService.nodes()
     .filter(n => n.chatId === chatId && (n.parentId ?? null) === parentId && n.id !== newQuestion.id)
     .map(n => n.id);
+
+  // Current chat-lore: materialize a lore node in front of the new direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, newQuestion.id);
 
   const prep = await prepareTextSend(env, chatId, newQuestion, { content, attachments: carried });
   await persistInterpretation(env, chatId, newQuestion, prep);
@@ -316,6 +326,10 @@ const sendRegenerate: FlowController = async env => {
 
   await env.chatService.deleteNode(chatId, node.id);
 
+  // Current chat-lore: materialize a lore node in front of the direction being
+  // regenerated (it is being sent again).
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+
   const prep = await prepareTextSend(env, chatId, question, {
     content: question.content,
     attachments: question.attachments
@@ -342,6 +356,10 @@ const sendRewrite: FlowController = async env => {
 
   const adoptNodeIds = env.chatService.getChildren(node.id).map(c => c.id);
   await env.chatService.deleteNode(chatId, node.id, { keepChildren: true });
+
+  // Current chat-lore: materialize a lore node in front of the direction being
+  // rewritten (it is being sent again).
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
 
   const prep = await prepareTextSend(env, chatId, question, {
     content: question.content,
@@ -380,6 +398,10 @@ const sendPrepend: FlowController = async env => {
   });
   env.chatService.setActiveChild(parentId, directorNode.id);
 
+  // Current chat-lore: materialize a lore node in front of the director
+  // direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, directorNode.id);
+
   // The final user message is the director + following chapters; history is
   // the text-only path up to the current node (images never re-sent).
   const messages = env.factory.buildSendMessagesEx({
@@ -415,6 +437,10 @@ const sendElaborate: FlowController = async env => {
   // Reuse an empty user leaf draft under the anchor if one exists, else
   // create a fresh question (mirrors the legacy elaborate dialog).
   const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
+
+  // Current chat-lore: materialize a lore node in front of the elaborate
+  // direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
 
   // History = text-only path up to the question + topic system prompt; the
   // final user message is the rendered elaborate prompt.
@@ -452,6 +478,9 @@ async function getOrCreateElaborateQuestion(
       env.write.model.modelId, env.write.model.providerId
     );
     chatService.setActiveChild(parentId, saved.id);
+    // The elaborate prompt is an auto-generated meta-direction: it must have
+    // been sent (it is/was the current question), but is excluded as history.
+    await chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
     return saved;
   }
   const created = await chatService.addNode(chatId, {
@@ -459,7 +488,8 @@ async function getOrCreateElaborateQuestion(
     role: 'user',
     content,
     modelId: env.write.model.modelId,
-    providerId: env.write.model.providerId
+    providerId: env.write.model.providerId,
+    excludeFromContext: true
   });
   chatService.setActiveChild(parentId, created.id);
   return created;
@@ -494,11 +524,18 @@ const sendChapterDescriptions: FlowController = async env => {
 
   // "Another branch to the first one": branch a NEW sibling question off the
   // current node (the empty leaf) — the previous chat content is the history,
-  // the final user message is the chapter-description request.
+  // the final user message is the chapter-description request. The request is
+  // an auto-generated meta-direction: sent once (it is the current question),
+  // excluded from history afterwards.
   const newQuestion = await env.chatService.branchQuestion(
     chatId, node.id, request, env.write.model.modelId, env.write.model.providerId, undefined
   );
   env.chatService.setActiveChild(newQuestion.parentId, newQuestion.id);
+  await env.chatService.patchNode(chatId, newQuestion.id, { excludeFromContext: true });
+
+  // Current chat-lore: materialize a lore node in front of the request
+  // direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, newQuestion.id);
 
   const prep = await prepareTextSend(env, chatId, newQuestion, { content: request });
   await persistInterpretation(env, chatId, newQuestion, prep);

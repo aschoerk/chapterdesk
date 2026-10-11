@@ -32,6 +32,10 @@ export interface PatchChatRequest {
   title?: string;
   projectId?: string | null;
   chatParametersId?: string | null;
+  /** Per-story lore text (nullable to clear). */
+  lore?: string | null;
+  /** Per-chat mode: auto-exclude newly created directions after their first send. */
+  autoExcludeDirections?: boolean;
 }
 
 export interface BranchQuestionRequest {

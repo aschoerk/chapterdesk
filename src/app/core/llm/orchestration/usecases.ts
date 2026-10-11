@@ -6,6 +6,7 @@ import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import { makeSlot, okSlot } from './slots';
 import { isFlowUsecase, LlmFlowRunner, prepareTextSend } from './flows';
 import { isImageMime, resolvedMime, type MessagePart } from '../llm-message';
+import { ChatService } from '../../chat.service';
 
 /**
  * Runtime environment handed to every use-case controller: the static
@@ -603,6 +604,7 @@ export class LlmUseCaseRunner {
   private readonly factory = inject(UsecaseContextFactory);
   private readonly orch = inject(LlmOrchestratorService);
   private readonly flowRunner = inject(LlmFlowRunner);
+  private readonly chatService = inject(ChatService);
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
@@ -621,6 +623,9 @@ export class LlmUseCaseRunner {
       if (!write || !this.factory.providerFor(write.model)) {
         return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
       }
+      // Current chat-lore: materialize a lore node in front of the direction
+      // being sent (sent with this one direction, then deactivated).
+      await this.chatService.ensureLoreNodeBefore(cx.chat.id, cx.node.id);
       // For append-with-images the controller rebuilds the messages WITH the
       // image interpretation; building a baseline here keeps the env valid.
       const sendMessages = this.factory.buildSendMessages(

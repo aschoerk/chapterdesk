@@ -55,6 +55,8 @@ export interface ChatApiPort {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;
     position?: number | null;
+    excludeFromContext?: boolean;
+    excludeAfterSend?: boolean;
   }): Promise<ChatNode>;
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
   /** Deleted branch roots (soft-deleted nodes whose parent is not deleted). */

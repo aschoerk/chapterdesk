@@ -441,6 +441,11 @@ export class UsecaseContextFactory {
     for (const n of path) {
       if (n.chatId !== chatId) continue;
       if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      // Meta/excluded nodes (auto-continue, elaborate instructions, lore
+      // documentation) are shown in the UI but never re-shipped as history.
+      // The FINAL node is excluded from this rule: it is the question being
+      // answered and is always sent (see buildSendMessagesEx).
+      if (n.id !== nodeId && n.excludeFromContext) continue;
       const content = nodeToMessageContent(n);
       if (!content) continue;
       out.push({ role: n.role, content });
@@ -513,6 +518,11 @@ export class UsecaseContextFactory {
       const n = path[i];
       if (n.chatId !== chatId) continue;
       if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      // Excluded meta / lore-documentation nodes are skipped in history. The
+      // final node is always included (it is the question being answered), so
+      // an auto-excluded continue/elaborate direction is still sent exactly
+      // once while it is the current question.
+      if (n.excludeFromContext) continue;
       const text = messageText({ role: n.role, content: nodeToMessageContent(n) }).trim();
       if (!text) continue;
       out.push({ role: n.role, content: text });

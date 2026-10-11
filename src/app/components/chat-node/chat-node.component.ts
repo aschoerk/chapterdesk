@@ -1051,6 +1051,16 @@ export class ChatNodeComponent implements OnDestroy {
       );
       this.activate.emit(saved.id);
 
+      // Auto-generated meta directions (Continue) and directions in a chat
+      // with the "auto-exclude directions" mode are sent while they are the
+      // current question, but excluded from history afterwards (the stream
+      // builder skips excluded history nodes and always sends the final one).
+      const isContinue = this.pendingAction() === 'continue';
+      const chat = this.chatService.chats().find(c => c.id === chatId);
+      if (isContinue || chat?.autoExcludeDirections) {
+        await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
+      }
+
       if (!node.parentId) {
         const firstLine = content
           ? content.split('\n')[0].trim().slice(0, 80)
@@ -1179,6 +1189,10 @@ export class ChatNodeComponent implements OnDestroy {
       }
     } finally {
       this.chatService.clearGeneration();
+      // One-shot excluded nodes (e.g. the chat-lore node created with
+      // `excludeAfterSend`) were just sent as part of this request: flip them
+      // to permanently excluded so they document but never re-ship.
+      await this.chatService.markSentOnceExcluded(chatId, question.id);
     }
   }
 
@@ -1988,6 +2002,13 @@ export class ChatNodeComponent implements OnDestroy {
 
     // Role-specific actions — mirror the toolbar buttons' availability.
     const roleItems: CtxMenuItem[] = [];
+    if (n.role === 'user' || n.role === 'system') {
+      roleItems.push({
+        label: (n.excludeFromContext ? '✓ ' : '') + this.i18n.t('node.ctxExcludeFromContext'),
+        action: () => void this.toggleExcludeFromContext(),
+        disabled: busy
+      });
+    }
     if (n.role === 'assistant') {
       roleItems.push(
         { label: this.i18n.t('node.ctxHeading'), action: () => void this.generateHeading(), disabled: busy },
@@ -2050,6 +2071,22 @@ export class ChatNodeComponent implements OnDestroy {
     item.action();
   }
 
+  /**
+   * Toggle whether this node is included in the LLM context. Excluded nodes
+   * are shown + stored but skipped while they are in HISTORY (the current
+   * question is always sent), so a node excluded here was still sent when it
+   * was the active question.
+   */
+  async toggleExcludeFromContext(): Promise<void> {
+    const n = this.node();
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    await this.chatService.patchNode(chatId, n.id, {
+      excludeFromContext: !n.excludeFromContext,
+      excludeAfterSend: false
+    });
+  }
+
   @HostListener('document:keydown.escape')
   onCtxEscape(): void {
     this.closeCtxMenu();
@@ -2076,6 +2113,9 @@ export class ChatNodeComponent implements OnDestroy {
 
       for (const n of path) {
         if (n.role !== 'structural') {
+          // Excluded meta / lore-documentation nodes are skipped (they show in
+          // the UI but are not part of the LLM context history).
+          if (n.excludeFromContext) continue;
           messages.push({ role: n.role, content: nodeToMessageContent(n) });
         }
       }

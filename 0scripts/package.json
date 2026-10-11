@@ -1,0 +1,11 @@
+{
+  "name": "chapterlyhelpers",
+  "version": "0.12.10",
+  "author": "Andreas Schörk",
+  "main": "electron/main.js",
+  "scripts": {
+    "electron:dev": "cd .. && npm run build:server && concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
+    "test": "cd .. && ng test"
+  }
+  
+}

@@ -31,6 +31,10 @@ export interface PatchChatRequest {
   title?: string;
   projectId?: string | null;
   chatParametersId?: string | null;
+  /** Per-story lore text (nullable to clear). */
+  lore?: string | null;
+  /** Per-chat mode: auto-exclude a direction node after it was sent the first time. */
+  autoExcludeDirections?: boolean;
 }
 
 export interface BranchQuestionRequest {
@@ -104,4 +108,8 @@ export interface PatchNodeRequest {
   providerId?: string;
   parentId?: string | null;
   position?: number | null;
+  /** Exclude from the LLM context (history) — see ChatNode.excludeFromContext. */
+  excludeFromContext?: boolean;
+  /** One-shot context node — see ChatNode.excludeAfterSend. */
+  excludeAfterSend?: boolean;
 }

@@ -116,6 +116,15 @@ export const EN = {
     elaborateFailed: 'Elaboration failed: {{error}}',
     pasteAtTop: 'Paste',
     pasteAtTopTitle: 'Paste the clipboard at the top of the story',
+    lore: 'Lore',
+    loreTitle: 'Story lore — never-miss world facts',
+    loreHint:
+      'A short set of facts that must never be contradicted. The topic prompt stays general; this is the per-story constraint spine. Saved once into the story, it is sent to the model exactly once and then documented without re-shipping.',
+    loreLabel: 'Lore text',
+    lorePlaceholder: 'Ashley is married to Dr. Harvey — never mentioned aloud.\nThe Velvet Cage has no exterior sign.',
+    loreAutoExclude: 'Auto-exclude new directions after their first send',
+    loreAutoExcludeTitle:
+      'When on, every newly created direction is sent while it is the current question, then excluded from the history the model sees.',
   },
   reader: {
     columns: 'Columns',
@@ -379,6 +388,7 @@ export const EN = {
     ctxIllustrate: 'Illustrate',
     ctxCreateImage: 'Create image of selection…',
     ctxPrepend: 'Prepend director',
+    ctxExcludeFromContext: 'Exclude from model context',
     ctxChapterDescriptions: 'Chapter descriptions…',
     ctxRemove: 'Remove section',
     ctxDelete: 'Delete section & following',

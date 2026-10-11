@@ -101,6 +101,8 @@ export class CompositeChatApiService implements ChatApiPort {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;
     position?: number | null;
+    excludeFromContext?: boolean;
+    excludeAfterSend?: boolean;
   }): Promise<ChatNode> {
     return this.api('chats').patchNode(chatId, nodeId, data);
   }

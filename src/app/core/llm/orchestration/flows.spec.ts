@@ -13,6 +13,7 @@ import { LlmFlowRunner, isFlowUsecase } from './flows';
 import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
 import { LlmLogService } from '../llm-log.service';
+import { buildLoreNodeContent, isChatLoreNode } from '../../chat.service';
 
 /** Streaming SSE body (one `data:` line per chunk + [DONE]). */
 function sseResponse(chunks: string[]): Response {
@@ -935,5 +936,166 @@ describe('LLM orchestration — interpretation only when the description is NOT 
     expect(fetchMock).toHaveBeenCalledTimes(1); // answer only — no re-interpret
     expect(slots2.interpretation).toBeUndefined(); // nothing newly merged
     expect(slots2.text?.value).toBe('A second answer.');
+  });});
+
+describe('LLM synchronization — excludeFromContext flag in the request builder', () => {
+  let api: InMemoryChatApi;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  async function openChat(nodes: ReturnType<typeof makeNode>[]): Promise<ChatService> {
+    TestBed.resetTestingModule();
+    api = new InMemoryChatApi();
+    const now = new Date().toISOString();
+    seedApi(api, {
+      providers: [{ id: 'prov-1' }],
+      models: [
+        { id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' }
+      ]
+    });
+    api.chats.push(makeChat({ id: CHAT_ID, title: 'Story', created_at: now, updated_at: now }));
+    api.nodes = nodes.map(n => ({ ...n, chatId: CHAT_ID }));
+    await TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), { provide: CHAT_API, useValue: api }]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const chatService = TestBed.inject(ChatService);
+    await chatService.loadChats();
+    await chatService.selectChat(CHAT_ID);
+    return chatService;
+  }
+
+  function textOf(messages: { role: string; content: unknown }[]): string {
+    return messages.map(m => String(m.content)).join('\n');
+  }
+
+  it('skips an excludeFromContext history node but still sends the current question', async () => {
+    const chatService = await openChat([
+      makeNode({ id: 'meta', role: 'user', content: 'continue', isCurrent: true, excludeFromContext: true }),
+      makeNode({ id: 'a1', parentId: 'meta', role: 'assistant', content: 'The door opens.', isCurrent: false }),
+      makeNode({ id: 'dir', parentId: 'a1', role: 'user', content: 'Next beat.', isCurrent: true }),
+      makeNode({ id: 'a2', parentId: 'dir', role: 'assistant', content: 'She steps through.', isCurrent: true })
+    ]);
+    const factory = TestBed.inject(UsecaseContextFactory);
+    const messages = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'dir' });
+    const text = textOf(messages);
+    expect(text).not.toContain('continue');
+    expect(text).toContain('The door opens.');
+    expect(text).toContain('Next beat.');
+  });
+
+  it('still sends an excluded node while it IS the current question (sent once then excluded)', async () => {
+    const chatService = await openChat([
+      makeNode({ id: 'meta', role: 'user', content: 'continue', isCurrent: true, excludeFromContext: true }),
+      makeNode({ id: 'a1', parentId: 'meta', role: 'assistant', content: 'The door opens.', isCurrent: true })
+    ]);
+    const factory = TestBed.inject(UsecaseContextFactory);
+    const messages = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'meta' });
+    expect(textOf(messages)).toContain('continue');
+  });
+
+  it('includes an excludeAfterSend (one-shot lore) node until it was sent, then flips it on a real send', async () => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(sseResponse(['She glances at the ring.']));
+    const chatService = await openChat([
+      makeNode({ id: 'lore', role: 'user', content: 'Ashley is married to Dr. Harvey.', isCurrent: true, excludeAfterSend: true }),
+      makeNode({ id: 'a0', parentId: 'lore', role: 'assistant', content: 'The air smells of rain.', isCurrent: false }),
+      makeNode({ id: 'q1', parentId: 'a0', role: 'user', content: 'Describe the ring.', isCurrent: true })
+    ]);
+    const factory = TestBed.inject(UsecaseContextFactory);
+
+    // Before the send: the lore node is part of the context (one-shot pending).
+    const before = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'q1' });
+    expect(textOf(before)).toContain('Ashley is married to Dr. Harvey.');
+
+    // A real send completes → markSentOnceExcluded flips it to excludeFromContext.
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'q1')!,
+      usecase: 'send-branch',
+      vars: { content: 'Describe the ring.' }
+    });
+    const flipped = chatService.nodes().find(n => n.id === 'lore')!;
+    expect(flipped.excludeFromContext).toBe(true);
+    expect(flipped.excludeAfterSend).toBe(false);
+
+    // After the send the lore node is documented but no longer re-shipped.
+    const after = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'q1' });
+    expect(textOf(after)).not.toContain('Ashley is married to Dr. Harvey.');
+    vi.unstubAllGlobals();
+  });
+
+  it('buildLoreNodeContent wraps raw lore with a prefix AND a suffix', () => {
+    expect(buildLoreNodeContent('Ashley is married to Dr. Harvey.')).toBe(
+      '[Current chat-lore — fixed canon that must be respected and never contradicted]\nAshley is married to Dr. Harvey.\n[/End of chat-lore]'
+    );
+    expect(buildLoreNodeContent('   ')).toBe('');
+    expect(buildLoreNodeContent(undefined)).toBe('');
+  });
+
+  it('ensureLoreNodeBefore inserts a wrapped lore node in front of the direction, sent once then deactivated; the next direction gets a fresh one', async () => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(sseResponse(['The ring glints.']));
+    const chatService = await openChat([
+      makeNode({ id: 'a0', role: 'assistant', content: 'The air smells of rain.', isCurrent: true }),
+      makeNode({ id: 'd1', parentId: 'a0', role: 'user', content: 'Describe the ring.', isCurrent: true })
+    ]);
+    await chatService.patchChatMeta(CHAT_ID, { lore: 'Ashley is married to Dr. Harvey.' });
+    const factory = TestBed.inject(UsecaseContextFactory);
+
+    // Direction 1: a lore node is materialized IN FRONT of it (as its parent),
+    // wrapped with prefix + suffix, armed as one-shot.
+    await chatService.ensureLoreNodeBefore(CHAT_ID, 'd1');
+    let d1 = chatService.nodes().find(n => n.id === 'd1')!;
+    const lore1 = chatService.nodes().find(n => n.id === d1.parentId)!;
+    expect(isChatLoreNode(lore1)).toBe(true);
+    expect(lore1.excludeAfterSend).toBe(true);
+    expect(lore1.excludeFromContext).toBe(false);
+    expect(lore1.content).toContain('[Current chat-lore');
+    expect(lore1.content).toContain('[/End of chat-lore]');
+    expect(lore1.content).toContain('Ashley is married to Dr. Harvey.');
+
+    // The lore is included in the message stream for that direction.
+    expect(textOf(factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'd1' })))
+      .toContain('Ashley is married to Dr. Harvey.');
+
+    // A real send of that direction completes → the lore node is deactivated.
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: d1,
+      usecase: 'send-branch',
+      vars: { content: 'Describe the ring.' }
+    });
+    d1 = chatService.nodes().find(n => n.id === 'd1')!;
+    const deactivated = chatService.nodes().find(n => n.id === d1.parentId)!;
+    expect(isChatLoreNode(deactivated)).toBe(true);
+    expect(deactivated.excludeFromContext).toBe(true);
+    expect(deactivated.excludeAfterSend).toBe(false);
+
+    // The deactivated lore is no longer re-shipped.
+    expect(textOf(factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'd1' })))
+      .not.toContain('Ashley is married to Dr. Harvey.');
+
+    // Next direction: a new draft under the fresh answer gets a NEW lore node
+    // generated in front of it.
+    const answer = chatService.nodes().find(n => n.role === 'assistant' && n.content === 'The ring glints.')!;
+    const draft = await chatService.addNode(CHAT_ID, {
+      parentId: answer.id,
+      role: 'user',
+      content: 'Next direction.'
+    });
+    await chatService.ensureLoreNodeBefore(CHAT_ID, draft.id);
+    const lore2 = chatService.nodes().find(n => n.id === draft.parentId)!;
+    expect(isChatLoreNode(lore2)).toBe(true);
+    expect(lore2.id).not.toBe(deactivated.id);
+    expect(lore2.excludeAfterSend).toBe(true);
+    expect(lore2.excludeFromContext).toBe(false);
+    expect(lore2.content).toContain('Ashley is married to Dr. Harvey.');
+    vi.unstubAllGlobals();
   });
 });

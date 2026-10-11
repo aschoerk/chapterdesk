@@ -116,6 +116,15 @@ export const DE = {
     elaborateFailed: 'Ausarbeitung fehlgeschlagen: {{error}}',
     pasteAtTop: 'Einfügen',
     pasteAtTopTitle: 'Zwischenablage oben in der Geschichte einfügen',
+    lore: 'Lore',
+    loreTitle: 'Story-Lore — wichtige, nie zu widersprechende Fakten',
+    loreHint:
+      'Eine kurze Menge an Fakten, die nie widersprochen werden dürfen. Der Themenprompt bleibt allgemein; dies ist das Story-bezogene Gerüst. Einmal gespeichert, wird der Text genau einmal an das Modell gesendet und danach nur noch dokumentiert (nicht erneut gesendet).',
+    loreLabel: 'Lore-Text',
+    lorePlaceholder: 'Ashley ist mit Dr. Harvey verheiratet — niemals laut erwähnt.\nDer Velvet Cage hat kein Schild an der Außenseite.',
+    loreAutoExclude: 'Neue Anweisungen nach dem ersten Senden automatisch ausschließen',
+    loreAutoExcludeTitle:
+      'Wenn aktiv, wird jede neu erstellte Anweisung gesendet, solange sie die aktuelle Frage ist, und danach aus der an das Modell gesendeten Historie ausgeschlossen.',
   },
   reader: {
     columns: 'Spalten',
@@ -381,6 +390,7 @@ export const DE = {
     ctxIllustrate: 'Illustrieren',
     ctxCreateImage: 'Bild der Auswahl erstellen…',
     ctxPrepend: 'Direktor voranstellen',
+    ctxExcludeFromContext: 'Aus dem Modell-Kontext ausschließen',
     ctxChapterDescriptions: 'Kapitelbeschreibungen…',
     ctxRemove: 'Abschnitt entfernen',
     ctxDelete: 'Abschnitt & Folgetexte löschen',

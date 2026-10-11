@@ -164,6 +164,8 @@ export class ChatApiService {
       providerId?: string;
       parentId?: string | null;
       position?: number | null;
+      excludeFromContext?: boolean;
+      excludeAfterSend?: boolean;
     }
   ): Promise<ChatNode> {
     return firstValueFrom(

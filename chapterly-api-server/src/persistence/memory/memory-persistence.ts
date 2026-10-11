@@ -379,6 +379,8 @@ export class MemoryPersistence implements PersistencePort {
       title,
       projectId,
       chatParametersId: null,
+      lore: null,
+      autoExcludeDirections: false,
       node_number: 0,
       created_at: ts,
       updated_at: ts,
@@ -434,6 +436,8 @@ export class MemoryPersistence implements PersistencePort {
       chat.projectId = data.projectId;
     }
     if (data.chatParametersId !== undefined) chat.chatParametersId = data.chatParametersId;
+    if (data.lore !== undefined) chat.lore = data.lore;
+    if (data.autoExcludeDirections !== undefined) chat.autoExcludeDirections = data.autoExcludeDirections;
     chat.updated_at = now();
     return clone(chat);
   }
@@ -490,6 +494,8 @@ export class MemoryPersistence implements PersistencePort {
       attachments: data.attachments ?? [],
       chatParametersId: data.chatParametersId ?? null,
       position: data.position ?? null,
+      excludeFromContext: data.excludeFromContext ?? false,
+      excludeAfterSend: data.excludeAfterSend ?? false,
     };
     this.nodes.set(node.id, node);
     chat.node_number += 1;
@@ -537,6 +543,8 @@ export class MemoryPersistence implements PersistencePort {
     if (data.providerId !== undefined) node.providerId = data.providerId;
     if (data.parentId !== undefined) node.parentId = data.parentId;
     if (data.position !== undefined) node.position = data.position;
+    if (data.excludeFromContext !== undefined) node.excludeFromContext = data.excludeFromContext;
+    if (data.excludeAfterSend !== undefined) node.excludeAfterSend = data.excludeAfterSend;
     node.updatedAt = now();
     return clone(node);
   }

@@ -59,6 +59,8 @@ function mapChat(row: Row): Chat {
     title: row.title as string,
     projectId: (row.project_id as string | null) ?? null,
     chatParametersId: (row.chat_parameters_id as string | null) ?? null,
+    lore: (row.lore as string | null) ?? null,
+    autoExcludeDirections: bool(row.auto_exclude_directions),
     node_number: Number(row.node_number ?? 0),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -86,6 +88,8 @@ function mapNode(row: Row): ChatNode {
     attachments: json<NodeAttachment[]>(row.attachments, []),
     chatParametersId: (row.chat_parameters_id as string | null) ?? null,
     position: (row.position as number | null) ?? null,
+    excludeFromContext: bool(row.exclude_from_context),
+    excludeAfterSend: bool(row.exclude_after_send),
   };
 }
 
@@ -194,8 +198,8 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', default_model_id TEXT, chat_parameters_id TEXT, default_system_prompt TEXT DEFAULT '', icon TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS topic_projects (topic_id TEXT NOT NULL, project_id TEXT NOT NULL, PRIMARY KEY(topic_id, project_id));
       CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT NOT NULL, description TEXT DEFAULT '', avatar TEXT DEFAULT '', main_topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, node_number INTEGER DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT);
+      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, node_number INTEGER DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
       CREATE TABLE IF NOT EXISTS chat_parameters (id TEXT PRIMARY KEY, name TEXT DEFAULT '', temperature REAL, top_k INTEGER, top_m REAL, top_p REAL, stream INTEGER, thinking INTEGER, thinking_level TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -206,10 +210,14 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('topics', 'chat_parameters_id', 'TEXT');
     this.addColumn('personas', 'main_topic_id', 'TEXT');
     this.addColumn('chats', 'chat_parameters_id', 'TEXT');
+    this.addColumn('chats', 'lore', 'TEXT');
+    this.addColumn('chats', 'auto_exclude_directions', 'INTEGER DEFAULT 0');
     this.addColumn('chat_nodes', 'thinking', 'TEXT');
     this.addColumn('chat_nodes', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_nodes', 'deleted_at', 'TEXT');
     this.addColumn('chat_nodes', 'position', 'INTEGER');
+    this.addColumn('chat_nodes', 'exclude_from_context', 'INTEGER DEFAULT 0');
+    this.addColumn('chat_nodes', 'exclude_after_send', 'INTEGER DEFAULT 0');
     // Backfill: existing sibling order = insertion (rowid) order.
     this.db.exec('UPDATE chat_nodes SET position = rowid WHERE position IS NULL');
     this.addColumn('models', 'catalog_json', 'TEXT');
@@ -255,6 +263,8 @@ export class SqlitePersistence implements PersistencePort {
       'updated_at',
       'chat_parameters_id',
       'deleted_at',
+      'exclude_from_context',
+      'exclude_after_send',
     ]);
     const extras = columns
       .filter((column) => !standard.has(column.name as string))
@@ -280,6 +290,8 @@ export class SqlitePersistence implements PersistencePort {
       'updated_at TEXT',
       'chat_parameters_id TEXT',
       'deleted_at TEXT',
+      'exclude_from_context INTEGER DEFAULT 0',
+      'exclude_after_send INTEGER DEFAULT 0',
       ...extras,
     ].join(', ');
     const quotedNames = names.map((name) => `"${name.replace(/"/g, '""')}"`).join(', ');
@@ -469,7 +481,7 @@ export class SqlitePersistence implements PersistencePort {
         )
         .run(id, ' (copy)', ts, ts, chatId);
       const insert = this.db.prepare(
-        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,deleted_at,exclude_from_context,exclude_after_send) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const row of sourceNodes)
         insert.run(
@@ -491,6 +503,8 @@ export class SqlitePersistence implements PersistencePort {
           ts,
           row.chat_parameters_id,
           row.deleted_at,
+          row.exclude_from_context,
+          row.exclude_after_send,
         );
     });
     tx();
@@ -504,11 +518,13 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.chat(id);
     if (data.projectId) this.requireRow('project', data.projectId, 'projects');
     this.db
-      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,updated_at=? WHERE id=?')
+      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,updated_at=? WHERE id=?')
       .run(
         data.title ?? old.title,
         data.projectId !== undefined ? data.projectId : old.projectId,
         data.chatParametersId !== undefined ? data.chatParametersId : old.chatParametersId,
+        data.lore !== undefined ? data.lore : old.lore,
+        data.autoExcludeDirections !== undefined ? (data.autoExcludeDirections ? 1 : 0) : (old.autoExcludeDirections ? 1 : 0),
         now(),
         id,
       );
@@ -528,7 +544,7 @@ export class SqlitePersistence implements PersistencePort {
     const ts = now();
     this.db
       .prepare(
-        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,is_current,created_at,updated_at,attachments,chat_parameters_id,position) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,is_current,created_at,updated_at,attachments,chat_parameters_id,position,exclude_from_context,exclude_after_send) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       )
       .run(
         id,
@@ -547,6 +563,8 @@ export class SqlitePersistence implements PersistencePort {
         JSON.stringify(data.attachments ?? []),
         data.chatParametersId ?? null,
         data.position ?? null,
+        data.excludeFromContext ? 1 : 0,
+        data.excludeAfterSend ? 1 : 0,
       );
     this.db
       .prepare('UPDATE chats SET node_number=node_number+1,updated_at=? WHERE id=?')
@@ -637,7 +655,7 @@ export class SqlitePersistence implements PersistencePort {
       this.db.prepare('UPDATE chat_nodes SET is_current=0,updated_at=? WHERE id=?').run(ts, nodeId);
       this.db
         .prepare(
-          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,position) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id,position FROM chat_nodes WHERE id=?',
+          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,position,exclude_from_context,exclude_after_send) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id,position,exclude_from_context,exclude_after_send FROM chat_nodes WHERE id=?',
         )
         .run(
           id,
@@ -667,7 +685,7 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.row('SELECT * FROM chat_nodes WHERE id=?', nodeId) as Row;
     this.db
       .prepare(
-        'UPDATE chat_nodes SET content=?,thinking=?,attachments=?,model_id=?,provider_id=?,parent_id=?,position=?,updated_at=? WHERE id=?',
+        'UPDATE chat_nodes SET content=?,thinking=?,attachments=?,model_id=?,provider_id=?,parent_id=?,position=?,exclude_from_context=?,exclude_after_send=?,updated_at=? WHERE id=?',
       )
       .run(
         data.content ?? old.content,
@@ -677,6 +695,8 @@ export class SqlitePersistence implements PersistencePort {
         data.providerId !== undefined ? data.providerId : old.provider_id,
         data.parentId !== undefined ? data.parentId : old.parent_id,
         data.position !== undefined ? data.position : old.position,
+        data.excludeFromContext !== undefined ? (data.excludeFromContext ? 1 : 0) : old.exclude_from_context,
+        data.excludeAfterSend !== undefined ? (data.excludeAfterSend ? 1 : 0) : old.exclude_after_send,
         now(),
         nodeId,
       );
