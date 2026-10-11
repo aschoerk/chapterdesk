@@ -559,6 +559,23 @@ body.sidebar-resizing * {
   box-sizing: border-box;
 }
 
+/* The lore dialog is wider than the elaborate dialog so longer lore sentences
+   can be read and edited comfortably. The dialog itself can be dragged wider
+   (resize: horizontal) up to a reasonable cap. */
+.elaborate-dialog.lore-dialog {
+  width: min(760px, 100%);
+  max-width: 92vw;
+  resize: horizontal;
+  overflow: hidden; /* keep rounded corners / content clipping while resizing */
+  min-width: 460px;
+}
+
+.elaborate-dialog.lore-dialog .lore-hints textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical; /* keep the height adjustable only */
+}
+
 .elaborate-dialog h3 {
   margin: 0 0 0.5rem;
   font-size: 1.15rem;

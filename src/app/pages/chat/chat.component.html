@@ -257,11 +257,11 @@
 
           @if (showLoreDialog()) {
             <div class="elaborate-backdrop">
-              <div class="elaborate-dialog" role="dialog" aria-modal="true"
+              <div class="elaborate-dialog lore-dialog" role="dialog" aria-modal="true"
                    [attr.aria-label]="i18n.t('chat.loreTitle')">
                 <h3>{{ i18n.t('chat.loreTitle') }}</h3>
                 <p class="elaborate-hint">{{ i18n.t('chat.loreHint') }}</p>
-                <label class="elaborate-field elaborate-hints">
+                <label class="elaborate-field elaborate-hints lore-hints">
                   <span>{{ i18n.t('chat.loreLabel') }}</span>
                   <textarea rows="6" [ngModel]="loreDraft()"
                             (ngModelChange)="loreDraft.set($event)"
