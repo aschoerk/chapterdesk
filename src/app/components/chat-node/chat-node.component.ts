@@ -431,6 +431,20 @@ export class ChatNodeComponent implements OnDestroy {
     this.editSession.patch(this.node().id, text, this.editAttachments());
   }
 
+  /**
+   * Apply text produced by the shared search/replace dialog. The dialog
+   * persists replacements through patchNode (committed content), but an open
+   * editor renders the live draft — keep the two in sync so the textarea
+   * shows what will be found next, and the draft stays the source of truth
+   * for the next match offsets.
+   */
+  setDraftFromSearch(text: string): void {
+    if (!this.isEditing()) return;
+    this.contentDraft.set(text);
+    this.editSession.patch(this.node().id, text, this.editAttachments());
+    requestAnimationFrame(() => this.resizeTextarea());
+  }
+
   private syncAttachments(): void {
     this.editSession.patch(this.node().id, this.contentDraft(), this.editAttachments());
   }

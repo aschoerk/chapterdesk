@@ -24,6 +24,7 @@ import { SettingsService } from '../../core/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/node-clipboard.service';
+import { NodeEditSession } from '../../core/node-edit-session';
 import { ConfirmService } from '../../core/confirm.service';
 import { seedApi } from '../../../../test-helpers/factories';
 
@@ -102,6 +103,32 @@ describe('Chat', () => {
 
   it('should create', () => {
     expect(component).toBeTruthy();
+  });
+
+  // ----------------------------------------------------------------------
+  // Search / replace: node scope searches the LIVE draft in node-edit mode
+  // ----------------------------------------------------------------------
+
+  it('node scope searches committed content when nothing is edited', async () => {
+    await openStory(); // active path: q1 → a1 (+ auto-created empty draft leaf)
+    const leaf = component.getCurrentLeaf()!;
+    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string }[] })
+      .searchUnits('node');
+    // Without editing a node the scope targets the current leaf's COMMITTED content.
+    expect(units).toEqual([{ key: leaf.id, text: leaf.content ?? '' }]);
+  });
+
+  it('node scope searches the LIVE draft of a node being edited, not the committed content', async () => {
+    await openStory();
+    const a1 = chatService.nodes().find((n) => n.id === 'a1')!;
+    const editSession = TestBed.inject(NodeEditSession);
+    await editSession.begin({ chatId: 'chat-1', nodeId: a1.id, text: a1.content ?? '', attachments: [] });
+    // The user typed an unsaved edit that shifts all offsets after the first char.
+    editSession.patch(a1.id, 'X' + (a1.content ?? ''), []);
+
+    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string }[] })
+      .searchUnits('node');
+    expect(units).toEqual([{ key: a1.id, text: 'X' + (a1.content ?? '') }]);
   });
 
   /** Seed a story with two assistant answers and make it the active chat. */

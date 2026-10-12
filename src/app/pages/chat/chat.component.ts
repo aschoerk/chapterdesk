@@ -1,4 +1,4 @@
-import {Component, computed, effect, ElementRef, viewChild, inject, OnInit, signal, HostListener} from '@angular/core';
+import {Component, computed, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -62,6 +62,9 @@ export class ChatComponent implements OnInit {
   readonly enabledModels = this.settings.enabledModels;
 
   private readonly tree = viewChild<ElementRef<HTMLElement>>('tree');
+
+  /** Rendered chat-node components, used to push search replacements into an open editor. */
+  private readonly nodeComps = viewChildren<ChatNodeComponent>(ChatNodeComponent);
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
@@ -491,12 +494,23 @@ export class ChatComponent implements OnInit {
     if (scope === 'node') {
       const node = this.activeSearchNode();
       if (!node) return [];
-      return [{ key: node.id, text: node.content ?? '' }];
+      return [{ key: node.id, text: this.searchTextFor(node) }];
     }
     // chat scope → all nodes on the active path
     return this.getActivePath()
-      .map((n) => ({ key: n.id, text: n.content ?? '' }))
+      .map((n) => ({ key: n.id, text: this.searchTextFor(n) }))
       .filter((u) => u.text.length > 0);
+  }
+
+  /**
+   * The text to search for a node. An open editor renders the LIVE draft in
+   * its textarea, so use that (the committed `content` may lag behind the
+   * draft by a character or a whole edit — searching it would shift every
+   * match shown in the editor).
+   */
+  private searchTextFor(node: ChatNode): string {
+    const state = this.editSession.state();
+    return state?.nodeId === node.id ? state.draftText : (node.content ?? '');
   }
 
   /** The node the "node" scope searches against (editing / visible / leaf). */
@@ -521,15 +535,20 @@ export class ChatComponent implements OnInit {
   }): void {
     const el = document.querySelector(`[data-node-id="${occ.unit.key}"]`);
     if (!el) return;
-    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // An open editor shows a textarea — select the range there. Otherwise
-    // highlight the rendered markdown.
+    // An open editor shows a textarea — select the range there (offsets were
+    // computed against the live draft). Otherwise highlight the rendered markdown.
     const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
     if (ta) {
+      // Bring the editor into view WITHOUT centering the whole (tall) card,
+      // then reveal the caret inside the textarea's own scroll region.
+      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       ta.focus();
       ta.setSelectionRange(occ.match.start, occ.match.start + occ.match.length);
+      this.revealCaretInTextarea(ta, occ.match.start);
       return;
     }
+    // Not being edited → highlight the rendered markdown.
+    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
     const content = el.querySelector<HTMLElement>('.node-content');
     if (content) {
       highlightMatchesIn(content, this.search.term(), this.search.options(), occ.localNth);
@@ -537,11 +556,26 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  /** Vertically reveal the caret line inside the textarea's own scroll area. */
+  private revealCaretInTextarea(ta: HTMLTextAreaElement, caretOffset: number): void {
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 16;
+    const padTop = parseFloat(getComputedStyle(ta).paddingTop) || 0;
+    const rowsBefore = ta.value.slice(0, caretOffset).split('\n').length - 1;
+    const caretTop = padTop + rowsBefore * lh;
+    const above = ta.scrollTop;
+    const below = ta.scrollTop + ta.clientHeight;
+    if (caretTop < above) ta.scrollTop = Math.max(0, caretTop - lh);
+    else if (caretTop + lh > below) ta.scrollTop = Math.max(0, caretTop + lh - ta.clientHeight);
+  }
+
   private async searchApply(updates: { key: string; text: string }[]): Promise<void> {
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
     for (const u of updates) {
       await this.chatService.patchNode(chatId, u.key, { content: u.text });
+      // An open editor renders the live draft — push the replacement into it
+      // so the textarea stays in sync and subsequent matches keep their offsets.
+      this.nodeComps().find((c) => c.node().id === u.key)?.setDraftFromSearch(u.text);
     }
   }
 

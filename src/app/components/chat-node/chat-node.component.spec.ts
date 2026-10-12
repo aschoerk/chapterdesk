@@ -637,6 +637,33 @@ describe('ChatNodeComponent', () => {
       expect(session.isDirty()).toBe(true);
     });
 
+    it('setDraftFromSearch updates the live draft and the edit session', async () => {
+      createFixture(node({ content: 'Hello world' }));
+      await startEditing(node({ content: 'Hello world' }));
+
+      component.setDraftFromSearch('Hello evening');
+
+      const session = TestBed.inject(NodeEditSession);
+      expect(component.isEditing()).toBe(true);
+      expect(component.contentDraft()).toBe('Hello evening');
+      expect(session.state()?.draftText).toBe('Hello evening');
+      // The textarea shows exactly what the next search will match against.
+      // (ngModel pushes the new value to the DOM in a microtask.)
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      expect(ta.value).toBe('Hello evening');
+    });
+
+    it('setDraftFromSearch is a no-op while the editor is closed', async () => {
+      createFixture(node({ content: 'Hello' }));
+      component.setDraftFromSearch('Changed');
+      expect(component.isEditing()).toBe(false);
+      expect(component.contentDraft()).toBe('');
+      const session = TestBed.inject(NodeEditSession);
+      expect(session.state()).toBeNull();
+    });
+
     it('Ctrl+Enter saves a version from the editor', async () => {
       const q1 = node({ id: 'q1', content: 'Hello' });
       const a1 = node({
