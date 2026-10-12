@@ -5,6 +5,15 @@ on:
     tags:
       - 'v*'   # e.g. v0.1.0, v1.2.3
 
+# Never run release builds for the same tag in parallel. Two concurrent runs
+# for one tag operate on the SAME GitHub Release: one deletes an asset while
+# the other is uploading/restoring its label, which surfaces as
+# GitHub API 404 "Not Found" (update-a-release-asset). Serialising per tag
+# makes a second push wait, then simply replace the assets (idempotent).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
