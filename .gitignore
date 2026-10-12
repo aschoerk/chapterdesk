@@ -65,3 +65,4 @@ Thumbs.db
 /electron/renderer/browser/index.html
 .env.chapterdesk-sqlite
 x.jpg
+docs/ideas/*
