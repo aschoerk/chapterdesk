@@ -2,15 +2,38 @@
  * Catalog of the AUTOMATICALLY-GENERATED prompt templates the app sends to
  * LLMs (title/overview/headings/elaborate, image generation parts, language
  * check). The user can view and override each template in Settings → Prompt
- * defaults. A template may contain `{{placeholder}}` tokens, which the code
- * fills in at call time (e.g. `{{total}}` for the number of images, `{{index}}`
- * for the scene number, `{{chapter}}`/`{{name}}` for elaboration, and
- * `{{descriptions}}` for the numbered list of derived picture descriptions).
+ * defaults.
+ *
+ * A template may contain the following tokens, which the code fills in at
+ * call time (see each template's `vars` for its documented list of variables —
+ * the Settings editor surfaces the same schema as chips + a live preview):
+ *   - `{{name}}`   — replace with the value of the variable `name`.
+ *   - `{{#if v}}`  — start of a conditional block; its content is kept when
+ *                    variable `v` is truthy (non-empty string, non-zero
+ *                    number, or `true`).
+ *   - `{{else}}`   — optional separator inside a conditional block; the text
+ *                    after it is used when the variable is falsy.
+ *   - `{{/if}}`    — end of a conditional block.
+ * Conditional blocks may nest. Unknown `{{name}}` tokens are left untouched.
  *
  * Prompts are intentionally English-only (no i18n).
  */
 
 export type PromptDefaultCategory = 'structure' | 'image' | 'language';
+
+export type PromptVarType = 'string' | 'number' | 'boolean';
+
+/** Documentation of one `{{name}}` variable a template may use. */
+export interface PromptVar {
+  /** Placeholder name, written as `{{name}}` in the template. */
+  name: string;
+  /** Value type (used for the editor chip and preview defaults). */
+  type: PromptVarType;
+  /** Plain-English description of the value that gets substituted. */
+  description: string;
+  /** Example value used by the live preview in the Settings editor. */
+  example?: string | number | boolean;
+}
 
 export interface PromptDefaultDef {
   /** Stable id used for lookup + localStorage key. */
@@ -20,8 +43,10 @@ export interface PromptDefaultDef {
   label: string;
   /** Optional English explanation shown in Settings. */
   description?: string;
-  /** Built-in default template (may contain {{placeholders}}). */
+  /** Built-in default template (may contain {{placeholders}}, {{#if}}…{{/if}}). */
   default: string;
+  /** Documented variables available to this template (empty when none). */
+  vars?: PromptVar[];
 }
 
 export const PROMPT_DEFAULT_CATEGORIES: PromptDefaultCategory[] = [
@@ -65,25 +90,40 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     category: 'structure',
     label: 'Elaborate chapter (no characters)',
     description: 'One generic elaboration prompt per chapter. `{{chapter}}` is the 1-based chapter number, `{{hints}}` the hints from the Elaborate dialog (empty when none given).',
+    vars: [
+      { name: 'chapter', type: 'number', description: '1-based chapter number being elaborated.', example: 4 },
+      { name: 'hints', type: 'string', description: 'Formatted Elaborate-dialog hints (empty string when none were given).', example: 'Follow these hints from the user: keep it dark' }
+    ],
     default: `elaborate on chapter {{chapter}}
-Expand chapter {{chapter}} in detail. Use only material that belongs in chapter {{chapter}}; do not incorporate any events, details, or information from chapters that come after it.
- {{hints}}`
+Expand chapter {{chapter}} in detail. Use only material that belongs in chapter {{chapter}}; do not incorporate any events, details, or information from chapters that come after it.{{#if hints}}
+{{hints}}{{/if}}`
   },
   {
     id: 'structure.elaborate-view',
     category: 'structure',
     label: 'Elaborate chapter (from a character)',
-    description: 'One elaboration prompt per named character, first person. `{{chapter}}`, `{{name}}` and `{{hints}}` (Elaborate-dialog hints, empty when none given) are replaced at call time.',
+    description: 'One elaboration prompt per named character, first person. `{{chapter}}`, `{{name}}`, `{{isFirst}}` and `{{hints}}` are replaced at call time.',
+    vars: [
+      { name: 'chapter', type: 'number', description: '1-based chapter number being elaborated.', example: 2 },
+      { name: 'name', type: 'string', description: 'Name of the character whose point of view this elaboration takes.', example: 'Anna' },
+      { name: 'isFirst', type: 'boolean', description: 'True for the first view of a chapter; false for follow-up views.', example: true },
+      { name: 'hints', type: 'string', description: 'Formatted Elaborate-dialog hints (empty string when none were given).', example: 'Follow these hints from the user: keep it dark' }
+    ],
     default:
       `Expand chapter {{chapter}} in detail. Use only material that belongs in chapter {{chapter}}; do not incorporate any events, details, or information from chapters that come after it.
-Elaborate the chapter this time out of the view of {{name}} in first person. Do never repeat content verbatim from previously generated views of the same chapter.
-{{hints}}`
+Elaborate the chapter this time out of the view of {{name}} in first person.{{#if isFirst}}
+This is the first view of this chapter — write the chapter freely from scratch.{{else}}
+This is a follow-up view: the earlier views of this chapter are already written. Do not repeat anything they already established; write only material that adds new aspects to the plot.{{/if}}{{#if hints}}
+{{hints}}{{/if}}`
   },
   {
     id: 'structure.prepend',
     category: 'structure',
     label: 'Director instruction (with Characters)',
     description: 'Prepended in front of the story context when the direction-node "Prepend" toggle is on. `{{characters}}` is the Elaborate Characters string.',
+    vars: [
+      { name: 'characters', type: 'string', description: 'Comma-separated character names from the Elaborate Characters string.', example: 'Anna, Ben' }
+    ],
     default:
       `Assume the events described after **** are lying in the future.
 Describe what happens up to that moment, in no way preclude any of those events, happening. 
@@ -148,6 +188,10 @@ If several images are attached, describe them one by one.`
     category: 'image',
     label: 'Storyboard — per-scene instruction',
     description: 'Appended when a storyboard (more than one picture) is rendered scene by scene. `{{index}}` and `{{total}}` are filled in.',
+    vars: [
+      { name: 'index', type: 'number', description: '1-based number of the scene being rendered (of {{total}}).', example: 2 },
+      { name: 'total', type: 'number', description: 'Total number of pictures in the storyboard.', example: 3 }
+    ],
     default:
       'Storyboard: render picture {{index}} of {{total}}. Choose a DISTINCT scene from the story above (do not repeat a scene you already rendered) and draw it. Keep characters, setting and style consistent across all {{total}} pictures.'
   },
@@ -156,6 +200,9 @@ If several images are attached, describe them one by one.`
     category: 'image',
     label: 'Storyboard — one-shot prompt',
     description: 'Requests ALL pictures in ONE completion so characters/style stay consistent. `{{total}}` is filled in.',
+    vars: [
+      { name: 'total', type: 'number', description: 'Total number of pictures requested.', example: 3 }
+    ],
     default: `Storyboard one-shot: create EXACTLY {{total}} pictures in ONE single response — all {{total}} images together in this same completion.
 
 Produce all {{total}} images in the same response so that characters, faces, figures, costumes, the environment/setting, lighting and art style are perfectly consistent across every image.
@@ -171,6 +218,9 @@ Rules:
     category: 'image',
     label: 'Storyboard — scene one-shot prompt',
     description: 'The render prompt for planned-scenes: requests ALL derived scene descriptions in ONE completion (like image.one-shot) but keeps the SCENE intent — each picture shows the action of the scene, not a frozen still. `{{total}}` is filled in.',
+    vars: [
+      { name: 'total', type: 'number', description: 'Total number of pictures requested.', example: 3 }
+    ],
     default: `Scene one-shot: create EXACTLY {{total}} pictures in ONE single response — all {{total}} images together in this same completion.
 
 The scenes below are concrete, action-bearing moments. Render each scene as ONE coherent, vivid picture that shows the action of that moment.
@@ -187,6 +237,10 @@ Rules:
     category: 'image',
     label: 'Pure picture mode — en-block prompt',
     description: 'Request ALL derived, temporal-free picture descriptions in one response. `{{total}}` and `{{descriptions}}` are filled in.',
+    vars: [
+      { name: 'total', type: 'number', description: 'Total number of pictures requested.', example: 2 },
+      { name: 'descriptions', type: 'string', description: 'Numbered list of the exact picture descriptions to render.', example: '1. Medium shot from the doorway: Amanda steps inside.\n2. Close-up of the letter held under the lamplight.' }
+    ],
     default: `Below are EXACTLY {{total}} pure picture descriptions — isolated moments of a scene, free of story or temporal context. Render ALL {{total}} pictures in ONE single response.
 
 The exact pictures to render (one picture per description, in this order):
@@ -201,6 +255,9 @@ Rules for every picture:
     category: 'image',
     label: 'Picture-description planning',
     description: 'Turns the story into concrete still-image descriptions before rendering. `{{total}}` is filled in.',
+    vars: [
+      { name: 'total', type: 'number', description: 'Total number of still images to plan.', example: 3 }
+    ],
     default: `You are a storyboard artist who converts narrative prose into STATIC still images.
     
 In the history is the story so far and the illustration request.
@@ -237,6 +294,9 @@ No markdown fences, no text before or after the JSON.`
     category: 'image',
     label: 'Picture-description planning — scenes (per-scene render)',
     description: 'The planning prompt for planned-scenes. Like image.planning but scene-oriented: fewer static still photographs, more alive, action-bearing scenes. `{{total}}` is filled in.',
+    vars: [
+      { name: 'total', type: 'number', description: 'Total number of scenes to plan.', example: 3 }
+    ],
     default: `You are a storyboard artist who breaks narrative prose into CONCRETE SCENES.
 
 Below is the story so far and the illustration request (the last text is the beat to depict; the earlier text is the established context).

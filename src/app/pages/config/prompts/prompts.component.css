@@ -53,3 +53,67 @@
   outline: none;
   border-color: var(--color-primary, #2563eb);
 }
+
+.prompt-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.var-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border, #ddd);
+  background: var(--panel, #fafafa);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: default;
+}
+
+.var-chip code {
+  color: var(--color-primary, #2563eb);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.var-chip em {
+  font-style: normal;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+  font-size: 0.62rem;
+}
+
+.prompt-warn {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: #b91c1c;
+}
+
+.prompt-preview {
+  margin-top: 0.5rem;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-preview-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #888);
+  margin-bottom: 0.3rem;
+}
+
+.prompt-preview pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text, #222);
+}

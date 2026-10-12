@@ -17,9 +17,9 @@
     These are the prompts and prompt-parts the app builds automatically and sends to the language models:
     story titles, introductions, headings, chapter elaboration, image generation and the language check.
     Edit any template here to take full control over what is sent; the built-in default is restored per template
-    (or for all templates) with the Reset buttons. Placeholders such as <code>{{'{{total}}'}}</code>,
-    <code>{{'{{index}}'}}</code>, <code>{{'{{chapter}}'}}</code>, <code>{{'{{name}}'}}</code> and
-    <code>{{'{{descriptions}}'}}</code> are filled in automatically when the prompt is used.
+    (or for all templates) with the Reset buttons. Each template documents its available variables
+    (shown as chips with an example), supports <code>{{'{{name}}'}}</code> substitution and
+    <code>{{'{{#if name}}…{{else}}…{{/if}}'}}</code> conditional blocks, and shows a live preview of the result.
   </p>
 
   @for (category of categories; track category) {
@@ -37,6 +37,18 @@
               @if (def.description) {
                 <p class="prompt-desc">{{ def.description }}</p>
               }
+              @if (varsOf(def.id).length > 0) {
+                <div class="prompt-vars">
+                  @for (v of varsOf(def.id); track v.name) {
+                    <span
+                      class="var-chip"
+                      [title]="v.type + ' · ' + v.description + (v.example !== undefined ? ' · e.g. ' + v.example : '')">
+                      <code>{{ varDisplay(v) }}</code>
+                      <em>{{ v.type }}</em>
+                    </span>
+                  }
+                </div>
+              }
             </div>
             <button
               type="button"
@@ -53,6 +65,18 @@
             [ngModel]="effective(def.id)"
             (ngModelChange)="onInput(def.id, $event)"
           ></textarea>
+          @if (unknownTokens(def.id, effective(def.id)).length > 0) {
+            <div class="prompt-warn">
+              Unknown token{{ unknownTokens(def.id, effective(def.id)).length === 1 ? '' : 's' }}:
+              {{ unknownTokens(def.id, effective(def.id)).join(', ') }}
+            </div>
+          }
+          @if (varsOf(def.id).length > 0) {
+            <div class="prompt-preview">
+              <span class="prompt-preview-label">Live preview</span>
+              <pre>{{ preview(def.id) }}</pre>
+            </div>
+          }
         </div>
       }
     </section>

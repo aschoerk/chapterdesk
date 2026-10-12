@@ -1261,12 +1261,15 @@ export class ChatComponent implements OnInit {
       for (let chapter = first; chapter <= last; chapter++) {
         if (this.chatService.isOperationCancelled()) break;
         // No names → one generic elaboration per chapter.
-        // With names → one elaboration per name, in first person.
+        // With names → one elaboration per name, in first person; only the very
+        // first view is "first" — the template renders the non-repetition
+        // instruction via {{#if isFirst}} for every follow-up view.
         const prompts = names.length > 0
-          ? names.map(name => this.promptDefaults.render('structure.elaborate-view', {
+          ? names.map((name, i) => this.promptDefaults.render('structure.elaborate-view', {
               chapter,
               name,
-              hints
+              hints,
+              isFirst: i === 0
             }))
           : [this.promptDefaults.render('structure.elaborate', { chapter, hints })];
 

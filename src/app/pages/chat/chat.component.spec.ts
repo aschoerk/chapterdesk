@@ -399,14 +399,23 @@ describe('Chat', () => {
     await component.confirmElaborate();
 
     // The character view template starts with the "Expand chapter …" line;
-    // the per-character instruction is the second line.
+    // the per-character instruction is the second line; the first/follow-up
+    // distinction is encoded via {{#if isFirst}} on the third line.
     const questions = chatService.nodes()
       .filter(n => n.role === 'user' && n.content?.startsWith('Expand chapter'))
       .map(n => n.content ?? '');
     expect(questions.map(q => q.split('\n')[1])).toEqual([
-      'Elaborate the chapter this time out of the view of Anna in first person. Do never repeat content verbatim from previously generated views of the same chapter.',
-      'Elaborate the chapter this time out of the view of Ben in first person. Do never repeat content verbatim from previously generated views of the same chapter.'
+      'Elaborate the chapter this time out of the view of Anna in first person.',
+      'Elaborate the chapter this time out of the view of Ben in first person.'
     ]);
+    // Anna is the first view → she writes freely; Ben is a follow-up view → the
+    // template itself tells the model to add only new plot material, without
+    // relying on the model to infer it.
+    expect(questions[0].split('\n')[2])
+      .toBe('This is the first view of this chapter — write the chapter freely from scratch.');
+    expect(questions[1].split('\n')[2]).toContain('This is a follow-up view');
+    expect(questions[1].split('\n')[2]).toContain('Do not repeat anything they already established');
+    expect(questions[1].split('\n')[2]).toContain('write only material that adds new aspects to the plot');
 
     // still sequential: the second character hangs under the first answer
     const q1 = chatService.nodes().find(n =>

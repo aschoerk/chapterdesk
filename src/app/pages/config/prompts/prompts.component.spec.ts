@@ -98,11 +98,47 @@ describe('PromptsComponent', () => {
     expect(defaults.render('structure.elaborate', { chapter: 7 }))
       .toBe('Chapter 7 — go!');
 
-    // Default template keeps the built-in placeholders working.
+    // Default template keeps the built-in placeholders working; empty hints
+    // leave no blank line thanks to the {{#if hints}} conditional block.
     defaults.reset('structure.elaborate');
     expect(defaults.render('structure.elaborate', { chapter: 3, hints: '' }))
       .toBe(`elaborate on chapter 3
-Expand chapter 3 in detail. Use only material that belongs in chapter 3; do not incorporate any events, details, or information from chapters that come after it.
- `);
+Expand chapter 3 in detail. Use only material that belongs in chapter 3; do not incorporate any events, details, or information from chapters that come after it.`);
+  });
+
+  it('documents the variables of every template as chips', () => {
+    const native = fixture.nativeElement as HTMLElement;
+    const chips = Array.from(native.querySelectorAll<HTMLElement>('.var-chip'));
+
+    const elaborateView = PROMPT_DEFAULTS.find(d => d.id === 'structure.elaborate-view')!;
+    expect(component.varsOf(elaborateView.id).map(v => v.name)).toEqual([
+      'chapter', 'name', 'isFirst', 'hints'
+    ]);
+    // a chip is rendered for every documented var (and its name is shown)
+    expect(chips.length).toBeGreaterThanOrEqual(component.varsOf(elaborateView.id).length);
+    const chipTexts = chips.map(c => c.textContent ?? '');
+    expect(chipTexts.some(t => t.includes('{{chapter}}'))).toBe(true);
+    expect(chipTexts.some(t => t.includes('{{isFirst}}'))).toBe(true);
+  });
+
+  it('renders a live preview that resolves conditionals and placeholders', () => {
+    const native = fixture.nativeElement as HTMLElement;
+    const previews = Array.from(native.querySelectorAll<HTMLElement>('.prompt-preview pre'))
+      .map(p => p.textContent ?? '');
+    expect(previews.length).toBeGreaterThan(0);
+    // The elaborate-view {{#if isFirst}} resolves to its example's first-view branch.
+    expect(previews.some(t => t.includes('This is the first view of this chapter'))).toBe(true);
+    // No preview leaves dangling template tokens behind.
+    for (const t of previews) expect(t.includes('{{')).toBe(false);
+  });
+
+  it('flags unknown tokens while accepting variables and conditional syntax', () => {
+    const elaborate = PROMPT_DEFAULTS.find(d => d.id === 'structure.elaborate')!;
+    expect(component.unknownTokens(elaborate.id, elaborate.default)).toEqual([]);
+    expect(component.unknownTokens(elaborate.id,
+      'use {{chapter}} and {{#if hints}}keep{{else}}skip{{/if}} and {{bogus}}'))
+      .toEqual(['{{bogus}}']);
+    // templates without documented vars treat every token as unknown
+    expect(component.unknownTokens('structure.title', '{{anything}}')).toEqual(['{{anything}}']);
   });
 });
