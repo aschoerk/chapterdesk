@@ -38,6 +38,11 @@ export interface LlmLogInput {
   chatId?: string;
   /** Title of the chat this call was made for (for the log output). */
   chatTitle?: string;
+  /** Id of the node this call's output belongs to (e.g. the assistant answer
+   *  node that is filled from the streamed result). Used for per-node token /
+   *  cost attribution in the UI (shown beside the char count and summed per
+   *  chat). Absent for legacy / unattributable calls. */
+  nodeId?: string;
   /** The orchestration use case this call belongs to (e.g. render-node,
    *  structure-title, append, …). Absent for legacy (non-orchestration) calls. */
   usecase?: string;
@@ -322,6 +327,23 @@ export class LlmLogService {
       })
       .catch(() => { /* keep queue alive */ })
       .finally(() => this.publish());
+  }
+
+  /**
+   * Re-point a recorded entry's node attribution. Used when an assistant
+   * answer is VERSIONED after streaming: the final node id differs from the
+   * placeholder the call was recorded under, so the usage/cost must follow
+   * the node that is actually kept. Serialised on the same persist queue so
+   * it never races the `complete()` write.
+   */
+  retargetNode(entry: LlmLogEntry, nodeId: string): void {
+    entry.nodeId = nodeId;
+    this.tail = this.tail
+      .then(async () => {
+        const db = await this.persistedStore();
+        await this.updateStored(db, entry);
+      })
+      .catch(() => { /* keep queue alive */ });
   }
 
   /** Drop the whole log. */

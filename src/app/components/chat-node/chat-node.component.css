@@ -15,6 +15,16 @@
   transform: none;
 }
 
+/* Token / cost usage shown beside the char count of an assistant node. */
+.usage-meta {
+  font-size: 0.68rem;
+  opacity: 0.9;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .inline-content-editor.drag-over {
   outline: 2px dashed var(--accent, #3b82f6);
   outline-offset: 4px;

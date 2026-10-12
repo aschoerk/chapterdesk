@@ -215,6 +215,17 @@ export interface EvalSlots {
    * partial scenes and an error — never throws.
    */
   error?: Slot<'timeout' | 'aborted' | 'http' | 'parse'>;
+  /**
+   * Parsed token usage (input/output/cached/cost) of the FINAL completion
+   * call of the use case, present when the provider reported usage.
+   */
+  usage?: Slot<import('../usage').ParsedUsage>;
+  /**
+   * The LLM-log entry recorded for the final completion call. Consumers that
+   * persist a newly created node from the answer (e.g. a versioned assistant
+   * node) can re-point its `nodeId` so usage follows the node that is kept.
+   */
+  logEntry?: import('../llm-log.service').LlmLogEntry;
 }
 
 /** Placement result of a structural text-send flow. */
@@ -338,6 +349,10 @@ export interface UsecaseContext {
   readonly node: ChatNode;
   readonly usecase: UsecaseKind;
   readonly vars: UsecaseVars;
+  /** Node the call's output belongs to (e.g. the assistant answer node), when
+   *  it differs from `node` (the question/context node). Used for log
+   *  attribution. Falls back to `node.id` when unset. */
+  readonly nodeId?: string;
 }
 
 export type { LlmImagePart } from '../llm-message';

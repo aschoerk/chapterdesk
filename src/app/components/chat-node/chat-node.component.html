@@ -26,6 +26,10 @@
       <span class="meta">{{ i18n.t('node.chars', { count: node().content.length }) }}</span>
     }
 
+    @if (nodeUsageLabel(); as usageLabel) {
+      <span class="meta usage-meta" [title]="usageLabel">{{ usageLabel }}</span>
+    }
+
     @if (chatService.isGenerating(node().id)) {
       <button class="btn-icon danger stop-btn" type="button"
               [title]="i18n.t('node.stopTitle')" (click)="stopGeneration()">

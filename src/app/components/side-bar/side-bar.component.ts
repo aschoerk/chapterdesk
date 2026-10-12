@@ -15,6 +15,8 @@ import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/topic-selection.service';
 import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
+import { ChatUsageService } from '../../core/chat-usage.service';
+import type { ParsedUsage } from '../../core/llm/usage';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 /** localStorage-backed sort preference key for this (sidebar) page. */
@@ -40,6 +42,7 @@ export class SideBarComponent implements OnInit {
   private readonly api = inject(CHAT_API);
   private readonly topicSelection = inject(TopicSelectionService);
   private readonly sortPrefs = inject(SortPreferencesService);
+  private readonly usage = inject(ChatUsageService);
 
   readonly projects = this.projectService.projects;
   readonly currentChatId = this.chatService.currentChatId;
@@ -75,6 +78,8 @@ export class SideBarComponent implements OnInit {
   readonly reassigningChatId = signal<string | null>(null);
   readonly editingChatId = signal<string | null>(null);
   readonly titleDraft = signal('');
+  /** Persisted per-chat cost totals (updated by the "Σ" button in each chat row). */
+  private readonly chatCosts = signal<Record<string, ParsedUsage | null>>({});
   readonly selectedTopicId = this.topicSelection.selectedTopicId;
 
   selectTopicFilter(id: string) {
@@ -434,6 +439,7 @@ export class SideBarComponent implements OnInit {
     });
     if (!ok) return;
     await this.chatService.deleteChat(chat.id);
+    this.usage.clearStored(chat.id);
   }
 
   collapseAll(event?: Event) {
@@ -459,6 +465,42 @@ export class SideBarComponent implements OnInit {
 
   getChatCount(projectId: string | null): number {
     return this.getChatsForProject(projectId).length;
+  }
+
+  /**
+   * Persisted total cost label of a chat (e.g. "$0.0042"), or '' when no cost
+   * has been summed yet. Reads the reactive value first (set by the "Σ"
+   * button), falling back to the localStorage snapshot for reloads.
+   */
+  chatCostLabel(chatId: string): string {
+    const totals = this.chatCosts()[chatId] ?? this.usage.storedTotals(chatId);
+    if (!totals?.cost) return '';
+    return this.formatCost(totals.cost);
+  }
+
+  /**
+   * The "Σ" button of a chat row: add up the chat's total cost from the LLM
+   * log, persist it (localStorage) and refresh the shown field.
+   */
+  recomputeChatCost(chatId: string, event: Event) {
+    event.stopPropagation();
+    const totals = this.usage.refreshChat(chatId);
+    const next = { ...this.chatCosts() };
+    if (totals?.cost) next[chatId] = totals;
+    else delete next[chatId];
+    this.chatCosts.set(next);
+  }
+
+  /** USD cost label with adaptive precision (same as the /logs page). */
+  formatCost(cost: number): string {
+    if (!Number.isFinite(cost)) return '';
+    const digits = cost >= 1 ? 2 : cost >= 0.01 ? 4 : 6;
+    return this.i18n.formatNumber(cost, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
   }
 
   formatWhen(value: string | null | undefined): string {

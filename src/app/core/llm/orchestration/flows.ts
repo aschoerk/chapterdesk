@@ -1,6 +1,7 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage, ChatNode, NodeAttachment } from '../../../models/chat';
 import { ChatService } from '../../chat.service';
+import { LlmLogService } from '../llm-log.service';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import type { EvalSlots, FlowResult, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
@@ -35,6 +36,7 @@ export interface FlowEnv {
   readonly write: ModelRef;
   readonly textExtras: Record<string, unknown>;
   readonly chatService: ChatService;
+  readonly llmLog: LlmLogService;
   readonly signal?: AbortSignal;
   readonly onChunk?: PrimitiveOptions['onChunk'];
 }
@@ -89,7 +91,7 @@ export async function prepareTextSend(
         messages: env.factory.buildInterpretMessage(images),
         extras: await env.factory.resolveTextExtras(interpret.model, env.cx.chat),
         stream: false
-      }, { expect: 'text', signal: env.signal });
+      }, { expect: 'text', signal: env.signal, nodeId: question.id });
       const description = islots.text?.value?.trim() ?? '';
       if (description) {
         const merged = env.factory.mergeDirectionWithDescription(content, description);
@@ -187,6 +189,7 @@ async function streamAnswerNode(
       stream: true
     }, {
       expect: 'text',
+      nodeId: answerNode.id,
       onChunk: chunk => {
         if (chunk.content) accContent += chunk.content;
         if (chunk.thinking) accThinking += chunk.thinking;
@@ -219,6 +222,11 @@ async function streamAnswerNode(
       if (opts.adoptNodeIds?.length) {
         await chatService.reparentNodes(chatId, opts.adoptNodeIds, answerId);
       }
+    }
+    // The call was recorded under the placeholder node id — the node that is
+    // actually kept (possibly a new version) must carry the usage instead.
+    if (slots.logEntry && answerId !== answerNode.id) {
+      env.llmLog.retargetNode(slots.logEntry, answerId);
     }
     return { answerNodeId: answerId, slots };
   } finally {
@@ -869,6 +877,7 @@ export class LlmFlowRunner {
   private readonly factory = inject(UsecaseContextFactory);
   private readonly orch = inject(LlmOrchestratorService);
   private readonly chatService = inject(ChatService);
+  private readonly llmLog = inject(LlmLogService);
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk'] } = {}): Promise<EvalSlots> {
     const cx = this.factory.buildContext(build);
@@ -887,7 +896,8 @@ export class LlmFlowRunner {
       textExtras,
       signal: opts.signal,
       onChunk: opts.onChunk,
-      chatService: this.chatService
+      chatService: this.chatService,
+      llmLog: this.llmLog
     };
     return flowControllerFor(cx.usecase)(env);
   }

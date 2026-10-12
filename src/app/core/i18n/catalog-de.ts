@@ -219,6 +219,8 @@ export const DE = {
     created: 'Erstellt: {{when}}',
     updated: 'Aktualisiert: {{when}}',
     defaultModel: 'Standardmodell: {{model}}',
+    sumTotalCost: 'Gesamtkosten dieser Story aus dem Log zusammenzählen und speichern',
+    chatCostTitle: 'Gesamtkosten: {{cost}}',
   },
   node: {
     dir: 'An',
@@ -590,6 +592,7 @@ export const DE = {
     usageOut: 'raus',
     usageTotal: 'gesamt',
     usageReasoning: 'Denken',
+    usageCached: 'Cached',
     usageCost: 'Kosten',
   },
   config: {

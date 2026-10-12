@@ -42,6 +42,8 @@ import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, gen
 import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
+import { LlmLogService } from '../../core/llm/llm-log.service';
+import { ChatUsageService } from '../../core/chat-usage.service';
 
 /**
  * Fallback when a rewrite's original range cannot be mapped back to the
@@ -82,6 +84,8 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly runner = inject(LlmUseCaseRunner);
   private readonly flowRunner = inject(LlmFlowRunner);
   private readonly postprocessor = inject(LlmPostprocessorService);
+  private readonly llmLog = inject(LlmLogService);
+  private readonly usage = inject(ChatUsageService);
   private readonly parameters = inject(ChatParametersService);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
@@ -140,6 +144,37 @@ export class ChatNodeComponent implements OnDestroy {
   readonly isEditing = computed(() =>
     this.editSession.editingNodeId() === this.node().id
   );
+
+  /**
+   * One-line token/cost label shown beside the char count of an assistant
+   * node, e.g. `in 128 · out 342 · cached 10 · cost $0.0004`. Data comes
+   * reactively from the LLM log entries attributed to this node (see
+   * ChatUsageService); null when the node has no usage recorded.
+   */
+  readonly nodeUsageLabel = computed(() => {
+    const n = this.node();
+    if (n.role !== 'assistant') return null;
+    const u = this.usage.nodeUsage(n.id);
+    if (!u) return null;
+    const parts: string[] = [];
+    if (u.input) parts.push(`${this.i18n.t('logs.usageIn')} ${u.input}`);
+    if (u.output) parts.push(`${this.i18n.t('logs.usageOut')} ${u.output}`);
+    if (u.cached) parts.push(`${this.i18n.t('logs.usageCached')} ${u.cached}`);
+    if (u.cost) parts.push(`${this.i18n.t('logs.usageCost')} ${this.formatCost(u.cost)}`);
+    return parts.length ? parts.join(' · ') : null;
+  });
+
+  /** USD cost label with adaptive precision (same as the /logs page). */
+  formatCost(cost: number): string {
+    if (!Number.isFinite(cost)) return '';
+    const digits = cost >= 1 ? 2 : cost >= 0.01 ? 4 : 6;
+    return this.i18n.formatNumber(cost, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
 
   hasThinking(): boolean {
     return !!this.node().thinking?.trim();
@@ -1149,6 +1184,7 @@ export class ChatNodeComponent implements OnDestroy {
         { chat, node: question, usecase, vars },
         {
           signal,
+          nodeId: answerNode.id,
           onChunk: chunk => {
             if (chunk.content) accContent += chunk.content;
             if (chunk.thinking) accThinking += chunk.thinking;
@@ -1200,6 +1236,11 @@ export class ChatNodeComponent implements OnDestroy {
         );
         this.chatService.setActiveChild(question.id, versioned.id);
         this.activate.emit(versioned.id);
+        // The call was logged under the placeholder id — the versioned answer
+        // node that is kept must carry the usage/cost instead.
+        if (slots.logEntry && versioned.id !== answerNode.id) {
+          this.llmLog.retargetNode(slots.logEntry, versioned.id);
+        }
       }
     } finally {
       this.chatService.clearGeneration();

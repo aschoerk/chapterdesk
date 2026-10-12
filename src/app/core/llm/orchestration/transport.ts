@@ -31,7 +31,7 @@ export interface CompletionRequest {
   /** Streaming callback — raw chunks, unpaced (pacing is a view concern). */
   onChunk?: (chunk: LlmChunk) => void;
   /** Chat attribution for the log. */
-  chat?: { id?: string; title?: string; usecase?: string };
+  chat?: { id?: string; title?: string; usecase?: string; nodeId?: string };
   /** Per-attempt timeout in ms (default TIMEOUT_MS). */
   timeoutMs?: number;
 }
@@ -42,7 +42,7 @@ export interface ImagesRequest {
   prompt: string;
   n?: number;
   signal?: AbortSignal;
-  chat?: { id?: string; title?: string; usecase?: string };
+  chat?: { id?: string; title?: string; usecase?: string; nodeId?: string };
   timeoutMs?: number;
 }
 
@@ -54,6 +54,10 @@ export interface CompletionResult {
   thinking: string;
   /** Generated images assembled from the stream (''/[] when none). */
   images?: LlmImagePart[];
+  /** The provider's whole-request usage block (streamed / raw), if any. */
+  usage?: unknown;
+  /** The recorded LLM-log entry of this call (for node attribution). */
+  logEntry?: import('../llm-log.service').LlmLogEntry;
 }
 
 export interface ImagesResult {
@@ -121,6 +125,7 @@ export class LlmTransportService {
       provider: req.provider.baseUrl,
       chatId: req.chat?.id,
       chatTitle: req.chat?.title,
+      nodeId: req.chat?.nodeId,
       usecase: req.chat?.usecase,
       endpoint: 'chat/completions',
       messages: payloadMessages.map(m => ({ role: m.role, content: m.content })),
@@ -181,12 +186,16 @@ export class LlmTransportService {
             }
           }]
         };
-        return { content: assembled.content, thinking: assembled.thinking, images: assembled.images, raw };
+        return {
+          content: assembled.content, thinking: assembled.thinking, images: assembled.images,
+          raw, usage: assembled.usage, logEntry
+        };
       }
 
       const raw = await response.json();
       this.llmLog.complete(logEntry, { response: raw });
-      return { content: '', thinking: '', raw };
+      const usage = (raw as Record<string, unknown>)['usage'];
+      return { content: '', thinking: '', raw, usage, logEntry };
     } catch (err: any) {
       if ((err as TransportError).status !== undefined) throw err;
       const aborting = controller.signal.aborted;
@@ -282,6 +291,7 @@ export class LlmTransportService {
       provider: req.provider.baseUrl,
       chatId: req.chat?.id,
       chatTitle: req.chat?.title,
+      nodeId: req.chat?.nodeId,
       usecase: req.chat?.usecase,
       endpoint: 'images',
       prompt: req.prompt,

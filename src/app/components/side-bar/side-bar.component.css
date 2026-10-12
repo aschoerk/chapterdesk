@@ -436,6 +436,30 @@
   font-weight: 600;
 }
 
+/* Per-chat total cost (“Σ” recompute button + persistent field). */
+.cost-btn {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chat-cost {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.chat-item.active .chat-cost {
+  color: var(--text-active);
+  font-style: normal;
+  font-weight: 600;
+}
+
 .search-in-content {
   display: inline-flex;
   align-items: center;

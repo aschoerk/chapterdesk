@@ -1,6 +1,6 @@
 {
   "name": "chapterly",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "description": "Offline-first AI-assisted story writing. An Electron shell with its own local API server and an Angular SPA.",
   "keywords": [
     "story",
@@ -88,8 +88,8 @@
     "productName": "Chapterly",
     "files": [
       "electron/**/*",
-      "chapterly-api-server/dist/**/*",
-      "chapterly-api-server/package.json",
+      "chapterly-api-server/**/*",
+      "dist/chat/**/*",
       "package.json"
     ],
     "asarUnpack": [

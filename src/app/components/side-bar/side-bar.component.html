@@ -225,6 +225,16 @@
                   [title]="i18n.t(chat.node_number === 1 ? 'sidebar.nodesCountOne' : 'sidebar.nodesCountMany', { count: chat.node_number })">
                   {{ chat.node_number }}
                 </span>
+                <button
+                  class="btn-icon cost-btn"
+                  type="button"
+                  (click)="recomputeChatCost(chat.id, $event)"
+                  [title]="i18n.t('sidebar.sumTotalCost')">
+                  Σ
+                </button>
+                @if (chatCostLabel(chat.id); as costLabel) {
+                  <span class="item-count chat-cost" [title]="i18n.t('sidebar.chatCostTitle', { cost: costLabel })">{{ costLabel }}</span>
+                }
                 <!--div>{{chat.id}}</div-->
               </div>
 
@@ -325,6 +335,16 @@
                     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                   </svg>
                 </button>
+                <button
+                  class="btn-icon cost-btn"
+                  type="button"
+                  (click)="recomputeChatCost(chat.id, $event)"
+                  [title]="i18n.t('sidebar.sumTotalCost')">
+                  Σ
+                </button>
+                @if (chatCostLabel(chat.id); as costLabel) {
+                  <span class="item-count chat-cost" [title]="i18n.t('sidebar.chatCostTitle', { cost: costLabel })">{{ costLabel }}</span>
+                }
               </div>
               @if (reassigningChatId() === chat.id) {
                 <div class="reassign-dropdown" (click)="$event.stopPropagation()">

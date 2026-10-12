@@ -2,7 +2,8 @@ import { inject, Injectable } from '@angular/core';
 import type { LlmChunk } from '../llm-sse';
 import { evaluateCompletion, evaluateDescriptions, evaluateImagesResponse, foldStreamChunk, finalizeStream } from './evaluators';
 import { LlmTransportService, type CompletionRequest, type CompletionResult, type ProviderRef } from './transport';
-import { refusedSlot } from './slots';
+import { refusedSlot, okSlot } from './slots';
+import { parseProviderUsage } from '../usage';
 import type { ChatMessage } from '../../../models/chat';
 import type { ModelEntry } from '../../../models/chat-config';
 import type { EvalSlots, LlmImagePart, UsecaseContext } from './types';
@@ -28,6 +29,17 @@ export interface PrimitiveOptions {
   onChunk?: (chunk: LlmChunk) => void;
   /** Caller signal (abort propagates to the whole tree). */
   signal?: AbortSignal;
+  /** Node the call's output belongs to (e.g. the assistant answer node being
+   *  streamed into). Falls back to the context node when unset. */
+  nodeId?: string;
+}
+
+/** Attach usage + log reference to the returned slots (best effort). */
+function attachUsageSlots(slots: EvalSlots, result: CompletionResult): EvalSlots {
+  const usage = parseProviderUsage(result.usage);
+  if (usage) slots.usage = okSlot(usage, {});
+  if (result.logEntry) slots.logEntry = result.logEntry;
+  return slots;
 }
 
 /**
@@ -43,9 +55,17 @@ export class LlmOrchestratorService {
 
   /** Chat attribution slice for the log (incl. the orchestration use case). */
   private chatRef(
-    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>
-  ): { id: string; title: string | undefined; usecase: string | undefined } | undefined {
-    return cx?.chat ? { id: cx.chat.id, title: cx.chat.title, usecase: cx.usecase } : undefined;
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase' | 'nodeId' | 'node'>>,
+    nodeId?: string
+  ): { id: string; title: string | undefined; usecase: string | undefined; nodeId: string | undefined } | undefined {
+    return cx?.chat
+      ? {
+          id: cx.chat.id,
+          title: cx.chat.title,
+          usecase: cx.usecase,
+          nodeId: nodeId ?? cx.nodeId ?? cx.node?.id
+        }
+      : undefined;
   }
 
   /**
@@ -55,7 +75,7 @@ export class LlmOrchestratorService {
    * raw JSON. NEVER throws a generation result — failures become slots.
    */
   async completion(
-    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase' | 'nodeId' | 'node'>>,
     req: PrimitiveRequest,
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {
@@ -66,7 +86,7 @@ export class LlmOrchestratorService {
       extras: { ...(req.extras ?? {}), stream: req.stream ?? false },
       onChunk: opts.onChunk,
       signal: opts.signal,
-      chat: this.chatRef(cx)
+      chat: this.chatRef(cx, opts.nodeId)
     };
 
     if (opts.expect === 'text' && (req.stream !== false)) {
@@ -79,7 +99,7 @@ export class LlmOrchestratorService {
           opts.onChunk?.(chunk);
         }
       });
-      return finalizeStream(running, { raw: result.raw, prompt: opts.prompt, scene: opts.scene });
+      return attachUsageSlots(finalizeStream(running, { raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
     }
 
     const result = await this.transport.complete(runReq);
@@ -87,12 +107,12 @@ export class LlmOrchestratorService {
       // Non-streaming text completion (e.g. the image-interpret step): the
       // response body already holds the full text — evaluate it directly
       // (finalizeStream only settles an already-folded partial stream).
-      return evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene });
+      return attachUsageSlots(evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
     }
     if (opts.expect === 'descriptions') {
-      return evaluateDescriptions({ raw: result.raw, prompt: opts.prompt, scene: opts.scene });
+      return attachUsageSlots(evaluateDescriptions({ raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
     }
-    return evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene });
+    return attachUsageSlots(evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
   }
 
   /**
@@ -101,7 +121,7 @@ export class LlmOrchestratorService {
    * failures become `images` refused / `error` slots.
    */
   async completeImage(
-    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase' | 'nodeId' | 'node'>>,
     req: PrimitiveRequest,
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {
@@ -111,7 +131,7 @@ export class LlmOrchestratorService {
       messages: req.messages,
       extras: req.extras,
       signal: opts.signal,
-      chat: this.chatRef(cx)
+      chat: this.chatRef(cx, opts.nodeId)
     };
     try {
       const raw = await this.transport.completeImage(runReq);
@@ -130,7 +150,7 @@ export class LlmOrchestratorService {
    * One OpenRouter-Images endpoint call. Same slot contract.
    */
   async images(
-    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase'>>,
+    cx: Pick<UsecaseContext, 'chat'> & Partial<Pick<UsecaseContext, 'usecase' | 'nodeId' | 'node'>>,
     req: { model: ModelEntry; provider: ProviderRef; prompt: string; n?: number },
     opts: PrimitiveOptions
   ): Promise<EvalSlots> {
@@ -141,7 +161,7 @@ export class LlmOrchestratorService {
         prompt: req.prompt,
         n: req.n,
         signal: opts.signal,
-        chat: this.chatRef(cx)
+        chat: this.chatRef(cx, opts.nodeId)
       });
       return evaluateImagesResponse({ raw: raw.raw, prompt: req.prompt, scene: opts.scene });
     } catch (err: any) {

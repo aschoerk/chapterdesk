@@ -373,7 +373,10 @@ export class ChatComponent implements OnInit {
 
   private readonly router = inject(Router);
   private static readonly LS_SIDEBAR_WIDTH = 'chat-client.sidebar.width';
-  private static readonly SIDEBAR_WIDTH_DEFAULT = 290;
+  /** Initial sidebar width: wide enough to show ~15 characters of a chat
+   *  title plus all chat-row icon buttons (rename, unassign, reassign,
+   *  clone, delete) and the node count when chats are visible. */
+  private static readonly SIDEBAR_WIDTH_DEFAULT = 320;
   private static readonly SIDEBAR_WIDTH_MIN = 200;
   private static readonly SIDEBAR_WIDTH_MAX = 720;
 
@@ -435,8 +438,11 @@ export class ChatComponent implements OnInit {
 
   private loadSidebarWidth(): number {
     const n = Number(localStorage.getItem('chat-client.sidebar.width'));
-    if (!Number.isFinite(n)) return 290;
-    return Math.min(720, Math.max(200, n));
+    if (!Number.isFinite(n)) return ChatComponent.SIDEBAR_WIDTH_DEFAULT;
+    return Math.min(
+      ChatComponent.SIDEBAR_WIDTH_MAX,
+      Math.max(ChatComponent.SIDEBAR_WIDTH_MIN, n)
+    );
   }
 
   startSidebarResize(event: PointerEvent) {
@@ -465,8 +471,11 @@ export class ChatComponent implements OnInit {
   }
 
   resetSidebarWidth() {
-    this.sidebarWidth.set(290);
-    localStorage.setItem('chat-client.sidebar.width', '290');
+    this.sidebarWidth.set(ChatComponent.SIDEBAR_WIDTH_DEFAULT);
+    localStorage.setItem(
+      'chat-client.sidebar.width',
+      String(ChatComponent.SIDEBAR_WIDTH_DEFAULT)
+    );
   }
 
   ngOnDestroy() {

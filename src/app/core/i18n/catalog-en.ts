@@ -218,6 +218,8 @@ export const EN = {
     created: 'Created: {{when}}',
     updated: 'Updated: {{when}}',
     defaultModel: 'Default model: {{model}}',
+    sumTotalCost: 'Add up this story’s total cost from the log and store it',
+    chatCostTitle: 'Total cost: {{cost}}',
   },
   node: {
     dir: 'Dir',
@@ -588,6 +590,7 @@ export const EN = {
     usageOut: 'out',
     usageTotal: 'total',
     usageReasoning: 'reasoning',
+    usageCached: 'cached',
     usageCost: 'cost',
   },
   config: {

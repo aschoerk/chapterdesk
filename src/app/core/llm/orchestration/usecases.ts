@@ -33,6 +33,9 @@ export interface UsecaseEnv {
   readonly textExtras?: Record<string, unknown>;
   /** FULL chat up to (and including) the current node for `append`. */
   readonly sendMessages?: ChatMessage[];
+  /** Node the final answer is persisted to (e.g. the streamed assistant
+   *  answer node), for log attribution. Falls back to `cx.node.id`. */
+  readonly nodeId?: string;
   /** Signals/callbacks forwarded from the caller. */
   readonly signal?: AbortSignal;
   readonly onChunk?: PrimitiveOptions['onChunk'];
@@ -527,7 +530,7 @@ async function append(env: UsecaseEnv): Promise<EvalSlots> {
     messages,
     extras: env.textExtras,
     stream: true
-  }, { expect: 'text', onChunk: env.onChunk, signal: env.signal });
+  }, { expect: 'text', onChunk: env.onChunk, signal: env.signal, nodeId: env.nodeId });
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +559,7 @@ async function appendWithImages(env: UsecaseEnv): Promise<EvalSlots> {
     messages: prep.messages,
     extras: env.textExtras,
     stream: true
-  }, { expect: 'text', onChunk: env.onChunk, signal: env.signal });
+  }, { expect: 'text', onChunk: env.onChunk, signal: env.signal, nodeId: env.nodeId });
 
   const out: EvalSlots = { ...slots };
   if (prep.mergedContent && prep.record) {
@@ -606,7 +609,7 @@ export class LlmUseCaseRunner {
   private readonly flowRunner = inject(LlmFlowRunner);
   private readonly chatService = inject(ChatService);
 
-  async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void } = {}): Promise<EvalSlots> {
+  async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void; nodeId?: string } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
     const cx = this.factory.buildContext(build);
 
@@ -647,6 +650,7 @@ export class LlmUseCaseRunner {
         write,
         textExtras,
         sendMessages,
+        nodeId: opts.nodeId,
         signal: opts.signal,
         onChunk: opts.onChunk,
         onImages: opts.onImages
@@ -684,6 +688,7 @@ export class LlmUseCaseRunner {
       contextMessages,
       anchor,
       imageExtras,
+      nodeId: opts.nodeId,
       signal: opts.signal,
       onChunk: opts.onChunk,
       onImages: opts.onImages
