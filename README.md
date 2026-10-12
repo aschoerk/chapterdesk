@@ -148,15 +148,27 @@ Tone for this topic
 
 ## Download & Run
 
-### AppImage (Linux)
+### Linux (AppImage / .deb / .rpm)
 
 1. Go to the [Releases](https://github.com/aschoerk/chapterly/releases) page
-2. Download the latest `.AppImage`
-3. Make it executable and start it:
+2. Download one of:
+   - `.AppImage` (run anywhere)
+   - `.deb` (Debian / Ubuntu / Mint …)
+   - `.rpm` (Fedora / RHEL / openSUSE …)
+3. Make the AppImage executable and start it:
 
 ```bash
 chmod +x Chapterly-*.AppImage
 ./Chapterly-*.AppImage
+```
+
+Or install the package with your distro tooling:
+
+```bash
+# Debian/Ubuntu
+sudo apt install ./Chapterly-*.deb
+# Fedora
+sudo dnf install ./Chapterly-*.rpm
 ```
 
 The application starts its own local server automatically.
@@ -165,6 +177,10 @@ Your data is stored in:
 ```
 ~/.config/chapterly/data/chapterly.db
 ```
+
+Linux package metadata (AppStream, desktop file, recipes for Flathub / OBS /
+PPA / AUR) lives in the `packaging/` folder — see
+[`packaging/README.md`](packaging/README.md).
 
 ### Windows
 
@@ -182,7 +198,11 @@ Your data is stored in:
 
 If Windows Defender SmartScreen warns about an unknown publisher, choose
 **More info** → **Run anyway**. The build is unsigned unless a code-signing
-certificate is added later.
+certificate is added. To sign the NSIS build, add `CSC_LINK` (the `.pfx` as
+base64 or URL) and `CSC_KEY_PASSWORD` as GitHub secrets — the
+[release workflow](.github/workflows/release.yml) forwards them automatically.
+See [`packaging/README.md`](packaging/README.md) for the Microsoft Store
+(MSIX) path (`npm run electron:build:msix`).
 
 To build the installer yourself on Windows:
 
@@ -224,7 +244,7 @@ This starts:
 - the Electron shell
 - the local chat-server
 
-### Build a production AppImage
+### Build Linux packages / Windows installer
 
 ```bash
 npm run electron:build
@@ -234,6 +254,15 @@ npm run electron:build
 > Install its dependencies once before building if you have not already
 > (`npm install --prefix chapterly-api-server`).
 
-The resulting AppImage can be found in the `dist/` folder.
+On Linux this produces `.AppImage`, `.deb` and `.rpm` in `dist/`. On Windows
+it produces the NSIS `.exe` installer. Useful extras:
 
-On Windows the same command builds the NSIS installer instead of an AppImage.
+```bash
+npm run electron:build:dir     # unpacked dir only (fast size/smoke check)
+npm run electron:build:msix    # Windows: MSIX package for the Microsoft Store
+```
+
+The installer is kept slim by construction: only the resolved production
+dependencies are bundled (Angular is a devDependency — the renderer ships as
+a prebuilt static bundle). Progress on official-distro and Windows
+certification is tracked in [`packaging/README.md`](packaging/README.md).
