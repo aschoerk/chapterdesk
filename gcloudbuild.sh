@@ -1,6 +1,6 @@
 gcloud auth application-default login
-gcloud config set project chapterly-508015
-gcloud run deploy chapterly \
+gcloud config set project chapterdesk-508015
+gcloud run deploy chapterdesk \
                 --source . \
                 --region europe-west4 \
                 --allow-unauthenticated \

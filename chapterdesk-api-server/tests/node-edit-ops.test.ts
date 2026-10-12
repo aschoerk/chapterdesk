@@ -1,5 +1,5 @@
 /**
- * Insert / remove / delete (and reparent) on the chapterly-api-server node
+ * Insert / remove / delete (and reparent) on the chapterdesk-api-server node
  * routes. Ported from chat-server-js/tests/node-edit-ops.test.js.
  * Each test starts from a fresh in-memory SQLite database.
  */

@@ -1,8 +1,8 @@
 /**
- * API route tests against the chapterly-api-server with an in-memory SQLite
+ * API route tests against the chapterdesk-api-server with an in-memory SQLite
  * database. Ported from chat-server-js/tests/routes.test.js.
  *
- * Not ported (no counterpart in chapterly-api-server yet):
+ * Not ported (no counterpart in chapterdesk-api-server yet):
  *  - Users / OAuth / workspaces / wallets / ABAC claims (authorization scope)
  *  - Topic-default-project "Assignment invariants"
  */

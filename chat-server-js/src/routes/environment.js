@@ -25,7 +25,7 @@ const router = express.Router();
  *       - theme-local (personas + environments/projects in IDB)
  *
  *       auth.login is none | google | direct. Electron always reports none.
- *       Override with CHAPTERLY_RUNTIME and CHAPTERLY_STORAGE.
+ *       Override with CHAPTERDESK_RUNTIME and CHAPTERDESK_STORAGE.
  *     tags:
  *       - Environment
  *     security:

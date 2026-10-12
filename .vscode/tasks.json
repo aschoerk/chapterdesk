@@ -39,9 +39,9 @@
       }
     },
     {
-      "label": "chapterly-sqlite: docker compose up",
+      "label": "chapterdesk-sqlite: docker compose up",
       "type": "shell",
-      "command": "docker compose -f docker-compose.chapterly-sqlite.yml up",
+      "command": "docker compose -f docker-compose.chapterdesk-sqlite.yml up",
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
@@ -49,15 +49,15 @@
       }
     },
     {
-      "label": "chapterly-sqlite: docker compose up -d",
+      "label": "chapterdesk-sqlite: docker compose up -d",
       "type": "shell",
-      "command": "docker compose -f docker-compose.chapterly-sqlite.yml up -d",
+      "command": "docker compose -f docker-compose.chapterdesk-sqlite.yml up -d",
       "problemMatcher": []
     },
     {
-      "label": "chapterly-sqlite: docker compose down",
+      "label": "chapterdesk-sqlite: docker compose down",
       "type": "shell",
-      "command": "docker compose -f docker-compose.chapterly-sqlite.yml down",
+      "command": "docker compose -f docker-compose.chapterdesk-sqlite.yml down",
       "problemMatcher": []
     }
 

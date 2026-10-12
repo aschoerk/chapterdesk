@@ -54,7 +54,7 @@
       "url": "http://localhost:9876/debug.html"
     },
     {
-      "name": "Docker: attach chapterly-dev",
+      "name": "Docker: attach chapterdesk-dev",
       "type": "node",
       "request": "attach",
       "address": "localhost",
@@ -63,21 +63,21 @@
       "protocol": "inspector",
       "sourceMaps": true,
       "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
-      "localRoot": "${workspaceFolder}/chapterly-api-server",
+      "localRoot": "${workspaceFolder}/chapterdesk-api-server",
       "remoteRoot": "/app",
       "sourceMapPathOverrides": {
-        "/app/src/*": "${workspaceFolder}/chapterly-api-server/src/*",
-        "../src/*": "${workspaceFolder}/chapterly-api-server/src/*"
+        "/app/src/*": "${workspaceFolder}/chapterdesk-api-server/src/*",
+        "../src/*": "${workspaceFolder}/chapterdesk-api-server/src/*"
       }
     },
      {
-      "name": "Attach Chapterly (Docker inspect 9229)",
+      "name": "Attach ChapterDesk (Docker inspect 9229)",
       "type": "node",
       "request": "attach",
       "address": "127.0.0.1",
       "port": 9229,
       "restart": true,
-      "localRoot": "${workspaceFolder}/chapterly-api-server",
+      "localRoot": "${workspaceFolder}/chapterdesk-api-server",
       "remoteRoot": "/app",
       "skipFiles": ["<node_internals>/**"]
     }

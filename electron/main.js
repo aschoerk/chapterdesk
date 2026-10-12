@@ -28,10 +28,10 @@ function findFreePort(startPort = 3847) {
 }
 
 /**
- * Starts the chapterly-api-server on a free port.
+ * Starts the chapterdesk-api-server on a free port.
  *
  * The server is written in TypeScript and shipped as compiled ESM in
- * chapterly-api-server/dist (see Dockerfile.dev, which runs `node dist/server.js`).
+ * chapterdesk-api-server/dist (see Dockerfile.dev, which runs `node dist/server.js`).
  * We run it in-process: createPersistence() picks the sqlite store (kept under
  * the Electron userData dir), then createApp(store) serves the REST API and,
  * if present, the built Angular SPA.
@@ -45,21 +45,21 @@ async function startServer() {
 
   // Electron owns where the DB lives — it must survive app upgrades,
   // so use userData (the per-user config dir), not the install dir.
-  const dbFile = path.join(app.getPath('userData'), 'data', 'chapterly.sqlite');
+  const dbFile = path.join(app.getPath('userData'), 'data', 'chapterdesk.sqlite');
   process.env.SQLITE_PATH = dbFile;
   fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 
-  const serverDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'http', 'create-app.js');
-  const factoryDist = path.join(__dirname, '..', 'chapterly-api-server', 'dist', 'persistence', 'factory.js');
+  const serverDist = path.join(__dirname, '..', 'chapterdesk-api-server', 'dist', 'http', 'create-app.js');
+  const factoryDist = path.join(__dirname, '..', 'chapterdesk-api-server', 'dist', 'persistence', 'factory.js');
 
   if (!fs.existsSync(serverDist) || !fs.existsSync(factoryDist)) {
     throw new Error(
-      'chapterly-api-server/dist is missing or incomplete.\n' +
-      'Build it first with:  cd chapterly-api-server && npm run build'
+      'chapterdesk-api-server/dist is missing or incomplete.\n' +
+      'Build it first with:  cd chapterdesk-api-server && npm run build'
     );
   }
 
-  // chapterly-api-server is an ES module ("type": "module") — load it with a
+  // chapterdesk-api-server is an ES module ("type": "module") — load it with a
   // dynamic import instead of require().
   const { createPersistence } = await import(`file://${factoryDist}`);
   const { createApp } = await import(`file://${serverDist}`);
@@ -68,7 +68,7 @@ async function startServer() {
   const expressApp = createApp(store);
 
   const server = expressApp.listen(port, '127.0.0.1', () => {
-    console.log(`✅ chapterly-api-server running on http://localhost:${port} (${store.kind}) (started by Electron)`);
+    console.log(`✅ chapterdesk-api-server running on http://localhost:${port} (${store.kind}) (started by Electron)`);
   });
 
   return { port, server };
@@ -84,9 +84,9 @@ async function createWindow() {
     port = started.port;
     serverInstance = started.server;
   } catch (err) {
-    console.error('❌ Failed to start chapterly-api-server:', err);
+    console.error('❌ Failed to start chapterdesk-api-server:', err);
     dialog.showErrorBox(
-      'Chapterly',
+      'ChapterDesk',
       `Could not start the local API server:\n\n${err.message}`
     );
     app.quit();
@@ -94,7 +94,7 @@ async function createWindow() {
   }
 
   // In-app nav already has Stories / Read / … — hide the native File/Window menu
-  // that otherwise sits on top of the Chapterly header.
+  // that otherwise sits on top of the ChapterDesk header.
   Menu.setApplicationMenu(null);
 
   const iconCandidates = [
@@ -105,16 +105,16 @@ async function createWindow() {
   ];
   const icon = iconCandidates.find(candidate => fs.existsSync(candidate));
   if (!icon) {
-    console.warn('Chapterly window icon not found. Looked in:', iconCandidates);
+    console.warn('ChapterDesk window icon not found. Looked in:', iconCandidates);
   } else {
-    console.log('Chapterly window icon:', icon);
+    console.log('ChapterDesk window icon:', icon);
   }
 
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     show: true,
-    title: 'Chapterly',
+    title: 'ChapterDesk',
     autoHideMenuBar: true,
     icon: icon || undefined,
     webPreferences: {
@@ -178,7 +178,7 @@ function cleanup() {
   if (serverInstance) {
     try {
       serverInstance.close();
-      console.log('chapterly-api-server closed');
+      console.log('chapterdesk-api-server closed');
     } catch (e) {
       console.warn('Error closing server:', e);
     }

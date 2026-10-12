@@ -1,4 +1,4 @@
-# Chapterly
+# ChapterDesk
 
 A local writing studio for scene-by-scene story work with language models.
 
@@ -7,7 +7,7 @@ read what comes back, and keep going. When a plot could go two ways, you fork
 the thread and keep both versions. When you want to read, you open the book
 view instead of the prompt.
 
-Chapterly is for steering stories — not for claiming authorship. The model
+ChapterDesk is for steering stories — not for claiming authorship. The model
 drafts the beat; you decide what happens next.
 
 ---
@@ -42,7 +42,7 @@ What you see in the UI:
 
 ## First hour
 
-Chapterly does not ship a model. You bring a provider key, pick a model,
+ChapterDesk does not ship a model. You bring a provider key, pick a model,
 then set the room the story happens in.
 
 ### 1. API token
@@ -56,7 +56,7 @@ there or from the vendor’s own endpoint.
 In **Settings → Providers** add the provider (name, base URL, token).
 For OpenRouter the base URL is `https://openrouter.ai/api/v1`.
 
-Keep the token on this machine. Chapterly only talks to your local server;
+Keep the token on this machine. ChapterDesk only talks to your local server;
 the server is what calls the provider.
 
 ### 2. Choose a model
@@ -102,7 +102,7 @@ Begin with the letter. Do not skip to the destination.
 
 ## Example topic system prompt
 
-Paste this into a topic’s default system prompt if you want Chapterly to
+Paste this into a topic’s default system prompt if you want ChapterDesk to
 direct scenes and keep them open for the next cue.
 
 ```text
@@ -150,7 +150,7 @@ Tone for this topic
 
 ### Linux (AppImage / .deb / .rpm)
 
-1. Go to the [Releases](https://github.com/aschoerk/chapterly/releases) page
+1. Go to the [Releases](https://github.com/aschoerk/chapterdesk/releases) page
 2. Download one of:
    - `.AppImage` (run anywhere)
    - `.deb` (Debian / Ubuntu / Mint …)
@@ -158,24 +158,24 @@ Tone for this topic
 3. Make the AppImage executable and start it:
 
 ```bash
-chmod +x Chapterly-*.AppImage
-./Chapterly-*.AppImage
+chmod +x ChapterDesk-*.AppImage
+./ChapterDesk-*.AppImage
 ```
 
 Or install the package with your distro tooling:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install ./Chapterly-*.deb
+sudo apt install ./ChapterDesk-*.deb
 # Fedora
-sudo dnf install ./Chapterly-*.rpm
+sudo dnf install ./ChapterDesk-*.rpm
 ```
 
 The application starts its own local server automatically.
 Your data is stored in:
 
 ```
-~/.config/chapterly/data/chapterly.db
+~/.config/ChapterDesk/data/chapterdesk.sqlite
 ```
 
 Linux package metadata (AppStream, desktop file, recipes for Flathub / OBS /
@@ -184,16 +184,16 @@ PPA / AUR) lives in the `packaging/` folder — see
 
 ### Windows
 
-1. Go to the [Releases](https://github.com/aschoerk/chapterly/releases) page
-2. Download the latest Windows installer (`Chapterly Setup *.exe`, NSIS)
+1. Go to the [Releases](https://github.com/aschoerk/chapterdesk/releases) page
+2. Download the latest Windows installer (`ChapterDesk Setup *.exe`, NSIS)
 3. Run the installer. You can choose the folder; it is not a one-click-only install.
-4. Start **Chapterly** from the Start menu or the desktop shortcut.
+4. Start **ChapterDesk** from the Start menu or the desktop shortcut.
 
 The application starts its own local server automatically.
 Your data is stored in:
 
 ```
-%APPDATA%\chapterly\data\chapterly.db
+%APPDATA%\ChapterDesk\data\chapterdesk.sqlite
 ```
 
 If Windows Defender SmartScreen warns about an unknown publisher, choose
@@ -208,7 +208,7 @@ To build the installer yourself on Windows:
 
 ```bash
 npm install
-npm install --prefix chapterly-api-server # bundled API server dependencies
+npm install --prefix chapterdesk-api-server # bundled API server dependencies
 npm run electron:build
 ```
 
@@ -226,10 +226,10 @@ The `.exe` installer is written to the `dist/` folder.
 ### Setup
 
 ```bash
-git clone https://github.com/aschoerk/chapterly.git
-cd chapterly
+git clone https://github.com/aschoerk/chapterdesk.git
+cd chapterdesk
 npm install
-npm install --prefix chapterly-api-server # bundled API server dependencies
+npm install --prefix chapterdesk-api-server # bundled API server dependencies
 ```
 
 ### Run in development mode
@@ -250,9 +250,9 @@ This starts:
 npm run electron:build
 ```
 
-> The bundled API server (`chapterly-api-server`) is a separate npm package.
+> The bundled API server (`chapterdesk-api-server`) is a separate npm package.
 > Install its dependencies once before building if you have not already
-> (`npm install --prefix chapterly-api-server`).
+> (`npm install --prefix chapterdesk-api-server`).
 
 On Linux this produces `.AppImage`, `.deb` and `.rpm` in `dist/`. On Windows
 it produces the NSIS `.exe` installer. Useful extras:

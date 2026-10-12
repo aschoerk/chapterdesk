@@ -347,7 +347,7 @@ export class LlmTransportService {
       'Content-Type': 'application/json',
       'x-target-base': baseUrl,
       'HTTP-Referer': 'https://chat-client.local',
-      'X-Title': 'Chapterly'
+      'X-Title': 'ChapterDesk'
     };
   }
 

@@ -1,5 +1,5 @@
 {
-  "name": "chapterly",
+  "name": "chapterdesk",
   "version": "0.12.11",
   "description": "Offline-first AI-assisted story writing. An Electron shell with its own local API server and an Angular SPA.",
   "keywords": [
@@ -10,7 +10,7 @@
     "electron",
     "angular"
   ],
-  "homepage": "https://github.com/aschoerk/chapterly",
+  "homepage": "https://github.com/aschoerk/chapterdesk",
   "license": "Apache-2.0",
   "author": {
     "name": "Andreas Schörk",
@@ -20,23 +20,23 @@
   "scripts": {
     "electron:dev": "npm run build:server && concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
     "test": "ng test",
-    "docker:dev:build": "docker build -f Dockerfile.dev -t chapterly-dev .",
-    "docker:sqlite:up": "docker compose -f docker-compose.chapterly-sqlite.yml up -d",
-    "docker:sqlite:down": "docker compose -f docker-compose.chapterly-sqlite.yml down",
+    "docker:dev:build": "docker build -f Dockerfile.dev -t chapterdesk-dev .",
+    "docker:sqlite:up": "docker compose -f docker-compose.chapterdesk-sqlite.yml up -d",
+    "docker:sqlite:down": "docker compose -f docker-compose.chapterdesk-sqlite.yml down",
     "start": "ng serve",
     "build": "ng build --output-path=electron/renderer",
-    "build:server": "npm run build --prefix chapterly-api-server",
+    "build:server": "npm run build --prefix chapterdesk-api-server",
     "electron:build": "npm run build:server && npm run build && electron-builder",
     "electron:build:dir": "npm run build:server && npm run build && electron-builder --dir",
     "electron:build:appx": "npm run build:server && npm run build && electron-builder --win appx",
     "electron": "npm run build:server && electron .",
-    "test:server": "npm test --prefix chapterly-api-server",
-    "docker:prod": "docker build -t chapterly . && docker run --env-file .env --rm -p 8080:8080 chapterly",
-    "docker:dev": "docker build -f Dockerfile.dev -t chapterly-dev . && docker run -v ./chapterly-api-server/data:/app/data -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",
-    "docker:drun": "docker run -v ./chapterly-api-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=chats-idb --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",
-    "docker:local": "docker run -v ./chapterly-api-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERLY_DOCKER=1 -e CHAPTERLY_RUNTIME=docker-dev -e CHAPTERLY_STORAGE=sqlite-all --env-file .env --rm --name chapterly-dev -p 8080:8080 -p 9229:9229 chapterly-dev",
-    "docker:sqlite": "docker compose -f docker-compose.chapterly-sqlite.yml up",
-    "docker:sqlite:logs": "docker compose -f docker-compose.chapterly-sqlite.yml logs -f",
+    "test:server": "npm test --prefix chapterdesk-api-server",
+    "docker:prod": "docker build -t chapterdesk . && docker run --env-file .env --rm -p 8080:8080 chapterdesk",
+    "docker:dev": "docker build -f Dockerfile.dev -t chapterdesk-dev . && docker run -v ./chapterdesk-api-server/data:/app/data -e CHAPTERDESK_DOCKER=1 -e CHAPTERDESK_RUNTIME=docker-dev -e CHAPTERDESK_STORAGE=chats-idb --env-file .env --rm --name chapterdesk-dev -p 8080:8080 -p 9229:9229 chapterdesk-dev",
+    "docker:drun": "docker run -v ./chapterdesk-api-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERDESK_DOCKER=1 -e CHAPTERDESK_RUNTIME=docker-dev -e CHAPTERDESK_STORAGE=chats-idb --env-file .env --rm --name chapterdesk-dev -p 8080:8080 -p 9229:9229 chapterdesk-dev",
+    "docker:local": "docker run -v ./chapterdesk-api-server/data:/app/data -v /dist/chat/browser:/app/public:ro -e CHAPTERDESK_DOCKER=1 -e CHAPTERDESK_RUNTIME=docker-dev -e CHAPTERDESK_STORAGE=sqlite-all --env-file .env --rm --name chapterdesk-dev -p 8080:8080 -p 9229:9229 chapterdesk-dev",
+    "docker:sqlite": "docker compose -f docker-compose.chapterdesk-sqlite.yml up",
+    "docker:sqlite:logs": "docker compose -f docker-compose.chapterdesk-sqlite.yml logs -f",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:build": "npm run build:server && npx ng build && docker compose -f docker-compose.e2e.yml build",
@@ -84,11 +84,11 @@
     "wait-on": "^9.1.0"
   },
   "build": {
-    "appId": "de.aschoerk.chapterly",
-    "productName": "Chapterly",
+    "appId": "de.aschoerk.chapterdesk",
+    "productName": "ChapterDesk",
     "files": [
       "electron/**/*",
-      "chapterly-api-server/**/*",
+      "chapterdesk-api-server/**/*",
       "dist/chat/**/*",
       "package.json"
     ],
@@ -105,7 +105,7 @@
       "maintainer": "Andreas Schörk <aschoerk@users.noreply.github.com>",
       "synopsis": "Offline-first AI-assisted story writing client",
       "category": "Office",
-      "executableName": "chapterly",
+      "executableName": "ChapterDesk",
       "icon": "electron/icon.png"
     },
     "win": {
@@ -115,10 +115,10 @@
       "icon": "electron/icon.png"
     },
     "appx": {
-      "identityName": "de.aschoerk.chapterly",
-      "displayName": "Chapterly",
+      "identityName": "de.aschoerk.chapterdesk",
+      "displayName": "ChapterDesk",
       "publisherDisplayName": "Andreas Schörk",
-      "publisher": "CN=de.aschoerk.chapterly"
+      "publisher": "CN=de.aschoerk.chapterdesk"
     },
     "nsis": {
       "oneClick": false,

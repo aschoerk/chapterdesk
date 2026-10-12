@@ -88,7 +88,7 @@ const thinkingLevel: Schema = {
 export const openApiSpec: OpenApiDocument = {
   openapi: '3.0.3',
   info: {
-    title: 'Chapterly API',
+    title: 'ChapterDesk API',
     version: '0.1.0',
     description:
       'HTTP surface of ChatApiPort. Persistence is partitioned by topic and provider; conflicting snapshot revisions return 409.',
@@ -1026,7 +1026,7 @@ const swaggerUiHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Chapterly API</title>
+  <title>ChapterDesk API</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css"/>
 </head>
 <body>

@@ -1,5 +1,5 @@
 /**
- * DOCX export for a single chapterly chat.
+ * DOCX export for a single chapterdesk chat.
  *
  * Pure/mostly-pure helpers so the logic is unit-testable without Angular.
  *
@@ -406,7 +406,7 @@ function coreXml(title: string, created: string): string {
     'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" ' +
     'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
     `<dc:title>${esc(title)}</dc:title>` +
-    `<dc:creator>Chapterly</dc:creator>` +
+    `<dc:creator>ChapterDesk</dc:creator>` +
     `<dcterms:created xsi:type="dcterms:W3CDTF">${esc(created)}</dcterms:created>` +
     `<dcterms:modified xsi:type="dcterms:W3CDTF">${esc(created)}</dcterms:modified>` +
     '</cp:coreProperties>'
@@ -417,8 +417,8 @@ const APP_XML =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ' +
   'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">' +
-  '<Application>Chapterly</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>' +
-  '<Company>Chapterly</Company>' +
+  '<Application>ChapterDesk</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop>' +
+  '<Company>ChapterDesk</Company>' +
   '</Properties>';
 
 // ---------------------------------------------------------------------------

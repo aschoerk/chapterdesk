@@ -32,16 +32,16 @@ function inDocker() {
 }
 
 function detectRuntime() {
-  const forced = env('CHAPTERLY_RUNTIME');
+  const forced = env('CHAPTERDESK_RUNTIME');
   if (forced && RUNTIMES.includes(forced)) return forced;
 
-  if (env('K_SERVICE') || env('CLOUD_RUN_JOB') || env('CHAPTERLY_GCLOUD') === '1') {
+  if (env('K_SERVICE') || env('CLOUD_RUN_JOB') || env('CHAPTERDESK_GCLOUD') === '1') {
     return 'gcloud';
   }
-  if (env('CHAPTERLY_ELECTRON') === '1' || env('ELECTRON_RUN_AS_NODE') || process.versions.electron) {
-    return env('CHAPTERLY_PURE_SQLITE') === '1' ? 'electron-sqlite' : 'electron-chat-server';
+  if (env('CHAPTERDESK_ELECTRON') === '1' || env('ELECTRON_RUN_AS_NODE') || process.versions.electron) {
+    return env('CHAPTERDESK_PURE_SQLITE') === '1' ? 'electron-sqlite' : 'electron-chat-server';
   }
-  if (inDocker() || env('CHAPTERLY_DOCKER') === '1') {
+  if (inDocker() || env('CHAPTERDESK_DOCKER') === '1') {
     return env('NODE_ENV') === 'production' ? 'docker-prod' : 'docker-dev';
   }
   return env('NODE_ENV') === 'production' ? 'docker-prod' : 'docker-dev';
@@ -59,20 +59,20 @@ function defaultStorageProfile(runtime) {
     case 'electron-sqlite':
       return 'sqlite-all';
     case 'electron-chat-server':
-      return env('CHAPTERLY_STORAGE', 'sqlite-all');
+      return env('CHAPTERDESK_STORAGE', 'sqlite-all');
     case 'docker-prod':
     case 'docker-dev':
       // Same two modes as Electron: all SQLite, or chats in IDB.
-      return env('CHAPTERLY_STORAGE', 'sqlite-all');
+      return env('CHAPTERDESK_STORAGE', 'sqlite-all');
     case 'gcloud':
-      return env('CHAPTERLY_STORAGE', 'content-idb');
+      return env('CHAPTERDESK_STORAGE', 'content-idb');
     default:
       return 'sqlite-all';
   }
 }
 
 function detectStorageProfile(runtime) {
-  const forced = env('CHAPTERLY_STORAGE');
+  const forced = env('CHAPTERDESK_STORAGE');
   if (forced && STORAGE_PROFILES.includes(forced)) return forced;
   const fallback = defaultStorageProfile(runtime);
   return STORAGE_PROFILES.includes(fallback) ? fallback : 'sqlite-all';
@@ -116,7 +116,7 @@ function storageSplit(profile) {
 
 function skipLogin(runtime) {
   if (!isLocalShell(runtime)) return false;
-  const forced = env('CHAPTERLY_REQUIRE_AUTH');
+  const forced = env('CHAPTERDESK_REQUIRE_AUTH');
   if (forced === '1' || forced === 'true') return false;
   if (forced === '0' || forced === 'false') return true;
   return true;

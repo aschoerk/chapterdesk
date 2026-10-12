@@ -57,11 +57,11 @@ Thumbs.db
 /chat-server-js/data/*
 /chat-server-js/node_modules/*
 /chat-server-js/dist/*
-/chapterly-api-server/data/*
-/chapterly-api-server/node_modules/*
-/chapterly-api-server/dist/*
+/chapterdesk-api-server/data/*
+/chapterdesk-api-server/node_modules/*
+/chapterdesk-api-server/dist/*
 /electron/renderer/browser/main-*.js
 /electron/renderer/browser/styles-*.css
 /electron/renderer/browser/index.html
-.env.chapterly-sqlite
+.env.chapterdesk-sqlite
 x.jpg

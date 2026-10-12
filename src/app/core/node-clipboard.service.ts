@@ -18,7 +18,7 @@ import { ChatService } from './chat.service';
 export type ClipboardAction = 'copy' | 'cut';
 
 const LS_KEY = 'chat.nodeClipboard.v1';
-const FORMAT = 'chapterly.nodeClipboard';
+const FORMAT = 'chapterdesk.nodeClipboard';
 const VERSION = 1;
 
 /** Serializable node held on the clipboard. `id` is the source id and is only

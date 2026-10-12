@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Playwright E2E config for chapterly (Docker single-origin).
+// Playwright E2E config for chapterdesk (Docker single-origin).
 //
 // The whole app — SPA + API + LLM proxy — is served by ONE Docker container
 // on ONE origin (http://127.0.0.1:8081). The API runs in MEMORY persistence

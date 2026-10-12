@@ -1,7 +1,7 @@
 import { Page, expect } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Reusable UI steps for chapterly. Each function packages ONE step of a
+// Reusable UI steps for chapterdesk. Each function packages ONE step of a
 // recorded usecase ("do it by hand once, then parameterize") so tests read as
 // a list of named actions and stay robust against layout changes.
 // ---------------------------------------------------------------------------

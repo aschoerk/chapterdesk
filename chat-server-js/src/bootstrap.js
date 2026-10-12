@@ -25,23 +25,23 @@ function upsertNamed(table, name) {
 }
 
 /**
- * Seeds CHAPTERLY_ADMIN_* from the environment.
+ * Seeds CHAPTERDESK_ADMIN_* from the environment.
  * Idempotent: existing username is reused; password is only reset when
- * CHAPTERLY_ADMIN_RESET=1.
+ * CHAPTERDESK_ADMIN_RESET=1.
  */
 async function seedAdmin() {
-  if (process.env.NODE_ENV === 'test' && env('CHAPTERLY_ADMIN_IN_TESTS') !== '1') {
+  if (process.env.NODE_ENV === 'test' && env('CHAPTERDESK_ADMIN_IN_TESTS') !== '1') {
     return null;
   }
-  const username = env('CHAPTERLY_ADMIN_USERNAME');
-  const password = env('CHAPTERLY_ADMIN_PASSWORD');
+  const username = env('CHAPTERDESK_ADMIN_USERNAME');
+  const password = env('CHAPTERDESK_ADMIN_PASSWORD');
   if (!username || !password) return null;
 
-  const email = env('CHAPTERLY_ADMIN_EMAIL');
-  const phone = env('CHAPTERLY_ADMIN_PHONE');
-  const reset = env('CHAPTERLY_ADMIN_RESET') === '1';
-  const workspaceName = env('CHAPTERLY_ADMIN_WORKSPACE', 'default');
-  const walletName = env('CHAPTERLY_ADMIN_WALLET', 'default');
+  const email = env('CHAPTERDESK_ADMIN_EMAIL');
+  const phone = env('CHAPTERDESK_ADMIN_PHONE');
+  const reset = env('CHAPTERDESK_ADMIN_RESET') === '1';
+  const workspaceName = env('CHAPTERDESK_ADMIN_WORKSPACE', 'default');
+  const walletName = env('CHAPTERDESK_ADMIN_WALLET', 'default');
 
   let user = findUserByLogin({ username, email, phoneNumber: phone });
   const now = new Date().toISOString();

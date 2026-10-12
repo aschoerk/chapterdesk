@@ -9,7 +9,7 @@ const options = {
       description: `API for the chat client (users, workspaces, wallets, providers, models, chats, nodes, projects, personas, chat parameters).
 
 **Auth model (no OIDC yet)**
-- The OAuth2 client is the Chapterly app, not a workspace or wallet.
+- The OAuth2 client is the ChapterDesk app, not a workspace or wallet.
 - workspaces are workspaces (topic tenants). wallets are wallets (API-key sets).
 - Access tokens are opaque. Claims are stored on oauth_tokens.grants_json and returned by introspect/tokeninfo.
 - A token may list N topic claims (read or write per workspace) and at most one provider claim (run or manage, optional contingent).

@@ -179,7 +179,7 @@ export const DE_PAGES = {
     docPickExport: 'Exportieren',
     dropTitle: 'JSON-Datei(en) hier ablegen',
     dropHint:
-      'Chapterly-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',
+      'ChapterDesk-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',
     chooseFiles: 'Datei(en) wählen',
     slice: 'Nur ein Byte-Fenster lesen (für mehrere-hundert-MB-Grok-Exporte)',
     offset: 'Offset (Bytes vom Anfang)',

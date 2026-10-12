@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  AppStream metainfo for Chapterly.
+  AppStream metainfo for ChapterDesk.
 
   This file is the standard machine-readable description that distro catalogs,
   app centers (GNOME Software / KDE Discover / Flathub) and package checkers
   (appstreamcli) consume.
 
   How it is used per channel:
-    - Flathub: hosts its own copy in the flathub/io.github.aschoerk.chapterly
+    - Flathub: hosts its own copy in the flathub/io.github.aschoerk.chapterdesk
       repository; this file is the canonical source for it.
     - Debian/Ubuntu (.deb via electron-builder): no native hook exists in
       electron-builder to drop a file into /usr/share/metainfo, so on the
@@ -16,20 +16,20 @@
     - AppImage / OBS / AUR: validate with `appstreamcli validate <this file>`.
 
   If you change the app-id here, keep it in sync with:
-    - packaging/chapterly.desktop  (StartupWMClass / desktop-id)
-    - the Flatpak manifest         (>app-id>)
+    - packaging/ChapterDesk.desktop  (StartupWMClass / desktop-id)
+    - the Flatpak manifest         (&gt;app-id&gt;)
     - the Windows/MSIX identity    (package.json -> build.msix.identityName)
 -->
 <component type="desktop-application">
-  <id>io.github.aschoerk.chapterly</id>
+  <id>io.github.aschoerk.chapterdesk</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>Apache-2.0</project_license>
-  <name>Chapterly</name>
+  <name>ChapterDesk</name>
   <summary>Offline-first AI-assisted story writing client</summary>
 
   <description>
     <p>
-      Chapterly is an offline-first writing application for longer fiction.
+      ChapterDesk is an offline-first writing application for longer fiction.
       It runs its own local API server (SQLite storage in your user data
       directory), keeps every chapter and revision versioned, and lets you
       call the LLM provider of your choice to narrate, continue, branch,
@@ -41,16 +41,16 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">chapterly.desktop</launchable>
+  <launchable type="desktop-id">ChapterDesk.desktop</launchable>
 
   <developer_name>Andreas Schörk</developer_name>
 
-  <url type="homepage">https://github.com/aschoerk/chapterly</url>
-  <url type="bugtracker">https://github.com/aschoerk/chapterly/issues</url>
-  <url type="vcs-browser">https://github.com/aschoerk/chapterly</url>
+  <url type="homepage">https://github.com/aschoerk/chapterdesk</url>
+  <url type="bugtracker">https://github.com/aschoerk/chapterdesk/issues</url>
+  <url type="vcs-browser">https://github.com/aschoerk/chapterdesk</url>
 
   <provides>
-    <binary>chapterly</binary>
+    <binary>ChapterDesk</binary>
   </provides>
 
   <categories>
@@ -61,7 +61,7 @@
   <screenshots>
     <!-- TODO: add real screenshots before submitting anywhere strict
     <screenshot type="default">
-      <image type="source" width="1280" height="860">https://raw.githubusercontent.com/aschoerk/chapterly/main/docs/screenshot.png</image>
+      <image type="source" width="1280" height="860">https://raw.githubusercontent.com/aschoerk/chapterdesk/main/docs/screenshot.png</image>
     </screenshot>
     -->
   </screenshots>

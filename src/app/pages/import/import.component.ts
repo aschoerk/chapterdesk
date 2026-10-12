@@ -1718,7 +1718,7 @@ export class ImportComponent {
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `chapterly-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `chapterdesk-bundle-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
       this.progress.set(
@@ -1907,7 +1907,7 @@ export class ImportComponent {
       const blob = buildDocxBlob(title, nodes, { path });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${this.safeFileStem(title) || 'chapterly'}.docx`;
+      a.download = `${this.safeFileStem(title) || 'chapterdesk'}.docx`;
       a.click();
       URL.revokeObjectURL(a.href);
       this.progress.set(
@@ -1921,7 +1921,7 @@ export class ImportComponent {
       const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${this.safeFileStem(title) || 'chapterly'}.md`;
+      a.download = `${this.safeFileStem(title) || 'chapterdesk'}.md`;
       a.click();
       URL.revokeObjectURL(a.href);
       this.progress.set(

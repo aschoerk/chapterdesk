@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=Chapterly
+Name=ChapterDesk
 GenericName=Story Writer
 Comment=Offline-first AI-assisted story writing client
 # executableName from package.json -> build.linux.executableName
-Exec=chapterly %U
-TryExec=chapterly
-Icon=chapterly
+Exec=ChapterDesk %U
+TryExec=ChapterDesk
+Icon=ChapterDesk
 Terminal=false
 Categories=Office;WordProcessor;Utility;
-StartupWMClass=chapterly
+StartupWMClass=ChapterDesk
 StartupNotify=false

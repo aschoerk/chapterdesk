@@ -32,7 +32,7 @@ function providersInWallet(walletId) {
 }
 
 /**
- * If Authorization is a Chapterly access token, bind the wallet from its
+ * If Authorization is a ChapterDesk access token, bind the wallet from its
  * provider claim. Provider API keys (standalone BYOK) are left untouched.
  *
  * On success returns { auth, walletId, provider } or { passthrough: true }.

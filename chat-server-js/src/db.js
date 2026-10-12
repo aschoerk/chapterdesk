@@ -537,7 +537,7 @@ function createPersistentDB(verbose = false) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  const dbFileName = (process.env.CHAPTERLY_DB_NAME || 'chapterly') + '.db';
+  const dbFileName = (process.env.CHAPTERDESK_DB_NAME || 'chapterdesk') + '.db';
   const dbPath = path.join(dataDir, dbFileName);
   const db = new Database(dbPath, {
     verbose: verbose ? (sql) => console.log(`[SQL ${new Date().toISOString()}] ${sql}`) : null

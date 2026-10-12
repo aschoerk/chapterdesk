@@ -271,7 +271,7 @@ export class ChatApiService {
         'Content-Type': 'application/json',
         'x-target-base': providerBaseUrl,
         'HTTP-Referer': 'https://chat-client.local',
-        'X-Title': 'Chapterly',
+        'X-Title': 'ChapterDesk',
       },
       body: JSON.stringify({
         model: modelId,

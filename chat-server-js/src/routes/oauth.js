@@ -283,7 +283,7 @@ router.get('/google/start', (req, res) => {
 
 
 function spaOrigin() {
-  return process.env.CHAPTERLY_SPA_ORIGIN || 'http://localhost:4200';
+  return process.env.CHAPTERDESK_SPA_ORIGIN || 'http://localhost:4200';
 }
 
 function spaLogin() {

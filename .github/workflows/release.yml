@@ -15,10 +15,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            artifact: chapterly-linux
+            artifact: chapterdesk-linux
           - os: windows-latest
             platform: windows
-            artifact: chapterly-windows
+            artifact: chapterdesk-windows
 
     runs-on: ${{ matrix.os }}
 
@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Install API server dependencies
-        run: npm ci --prefix chapterly-api-server
+        run: npm ci --prefix chapterdesk-api-server
 
       - name: Build Angular + Electron package
         run: npm run electron:build
@@ -73,13 +73,13 @@ jobs:
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
-          name: chapterly-linux
+          name: chapterdesk-linux
           path: release-artifacts/linux
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: chapterly-windows
+          name: chapterdesk-windows
           path: release-artifacts/windows
 
       - name: Upload artifacts to GitHub Release

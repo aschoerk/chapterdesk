@@ -24,7 +24,7 @@ export function detectPersistenceKind(): PersistenceKind {
 function sqlitePath(): string {
   const explicit = env('SQLITE_PATH');
   if (explicit) return explicit;
-  return path.join(process.cwd(), 'data', 'chapterly.sqlite');
+  return path.join(process.cwd(), 'data', 'chapterdesk.sqlite');
 }
 
 export async function createPersistence(): Promise<PersistencePort> {
@@ -32,9 +32,9 @@ export async function createPersistence(): Promise<PersistencePort> {
   if (kind === 'memory') {
     const store = new MemoryPersistence();
     await store.init();
-    // Optional JSON snapshot seed: CHAPTERLY_SEED_FILE=/path/to/seed.json
+    // Optional JSON snapshot seed: CHAPTERDESK_SEED_FILE=/path/to/seed.json
     // Loads a PersistenceSnapshot so E2E/dev runs start from deterministic data.
-    const seedFile = env('CHAPTERLY_SEED_FILE');
+    const seedFile = env('CHAPTERDESK_SEED_FILE');
     if (seedFile) {
       const raw = fs.readFileSync(seedFile, 'utf8');
       store.importSnapshot(JSON.parse(raw) as PersistenceSnapshot);

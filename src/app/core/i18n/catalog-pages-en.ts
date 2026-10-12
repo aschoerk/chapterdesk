@@ -178,7 +178,7 @@ export const EN_PAGES = {
     docPickExport: 'Export',
     dropTitle: 'Drop JSON file(s) here',
     dropHint:
-      'Chapterly bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',
+      'ChapterDesk bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',
     chooseFiles: 'Choose file(s)',
     slice: 'Read only a byte window (for multi-hundred-MB Grok exports)',
     offset: 'Offset (bytes from start)',

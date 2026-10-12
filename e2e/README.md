@@ -1,4 +1,4 @@
-# Chapterly E2E tests (Playwright, Docker single-origin)
+# ChapterDesk E2E tests (Playwright, Docker single-origin)
 
 Browser-driven tests that **control the real UI** so you don't have to repeat
 usecases by hand. The workflow:
@@ -16,7 +16,7 @@ One Docker container serves **SPA + API + LLM proxy on a single origin**:
 ```
 http://127.0.0.1:8081
    ├─ /                the Angular SPA (dist/chat/browser)
-   ├─ /api/*           chapterly-api-server (memory, seeded from JSON)
+   ├─ /api/*           chapterdesk-api-server (memory, seeded from JSON)
    └─ /proxy/chat/completions   LLM calls (intercepted by the browser mock)
 ```
 
@@ -24,7 +24,7 @@ Single origin means **no CORS allowlist, no `?port=` query param, no hash-router
 surprises** — the Angular client resolves `apiBase`/`proxyBase` from
 `window.location` and everything just works. The API runs in **memory
 persistence seeded from `e2e/fixtures/seed.json`** (`PERSISTENCE=memory` +
-`CHAPTERLY_SEED_FILE`), so every run starts from the same deterministic data.
+`CHAPTERDESK_SEED_FILE`), so every run starts from the same deterministic data.
 
 ---
 
@@ -32,7 +32,7 @@ persistence seeded from `e2e/fixtures/seed.json`** (`PERSISTENCE=memory` +
 
 ```sh
 npm install            # @playwright/test is a dev dependency
-npm run e2e:build      # builds API dist + SPA + the chapterly-dev image
+npm run e2e:build      # builds API dist + SPA + the chapterdesk-dev image
 npm run e2e:install    # one-time: download Playwright browsers  (npx playwright install chromium)
 ```
 
@@ -133,16 +133,16 @@ docker-compose.e2e.yml    # single-origin test stack (memory + seeded)
 `e2e/fixtures/seed.json` is a `PersistenceSnapshot`:
 `{ topics: [TopicSnapshot], providers: [ProviderSnapshot] }`. Change the demo
 project/chat/nodes there to shape what a fresh run starts from. The API server
-imports it via `CHAPTERLY_SEED_FILE` (see
-`chapterly-api-server/src/persistence/factory.ts`).
+imports it via `CHAPTERDESK_SEED_FILE` (see
+`chapterdesk-api-server/src/persistence/factory.ts`).
 
 ## Rebuilding after source edits
 
-The compose mounts `chapterly-api-server/dist` and `dist/chat/browser`, so after
+The compose mounts `chapterdesk-api-server/dist` and `dist/chat/browser`, so after
 editing app/server sources, rebuild before re-running:
 
 ```sh
-npm run build:server   # chapterly-api-server/dist
+npm run build:server   # chapterdesk-api-server/dist
 npx ng build           # dist/chat/browser
 ```
 

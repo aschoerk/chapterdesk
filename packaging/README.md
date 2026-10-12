@@ -1,6 +1,6 @@
 # Packaging & distribution
 
-This folder holds the pieces that let Chapterly be distributed through
+This folder holds the pieces that let ChapterDesk be distributed through
 **standard Linux repositories** and eventually **certified installable on
 Windows**. `electron-builder` produces the binary archives; these files are the
 catalog/packaging metadata and channel recipes.
@@ -14,8 +14,8 @@ catalog/packaging metadata and channel recipes.
 
 AppStream metadata (`.metainfo.xml`) and the `.desktop` entry above are the
 source for all catalog-side packaging. electron-builder auto-generates the
-`.desktop` it installs; the checked-in `chapterly.desktop` mirrors the same
-`Exec=chapterly` binary so external recipes (Flatpak/PPA/OBS/AUR) stay
+`.desktop` it installs; the checked-in `ChapterDesk.desktop` mirrors the same
+`Exec=ChapterDesk` binary so external recipes (Flatpak/PPA/OBS/AUR) stay
 consistent.
 
 ## Prune check
@@ -26,7 +26,7 @@ The installers are slim by construction now:
   dependencies electron-builder resolves are packaged. Angular is a
   devDependency because the renderer ships as a prebuilt static bundle
   (`electron/renderer` + `dist/chat`).
-- `chapterly-api-server/**` still includes the server's own `node_modules`
+- `chapterdesk-api-server/**` still includes the server's own `node_modules`
   (express, better-sqlite3, firebase-admin), which the Electron main process
   imports at runtime.
 
@@ -40,7 +40,7 @@ du -sh dist/*-unpacked
 ## Linux channels (roadmap / recipes)
 
 ### Flathub (recommended, covers every distro)
-1. Create `flatpak/io.github.aschoerk.chapterly.yml` on the
+1. Create `flatpak/io.github.aschoerk.chapterdesk.yml` on the
    `org.electronjs.Electron2.BaseApp` runtime.
    - Build steps in the sandbox: `npm ci`, `npm run build:server`,
      `npm run build`, then copy `dist/**` + server `node_modules` into the
@@ -49,7 +49,7 @@ du -sh dist/*-unpacked
      server already binds `127.0.0.1` — and make `app.getPath('userData')`
      resolve inside the sandbox's XDG data home.
    - Rebuild `better-sqlite3` against the Flatpak runtime's Node ABI.
-2. Submit the recipe + this `metainfo.xml` to `flathub/io.github.aschoerk.chapterly`
+2. Submit the recipe + this `metainfo.xml` to `flathub/io.github.aschoerk.chapterdesk`
    (needs a real screenshot — see the TODO in the metainfo).
 
 ### Launchpad PPA (Ubuntu/Debian users)
@@ -57,13 +57,13 @@ du -sh dist/*-unpacked
   and `dput` to a PPA. Add `debian/` metadata if you move to source packages.
 
 ### Open Build Service (OBS, one source → many archives)
-- Create a project, add a `chapterly.spec` and a `_service` that pulls the
+- Create a project, add a `chapterdesk.spec` and a `_service` that pulls the
   GitHub **source tarball** of the release tag, then run
   `npm ci && npm run electron:build` inside the build loop.
 
 ### AUR (Arch)
 - A `PKGBUILD` that clones the tag, runs `npm ci`, `npm run electron:build`,
-  and packages the contents of `dist/linux-unpacked` with `chapterly.desktop`
+  and packages the contents of `dist/linux-unpacked` with `ChapterDesk.desktop`
   + this metainfo.
 
 ## Windows certification (roadmap)
@@ -74,7 +74,7 @@ du -sh dist/*-unpacked
    Trusted Signing** add `win.azureSignOptions` to `build` in `package.json`
    (from Key Vault identities) instead of a `.pfx`.
 2. **`winget`** — submit a manifest to `microsoft/winget-pkgs` (the signed
-   `Chapterly-<version>.exe` URL from Releases).
+   `ChapterDesk-<version>.exe` URL from Releases).
 3. **Microsoft Store** — build the MSIX package. electron-builder produces
    the MSIX/AppX store package via its ``appx`` target:
 
@@ -92,8 +92,8 @@ du -sh dist/*-unpacked
 
 | Setting | File |
 |---------|------|
-| app id / desktop-id | `packaging/io.github.aschoerk.chapterly.metainfo.xml` (launchable) + `.desktop` `StartupWMClass` + Flatpak manifest |
+| app id / desktop-id | `packaging/io.github.aschoerk.chapterdesk.metainfo.xml` (launchable) + `.desktop` `StartupWMClass` + Flatpak manifest |
 | MSIX identity | `package.json` → `build.appx.identityName` |
-| executable name | `package.json` → `build.linux.executableName` (`chapterly`) |
+| executable name | `package.json` → `build.linux.executableName` (`ChapterDesk`) |
 | maintainer e-mail | `package.json` → `build.linux.maintainer` + `author.email` (replace the GitHub noreply with your real address for PPA/OBS) |
 | version | `package.json` (single source of truth) + metainfo `<release>` entry |

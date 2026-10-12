@@ -201,7 +201,7 @@ export class SettingsService {
               'Content-Type': 'application/json',
               'x-target-base': provider.baseUrl,
               'HTTP-Referer': 'https://chat-client.local',
-              'X-Title': 'Chapterly'
+              'X-Title': 'ChapterDesk'
             }
           }
         )

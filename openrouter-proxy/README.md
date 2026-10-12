@@ -1,6 +1,6 @@
 # openrouter-logger-proxy
 
-A second local server next to Chapterly `chat-server`. It pretends to be OpenRouter so you can point Chapterly at `localhost` and see the exact HTTP conversation between **chat-server** and **openrouter.ai**.
+A second local server next to ChapterDesk `chat-server`. It pretends to be OpenRouter so you can point ChapterDesk at `localhost` and see the exact HTTP conversation between **chat-server** and **openrouter.ai**.
 
 `chat-server` is not modified. It already sends LLM traffic to whatever URL is stored as the provider `base_url` / `x-target-base`.
 
@@ -14,9 +14,9 @@ npm start
 
 Listens on `http://127.0.0.1:3848` by default (`chat-server` uses `3847`).
 
-## Point Chapterly at it
+## Point ChapterDesk at it
 
-In Chapterly settings (wallet provider / OpenRouter base URL) replace only the host:
+In ChapterDesk settings (wallet provider / OpenRouter base URL) replace only the host:
 
 | was | use |
 |---|---|

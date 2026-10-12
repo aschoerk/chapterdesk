@@ -1,5 +1,5 @@
 {
-  "name": "chapterlyhelpers",
+  "name": "chapterdeskhelpers",
   "version": "0.12.11",
   "author": "Andreas Schörk",
   "main": "electron/main.js",

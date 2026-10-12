@@ -1,0 +1,33 @@
+# Equivalent of IntelliJ run config: chapterdesk-sqlite
+# Usage (repo root):
+#   docker compose -f docker-compose.chapterdesk-sqlite.yml up
+#
+# Build the image first if needed:
+#   docker build -t chapterdesk-dev:latest -f path/to/Dockerfile .
+
+services:
+  chapterdesk-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: chapterdesk-dev:latest
+    container_name: chapterdesk-dev
+    env_file:
+      - .env.chapterdesk-sqlite
+    environment:
+      CHAPTERDESK_DOCKER: "1"
+      CHAPTERDESK_RUNTIME: docker-dev
+      NODE_OPTIONS: --inspect-wait=0.0.0.0:9229
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+      - "9229:9229"
+    volumes:
+      - ./chapterdesk-api-server/data:/app/data
+      - ./dist/chat/browser:/app/public
+      - ./chapterdesk-api-server/dist:/app/dist
+      - ./chapterdesk-api-server/src:/app/src
+    # Keep container running even if the process waits on the debugger
+    stdin_open: true
+    tty: true
+    restart: "no"

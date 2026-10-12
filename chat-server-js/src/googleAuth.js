@@ -19,13 +19,13 @@ function env(name, fallback = null) {
 }
 
 function googleConfig() {
-  const clientId = env('GOOGLE_CLIENT_ID') || env('CHAPTERLY_GOOGLE_CLIENT_ID');
-  const clientSecret = env('GOOGLE_CLIENT_SECRET') || env('CHAPTERLY_GOOGLE_CLIENT_SECRET');
-  const redirectUri = env('GOOGLE_REDIRECT_URI') || env('CHAPTERLY_GOOGLE_REDIRECT_URI')
+  const clientId = env('GOOGLE_CLIENT_ID') || env('CHAPTERDESK_GOOGLE_CLIENT_ID');
+  const clientSecret = env('GOOGLE_CLIENT_SECRET') || env('CHAPTERDESK_GOOGLE_CLIENT_SECRET');
+  const redirectUri = env('GOOGLE_REDIRECT_URI') || env('CHAPTERDESK_GOOGLE_REDIRECT_URI')
     || 'http://localhost:3847/api/oauth/google/callback';
-  const walletName = env('CHAPTERLY_GOOGLE_WALLET', 'google-shared');
-  const workspaceName = env('CHAPTERLY_GOOGLE_WORKSPACE');
-  const spaOrigin = env('CHAPTERLY_SPA_ORIGIN', 'http://localhost:4200');
+  const walletName = env('CHAPTERDESK_GOOGLE_WALLET', 'google-shared');
+  const workspaceName = env('CHAPTERDESK_GOOGLE_WORKSPACE');
+  const spaOrigin = env('CHAPTERDESK_SPA_ORIGIN', 'http://localhost:4200');
   return { clientId, clientSecret, redirectUri, walletName, workspaceName, spaOrigin };
 }
 
@@ -71,7 +71,7 @@ function appendHashParams(returnTo, params) {
   const base = hashIdx >= 0 ? returnTo.slice(0, hashIdx) : returnTo;
   let hash = hashIdx >= 0 ? returnTo.slice(hashIdx + 1) : '/login';
   if (!hash.startsWith('/')) hash = '/' + hash;
-  const u = new URL(hash, 'http://chapterly.local');
+  const u = new URL(hash, 'http://chapterdesk.local');
   for (const [key, value] of Object.entries(params)) {
     if (value != null) u.searchParams.set(key, String(value));
   }

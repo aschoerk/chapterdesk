@@ -4,13 +4,13 @@
         {
             "previewLimit": 50,
             "driver": "SQLite",
-            "database": "${workspaceFolder:chapterly}/chapterly-api-server/data/chapterly.sqlite",
-            "name": "chaptery"
+            "database": "${workspaceFolder}/chapterdesk-api-server/data/chapterdesk.sqlite",
+            "name": "chapterdesk"
         },
         {
             "previewLimit": 50,
             "driver": "SQLite",
-            "database": "${workspaceFolder:chapterly}/chat-server-js/data/chat.db",
+            "database": "${workspaceFolder}/chat-server-js/data/chat.db",
             "name": "chat"
         }
     ],

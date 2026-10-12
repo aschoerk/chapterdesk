@@ -1,6 +1,6 @@
-# chapterly-api-server
+# chapterdesk-api-server
 
-Typed TypeScript server for Chapterly `ChatApiPort`
+Typed TypeScript server for ChapterDesk `ChatApiPort`
 (`src/app/api/chat-api.port.ts` in the Angular app).
 
 HTTP paths match `ChatApiService` (`/api/projects`, `/api/chats`, …).
@@ -33,7 +33,7 @@ If another node already flushed the same topic/provider, save returns **409**.
 Backends:
 
 - `PERSISTENCE=memory` — in-process only
-- `PERSISTENCE=sqlite` — default local / Electron (`data/chapterly.sqlite`)
+- `PERSISTENCE=sqlite` — default local / Electron (`data/chapterdesk.sqlite`)
 - `PERSISTENCE=firebase` — Cloud Run / AWS default (`topic_snapshots`, `provider_snapshots`)
 
 ## Run

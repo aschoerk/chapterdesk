@@ -594,7 +594,7 @@ describe('ImportComponent', () => {
     let downloadedAnchor: HTMLAnchorElement | undefined;
     vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
       downloadedBlob = obj as Blob;
-      return 'blob:chapterly-test';
+      return 'blob:chapterdesk-test';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
@@ -608,7 +608,7 @@ describe('ImportComponent', () => {
     await component.exportBundle();
 
     expect(component.isExporting()).toBe(false);
-    expect(downloadedAnchor?.download).toMatch(/^chapterly-bundle-chat-/);
+    expect(downloadedAnchor?.download).toMatch(/^chapterdesk-bundle-chat-/);
 
     const payload = JSON.parse(await (downloadedBlob as Blob).text());
     expect(payload.format).toBe(BUNDLE_FORMAT);
@@ -654,7 +654,7 @@ describe('ImportComponent', () => {
     let downloadedAnchor: HTMLAnchorElement | undefined;
     vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
       downloadedBlob = obj as Blob;
-      return 'blob:chapterly-docx';
+      return 'blob:chapterdesk-docx';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
@@ -702,7 +702,7 @@ describe('ImportComponent', () => {
     let downloadedAnchor: HTMLAnchorElement | undefined;
     vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
       downloadedBlob = obj as Blob;
-      return 'blob:chapterly-md';
+      return 'blob:chapterdesk-md';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
@@ -744,7 +744,7 @@ describe('ImportComponent', () => {
     let downloadedAnchor: HTMLAnchorElement | undefined;
     vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
       downloadedBlob = obj as Blob;
-      return 'blob:chapterly-docx';
+      return 'blob:chapterdesk-docx';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (

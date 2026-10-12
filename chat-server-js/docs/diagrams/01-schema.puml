@@ -1,5 +1,5 @@
-@startuml chapterly_schema
-title chapterly chat-server — data model
+@startuml chapterdesk_schema
+title chapterdesk chat-server — data model
 
 skinparam linetype ortho
 skinparam classAttributeIconSize 0

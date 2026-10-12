@@ -3,7 +3,7 @@
 /**
  * Logging stand-in for openrouter.ai.
  *
- * Point Chapterly's provider base_url (settings / wallet provider) at
+ * Point ChapterDesk's provider base_url (settings / wallet provider) at
  *   http://127.0.0.1:3848
  * or
  *   http://127.0.0.1:3848/api/v1
@@ -286,7 +286,7 @@ server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   console.log(`upstream: ${UPSTREAM}`);
   console.log(`logs:     ${LOG_DIR}`);
   console.log('');
-  console.log('In Chapterly settings / provider base_url replace');
+  console.log('In ChapterDesk settings / provider base_url replace');
   console.log('  https://openrouter.ai');
   console.log('with');
   console.log(`  http://${LISTEN_HOST}:${LISTEN_PORT}`);

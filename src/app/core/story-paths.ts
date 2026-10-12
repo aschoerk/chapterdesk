@@ -1,5 +1,5 @@
 /**
- * Shared "story document" enumeration for chapterly.
+ * Shared "story document" enumeration for chapterdesk.
  *
  * Single source of truth for turning a chat's flat node list into root→leaf
  * documents. Used by BOTH the chat-reader (book pagination) and the DOCX /
