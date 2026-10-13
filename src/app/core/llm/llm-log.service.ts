@@ -343,7 +343,12 @@ export class LlmLogService {
         const db = await this.persistedStore();
         await this.updateStored(db, entry);
       })
-      .catch(() => { /* keep queue alive */ });
+      .catch(() => { /* keep queue alive */ })
+      // Re-emit `entries` after the write so reactive consumers (e.g. the
+      // per-node usage label) recompute under the NEW node id. Without this,
+      // only the on-disk record is updated and the UI keeps showing no usage
+      // for the versioned node until the app is reloaded.
+      .finally(() => this.publish());
   }
 
   /** Drop the whole log. */

@@ -278,4 +278,35 @@ describe('LlmLogService', () => {
       }
     }
   });
+
+  it('retargetNode re-emits entries so reactive node usage follows the versioned node', async () => {
+    // Simulates versioning after a streamed answer: the call was recorded
+    // under the placeholder node id, then the kept (versioned) node gets a
+    // NEW id — the entry must be re-pointed AND the entries signal re-emitted
+    // so the per-node usage label recomputes (it is a computed() over
+    // `entries()`; an in-place mutation alone never triggers recompute).
+    const entry = service.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p',
+      nodeId: 'placeholder-1', chatId: 'c1',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    await service.flush();
+    service.complete(entry, {
+      response: { choices: [], usage: { prompt_tokens: 5, completion_tokens: 3 } },
+    });
+    await service.flush();
+    expect(service.entries().find(e => e.seq === entry.seq)?.nodeId).toBe('placeholder-1');
+
+    const before = service.entries();
+    service.retargetNode(entry, 'versioned-2');
+    await service.flush();
+
+    // The entries SIGNAL was re-emitted with a fresh array (a consumer's
+    // computed() over `entries()` will recompute and now find the usage).
+    expect(service.entries()).not.toBe(before);
+    // …and the stored record carries the versioned node id.
+    const stored = service.entries().find(e => e.seq === entry.seq);
+    expect(stored).toBeDefined();
+    expect(stored!.nodeId).toBe('versioned-2');
+  });
 });
