@@ -54,6 +54,14 @@ describe('Chat', () => {
     localStorage.removeItem('chat.scrollByChatId');
     localStorage.removeItem('chat.generationTasks');
     localStorage.removeItem('chat-client.elaborate.byChatId');
+    // The component constructor/effects read persisted nav-bar height — clear
+    // the legacy key and every per-chat key BEFORE createComponent so each
+    // test starts with the default (null) handling.
+    localStorage.removeItem('chat-client.navbar.height');
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('chat-client.navbar.height.')) localStorage.removeItem(k);
+    }
 
     await TestBed.configureTestingModule({
       imports: [ChatComponent],
@@ -950,6 +958,301 @@ describe('Chat', () => {
     expect(chatService.nodes().find(n => n.id === 'q2')).toBeUndefined();
     // a2 is re-attached under the topmost surviving ancestor (q1)
     expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe('q1');
+  });
+
+  // ----------------------------------------------------------------------
+  // Navbar-node right-click context menu
+  // ----------------------------------------------------------------------
+
+  function nodeMenuItems(): ReturnType<ChatComponent['navNodeMenuItems']> {
+    return component.navNodeMenuItems();
+  }
+
+  /** Find a menu row by its EXACT label (divider rows have label ''). */
+  function nodeMenuItem(label: string): ReturnType<ChatComponent['navNodeMenuItems']>[number] {
+    const item = nodeMenuItems().find(i => !i.divider && i.label === label);
+    expect(item).toBeDefined();
+    return item!;
+  }
+
+  function navMenuEvent(x = 10, y = 10): MouseEvent {
+    return { clientX: x, clientY: y, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as MouseEvent;
+  }
+
+  it('opens the navbar-node context menu (sibling switch + selection + copy/cut/delete)', async () => {
+    await openStory(); // a1 and a2 are siblings under q1; active = a1
+    TestBed.inject(NodeClipboardService).clear(); // this assertion expects an EMPTY clipboard
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(120, 80), a1);
+
+    expect(component.navNodeMenu()).not.toBeNull();
+    expect(component.navNodeMenu()!.nodeId).toBe('a1');
+    expect(component.navNodeMenuLeftPx()).toBeGreaterThanOrEqual(8);
+    expect(component.navNodeMenuTopPx()).toBeGreaterThanOrEqual(8);
+
+    const items = nodeMenuItems();
+    expect(nodeMenuItem('Previous continuation')).toBeDefined();
+    expect(nodeMenuItem('Next continuation')).toBeDefined();
+    expect(nodeMenuItem('Select')).toBeDefined();
+    // clipboard empty → no paste group
+    expect(items.some(i => i.label.includes('Paste'))).toBe(false);
+    // destructive last
+    const deleteIdx = items.findIndex(i => i.label === 'Delete');
+    const copyIdx = items.findIndex(i => i.label === 'Copy');
+    expect(deleteIdx).toBeGreaterThan(copyIdx);
+  });
+
+  it('switches to a sibling continuation from the navbar-node menu', async () => {
+    await openStory(); // siblings under q1: a1 (active), a2
+    fixture.detectChanges();
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    component.runNavNodeAction(nodeMenuItem('Next continuation'));
+
+    expect(chatService.getActiveChildId('q1')).toBe('a2');
+    expect(component.getActivePath().some(n => n.id === 'a2')).toBe(true);
+    // the menu closed itself after the action
+    expect(component.navNodeMenu()).toBeNull();
+  });
+
+  it('selects / unselects a navbar node from its context menu', async () => {
+    await openStory();
+    fixture.detectChanges();
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    const open = () => component.openNavNodeMenu(navMenuEvent(), a1);
+
+    open();
+    expect(nodeMenuItems().some(i => i.label === 'Select')).toBe(true);
+    expect(nodeMenuItems().some(i => i.label === 'Unselect')).toBe(false);
+    component.runNavNodeAction(nodeMenuItem('Select'));
+    expect(component.isNavNodeSelected('a1')).toBe(true);
+
+    open();
+    expect(nodeMenuItems().some(i => i.label === 'Select')).toBe(false);
+    expect(nodeMenuItems().some(i => i.label === 'Unselect')).toBe(true);
+    component.runNavNodeAction(nodeMenuItem('Unselect'));
+    expect(component.isNavNodeSelected('a1')).toBe(false);
+  });
+
+  it('copies a single navbar node from its context menu', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    component.runNavNodeAction(nodeMenuItem('Copy'));
+
+    expect(clipboard.clipboard()!.nodes.map(n => n.content)).toEqual(['Answer one']);
+  });
+
+  it('cuts a single navbar node from its context menu (following text stays)', async () => {
+    await openStory();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    await component.runNavNodeAction(nodeMenuItem('Cut'));
+
+    expect(clipboard.clipboard()!.nodes.map(n => n.content)).toEqual(['Answer one']);
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('deletes a single navbar node from its context menu (following text stays)', async () => {
+    await openStory();
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    await component.runNavNodeAction(nodeMenuItem('Delete'));
+
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('pastes in front of a navbar node from its context menu (splice into the path)', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    clipboard.copySequence([
+      chatService.nodes().find(n => n.id === 'q1')!,
+      chatService.nodes().find(n => n.id === 'a1')!,
+    ]);
+
+    const q2 = chatService.nodes().find(n => n.id === 'q2')!;
+    component.openNavNodeMenu(navMenuEvent(), q2);
+
+    const before = nodeMenuItem('Paste in front');
+    expect(before.disabled).toBe(false);
+    await component.runNavNodeAction(before);
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Q1').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
+    // the chain root hangs under the LEFT node (a1) …
+    expect(pastedQ.parentId).toBe('a1');
+    expect(pastedA.parentId).toBe(pastedQ.id);
+    // … and the right-clicked node (q2) is re-hung under the chain's last node
+    expect(chatService.nodes().find(n => n.id === 'q2')?.parentId).toBe(pastedA.id);
+    const ids = chatService.getActivePath().map(n => n.id);
+    expect(ids.slice(1, 5)).toEqual(['a1', pastedQ.id, pastedA.id, 'q2']);
+  });
+
+  it('pastes behind a navbar node from its context menu (splice into the path)', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    clipboard.copySequence([
+      chatService.nodes().find(n => n.id === 'q1')!,
+      chatService.nodes().find(n => n.id === 'a1')!,
+    ]);
+
+    const q2 = chatService.nodes().find(n => n.id === 'q2')!;
+    component.openNavNodeMenu(navMenuEvent(), q2);
+
+    const after = nodeMenuItem('Paste behind');
+    expect(after.disabled).toBe(false);
+    await component.runNavNodeAction(after);
+
+    const byContent = (c: string) =>
+      chatService.nodes().filter(n => n.content === c && n.isCurrent);
+    const pastedQ = byContent('Q1').find(n => n.id !== 'q1')!;
+    const pastedA = byContent('Answer one').find(n => n.id !== 'a1')!;
+    // the chain root hangs under q2 …
+    expect(pastedQ.parentId).toBe('q2');
+    expect(pastedA.parentId).toBe(pastedQ.id);
+    // … and the follower (a2) is re-hung under the chain's last node
+    expect(chatService.nodes().find(n => n.id === 'a2')?.parentId).toBe(pastedA.id);
+    const ids = chatService.getActivePath().map(n => n.id);
+    expect(ids.slice(2, 6)).toEqual(['q2', pastedQ.id, pastedA.id, 'a2']);
+  });
+
+  it('disables paste-in-front on the first visible navbar node', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges();
+    const clipboard = TestBed.inject(NodeClipboardService);
+    clipboard.copySequence([chatService.nodes().find(n => n.id === 'q1')!]);
+
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    component.openNavNodeMenu(navMenuEvent(), q1);
+
+    expect(nodeMenuItem('Paste in front').disabled).toBe(true);
+    expect(nodeMenuItem('Paste behind').disabled).toBe(false);
+  });
+
+  it('gives the terminal empty direction no navbar-node menu', async () => {
+    await openStory(); // path: q1 → a1 → [empty draft direction]
+    const draft = chatService.getActivePath().at(-1)!;
+    expect(chatService.isDraftQuestion(draft)).toBe(true);
+
+    component.openNavNodeMenu(navMenuEvent(), draft);
+
+    expect(component.navNodeMenu()).toBeNull();
+  });
+
+  // ----------------------------------------------------------------------
+  // Node-nav-bar vertical separator (resizable height)
+  // ----------------------------------------------------------------------
+
+  it('renders a vertical separator between the node-nav-bar and the tree', async () => {
+    await openChapteredStory();
+    fixture.detectChanges();
+
+    const resizer = fixture.nativeElement.querySelector('.nav-resizer') as HTMLElement;
+    expect(resizer).not.toBeNull();
+    expect(resizer.getAttribute('title')).toContain('resize');
+    // The nav bar itself is above the separator which is above the tree.
+    const nav = fixture.nativeElement.querySelector('.node-nav-bar') as HTMLElement;
+    const tree = fixture.nativeElement.querySelector('.tree') as HTMLElement;
+    expect(nav.compareDocumentPosition(resizer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(resizer.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('grows the node-nav-bar when the separator is dragged down', async () => {
+    await openChapteredStory();
+    fixture.detectChanges();
+    localStorage.removeItem('chat-client.navbar.height.chat-1');
+
+    expect(component.navBarHeight()).toBeNull(); // default height by default
+    component.startNavResize({
+      button: 0, clientX: 0, clientY: 100, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    } as unknown as PointerEvent);
+    expect(component.isNavResizing()).toBe(true);
+
+    // move down by 60px → the height grows beyond the min of 40
+    (component as unknown as { onNavResizePointerMove: (e: { clientY: number; preventDefault: () => void }) => void })
+      .onNavResizePointerMove({ clientY: 160, preventDefault: vi.fn() });
+
+    const grown = component.navBarHeight();
+    expect(grown).toBeGreaterThan(40);
+
+    (component as unknown as { onNavResizePointerUp: () => void }).onNavResizePointerUp();
+    expect(component.isNavResizing()).toBe(false);
+    // the applied height is persisted PER-CHAT (the current chat is chat-1)
+    expect(Number(localStorage.getItem('chat-client.navbar.height.chat-1'))).toBe(grown);
+  });
+
+  it('clamps the nav-bar height and restores auto height on double-click', async () => {
+    await openChapteredStory();
+    fixture.detectChanges();
+
+    // Drag far down → clamped to the max (320).
+    component.startNavResize({
+      button: 0, clientX: 0, clientY: 100, preventDefault: vi.fn(), stopPropagation: vi.fn(),
+    } as unknown as PointerEvent);
+    const move = (component as unknown as { onNavResizePointerMove: (e: { clientY: number; preventDefault: () => void }) => void })
+      .onNavResizePointerMove;
+    move({ clientY: 10000, preventDefault: vi.fn() });
+    expect(component.navBarHeight()).toBeLessThanOrEqual(320);
+
+    // Double-click on the separator → automatic (content-sized) height.
+    component.resetNavBarHeight();
+    expect(component.navBarHeight()).toBeNull();
+    // the per-chat override is removed (default handling restored)
+    expect(localStorage.getItem('chat-client.navbar.height.chat-1')).toBeNull();
+  });
+
+  it('re-applies the per-chat nav-bar height on chat switch (no empty lines across chats)', async () => {
+    seedApi(api, {
+      chats: [
+        { id: 'chat-1', title: 'Story A' },
+        { id: 'chat-2', title: 'Story B' },
+      ],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q1' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A1' },
+        { id: 'q2', chatId: 'chat-2', parentId: null, role: 'user', content: 'Q2' },
+        { id: 'a2', chatId: 'chat-2', parentId: 'q2', role: 'assistant', content: 'A2' },
+      ],
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    fixture.detectChanges();
+
+    // chat-1 was manually resized; chat-2 was not.
+    localStorage.setItem('chat-client.navbar.height.chat-1', '180');
+
+    // Switch to chat-2 → DEFAULT handling (null), NOT the 180 from chat-1
+    // (no leftover tall bar → no empty lines for the short path).
+    await chatService.selectChat('chat-2');
+    chatService.setActiveChild(null, 'q2');
+    chatService.setActiveChild('q2', 'a2');
+    fixture.detectChanges();
+    expect(component.navBarHeight()).toBeNull();
+
+    // Back to chat-1 → its saved height is re-applied.
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    fixture.detectChanges();
+    expect(component.navBarHeight()).toBe(180);
   });
 });
 

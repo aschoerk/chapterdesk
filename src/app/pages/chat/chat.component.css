@@ -243,10 +243,56 @@ body.sidebar-resizing * {
   background: var(--bg-sidebar, #f8fafc);
   border-bottom: 1px solid var(--border, #e2e8f0);
   padding: 0.45rem 1rem 0.5rem;
-  /* Important: allow vertical growth */
-  max-height: 140px;          /* safety limit – rarely needed */
+  /* DEFAULT handling: content-sized but capped at 4 wrapped lines; longer
+     paths scroll (overflow-y below). When the user drags the separator a
+     manual height is set, and .grown lifts this cap. */
+  --nav-line-h: 1.7rem;            /* one wrapped nav-path line (button + gap) */
+  --nav-max-lines: 4;
+  max-height: calc(var(--nav-line-h) * var(--nav-max-lines) + 1rem);
   overflow-y: auto;
   scrollbar-width: thin;
+  flex-shrink: 0;
+}
+
+/* Once the user drags the separator, the inline height wins: lift the CSS cap
+   so the nav bar can actually be enlarged beyond the auto-size limit. */
+.node-nav-bar.grown {
+  max-height: none;
+}
+
+/* ===== Vertical separator between the node-nav-bar and the tree ===== */
+.nav-resizer {
+  flex: 0 0 8px;
+  height: 8px;
+  position: relative;
+  z-index: 40;
+  cursor: row-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.nav-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--color-border, #e5e5e5);
+  transition: height 0.12s, background 0.12s;
+}
+
+.nav-resizer:hover::after,
+.nav-resizer.active::after {
+  height: 3px;
+  background: var(--color-primary, #2563eb);
+}
+
+body.nav-resizing,
+body.nav-resizing * {
+  cursor: row-resize !important;
+  user-select: none !important;
 }
 
 .nav-path {
@@ -423,6 +469,31 @@ body.sidebar-resizing * {
 
 .nav-paste-item:hover {
   background: color-mix(in srgb, var(--accent, #3b82f6) 14%, transparent);
+}
+
+/* Right-click menu on a navbar NODE — reuses .nav-paste-menu look. */
+.nav-paste-item.danger:not(:disabled) {
+  color: var(--color-danger, #dc2626);
+}
+
+.nav-paste-item.danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 12%, transparent);
+}
+
+.nav-paste-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+
+.nav-paste-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--color-input-border, #cbd5e1);
+}
+
+.nav-node-menu {
+  min-width: 210px;
 }
 
 

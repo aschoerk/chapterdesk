@@ -26,6 +26,16 @@ import { SearchReplaceComponent } from '../../components/search-replace/search-r
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
 
+/** One row of the navbar-node right-click context menu. */
+interface NavMenuEntry {
+  label: string;
+  hint?: string;
+  action: () => void | Promise<void>;
+  danger?: boolean;
+  disabled?: boolean;
+  divider?: boolean;
+}
+
 @Component({
   selector: 'app-chat',
   standalone: true,
@@ -319,6 +329,7 @@ export class ChatComponent implements OnInit {
     if (!targets) return;
     event.preventDefault();
     event.stopPropagation();
+    if (this.navNodeMenu()) this.closeNavNodeMenu();
     this.navPasteMenu.set({ x: event.clientX, y: event.clientY, ...targets });
   }
 
@@ -359,6 +370,245 @@ export class ChatComponent implements OnInit {
   runNavPasteAction(item: { action: () => void }): void {
     this.closeNavPasteMenu();
     item.action();
+  }
+
+  // ------------------------------------------------------------------
+  // Context menu on a navbar NODE (right-click)
+  // ------------------------------------------------------------------
+
+  /** Right-clicked nav node for the inline context menu. */
+  readonly navNodeMenu = signal<{ x: number; y: number; nodeId: string } | null>(null);
+
+  /** Open the inline context menu at the pointer position. The browser
+   *  native menu is suppressed for nav nodes; the terminal empty direction
+   *  (the draft input) gets no menu — it can never be selected/operated on. */
+  openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
+    if (this.isLastEmptyDirection(node.id)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (this.navPasteMenu()) this.closeNavPasteMenu();
+    this.navNodeMenu.set({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }
+
+  closeNavNodeMenu(): void {
+    this.navNodeMenu.set(null);
+  }
+
+  navNodeMenuLeftPx(): number {
+    const m = this.navNodeMenu();
+    if (!m) return 0;
+    return Math.max(8, Math.min(m.x, window.innerWidth - 260 - 8));
+  }
+
+  navNodeMenuTopPx(): number {
+    const m = this.navNodeMenu();
+    if (!m) return 0;
+    return Math.max(8, Math.min(m.y, window.innerHeight - 300 - 8));
+  }
+
+  /**
+   * Build the menu rows for the right-clicked navbar node. Grouped:
+   *  1. switch the active continuation to a sibling (prev/next)
+   *  2. selection (select/unselect this node, clear the selection)
+   *  3. clipboard (copy / cut / delete — the whole selection when the node
+   *     is part of one, otherwise just this node)
+   *  4. paste in front / behind (insert into the active path)
+   */
+  navNodeMenuItems(): (NavMenuEntry & { divider?: boolean })[] {
+    const menu = this.navNodeMenu();
+    if (!menu) return [];
+    const node = this.getActivePath().find(n => n.id === menu.nodeId);
+    if (!node) return [];
+    const busy = this.chatService.isGenerating(node.id);
+
+    const groups: NavMenuEntry[][] = [];
+
+    const siblings = this.getChildren(node.parentId);
+    if (siblings.length > 1) {
+      groups.push([
+        {
+          label: this.i18n.t('node.prevBranch'),
+          hint: this.i18n.t('node.prevBranch'),
+          action: () => this.switchNavSibling(node, -1),
+          disabled: busy,
+        },
+        {
+          label: this.i18n.t('node.nextBranch'),
+          hint: this.i18n.t('node.nextBranch'),
+          action: () => this.switchNavSibling(node, 1),
+          disabled: busy,
+        },
+      ]);
+    }
+
+    const isSelected = this.navSelectedIds().includes(node.id);
+    const selectionGroup: NavMenuEntry[] = [{
+      label: this.i18n.t(isSelected ? 'node.navUnselect' : 'node.navSelect'),
+      action: () => this.toggleNavSelection(node.id),
+    }];
+    if (this.navHasSelection()) {
+      selectionGroup.push({
+        label: this.i18n.t('node.clearSelection'),
+        action: () => this.clearNavSelection(),
+      });
+    }
+    groups.push(selectionGroup);
+
+    groups.push([
+      {
+        label: this.i18n.t('node.copySelected'),
+        hint: this.i18n.t('node.copySelectedTitle'),
+        action: () => this.copyNavNodes(node),
+      },
+      {
+        label: this.i18n.t('node.cutSelected'),
+        hint: this.i18n.t('node.cutSelectedTitle'),
+        action: () => this.cutNavNodes(node),
+      },
+      {
+        label: this.i18n.t('node.deleteSelected'),
+        hint: this.i18n.t('node.deleteSelectedTitle'),
+        action: () => this.deleteNavNodes(node),
+        danger: true,
+      },
+    ]);
+
+    if (this.clipboard.hasContent()) {
+      const before = this.navPasteBeforeTargets(node);
+      const after = this.navPasteTargets(node.id);
+      groups.push([
+        {
+          label: this.i18n.t('node.navPasteBefore'),
+          hint: before ? this.i18n.t('node.pasteInsertTitle') : this.i18n.t('node.navPasteBeforeDisabled'),
+          action: () => this.pasteNavSelectionBefore(node),
+          disabled: !before,
+        },
+        {
+          label: this.i18n.t('node.navPasteAfter'),
+          hint: after ? this.i18n.t('node.pasteAfterTitle') : this.i18n.t('node.navPasteAfterDisabled'),
+          action: () => this.pasteNavSelectionAfter(node.id),
+          disabled: !after,
+        },
+      ]);
+    }
+
+    const out: (NavMenuEntry & { divider?: boolean })[] = [];
+    for (const group of groups) {
+      if (!group.length) continue;
+      if (out.length) out.push({ label: '', action: () => undefined, divider: true });
+      out.push(...group);
+    }
+    return out;
+  }
+
+  /** Close the menu, then run the chosen action (if it is enabled). */
+  runNavNodeAction(item: NavMenuEntry & { divider?: boolean }): void | Promise<void> {
+    if (item.divider || item.disabled) return;
+    this.closeNavNodeMenu();
+    return item.action();
+  }
+
+  /** Switch the active continuation at `node.parentId` to the previous/next
+   *  sibling — the navbar equivalent of the node's branch switcher. */
+  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
+    const siblings = this.getChildren(node.parentId);
+    if (siblings.length < 2) return;
+    const anchorId = this.getActiveChildId(node.parentId) ?? node.id;
+    const idx = siblings.findIndex(s => s.id === anchorId);
+    const target = siblings[(idx + dir + siblings.length) % siblings.length];
+    if (!target) return;
+    this.setActiveChild(node.parentId, target.id);
+  }
+
+  /** The nodes a navbar clipboard action targets: the whole selection when
+   *  the right-clicked node is part of one, otherwise just that node. */
+  private navActionNodes(node: ChatNode): ChatNode[] {
+    if (this.navSelectedIds().includes(node.id)) {
+      return this.selectedNavNodes();
+    }
+    return [node];
+  }
+
+  copyNavNodes(node: ChatNode): void {
+    const nodes = this.navActionNodes(node);
+    if (!nodes.length) return;
+    this.clipboard.copySequence(nodes);
+  }
+
+  async cutNavNodes(node: ChatNode): Promise<void> {
+    const nodes = this.navActionNodes(node);
+    if (!nodes.length) return;
+    const hasPayload = nodes.some(
+      n => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
+    );
+    if (hasPayload) {
+      const ok = await this.confirm.ask({
+        title: this.i18n.t('node.cutSelectedAsk', { count: nodes.length }),
+        message: this.i18n.t('node.cutSelectedMsg', { count: nodes.length }),
+        confirmLabel: this.i18n.t('node.cutSelected'),
+        cancelLabel: this.i18n.t('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      await this.clipboard.cutSequence(nodes);
+      this.clearNavSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.cutFailed', { error: err?.message || err }));
+    }
+  }
+
+  async deleteNavNodes(node: ChatNode): Promise<void> {
+    const nodes = this.navActionNodes(node);
+    if (!nodes.length) return;
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('node.navDeleteAsk', { count: nodes.length }),
+      message: this.i18n.t('node.navDeleteMsg', { count: nodes.length }),
+      confirmLabel: this.i18n.t('node.deleteSelected'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      for (const n of nodes) {
+        await this.chatService.deleteNode(n.chatId, n.id, { keepChildren: true });
+      }
+      this.clearNavSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.deleteSelectedFailed', { error: err?.message || err }));
+    }
+  }
+
+  /** Targets for pasting the clipboard IN FRONT OF `node` (between its
+   *  predecessor and the node), or null when not possible — no predecessor
+   *  (first visible node) or left of the terminal empty direction. */
+  private navPasteBeforeTargets(node: ChatNode): { leftId: string; rightId: string | null } | null {
+    if (!this.clipboard.hasContent()) return null;
+    if (this.isLastEmptyDirection(node.id)) return null; // draft stays the terminal input
+    const path = this.getActivePath();
+    const i = path.findIndex(n => n.id === node.id);
+    if (i <= 0) return null;
+    return { leftId: path[i - 1].id, rightId: node.id };
+  }
+
+  /** Paste the clipboard chain immediately BEFORE `node` in the active path. */
+  async pasteNavSelectionBefore(node: ChatNode): Promise<void> {
+    const targets = this.navPasteBeforeTargets(node);
+    if (!targets) return;
+    await this.pasteChain('insert', targets.leftId, targets.rightId);
+  }
+
+  @HostListener('window:resize')
+  onNavNodeMenuResize(): void {
+    this.closeNavNodeMenu();
+  }
+
+  @HostListener('document:scroll')
+  onNavNodeMenuScroll(): void {
+    this.closeNavNodeMenu();
   }
 
   @HostListener('window:resize')
@@ -476,6 +726,154 @@ export class ChatComponent implements OnInit {
       'chat-client.sidebar.width',
       String(ChatComponent.SIDEBAR_WIDTH_DEFAULT)
     );
+  }
+
+  // ------------------------------------------------------------------
+  // Node-nav-bar height (vertical separator between the nav bar and the tree)
+  // ------------------------------------------------------------------
+
+  private static readonly NAV_BAR_HEIGHT_MIN = 40;
+  private static readonly NAV_BAR_HEIGHT_MAX = 320;
+  /** Per-chat storage prefix: `chat-client.navbar.height.<chatId>`. The
+   *  vertical nav-bar size is a PER-CHAT preference — switching chats applies
+   *  the new chat's size, so another chat's tall manual height never leaves
+   *  empty lines in the bar of a short path. */
+  private static readonly LS_NAV_BAR_HEIGHT_PREFIX = 'chat-client.navbar.height.';
+  /** Legacy (pre-per-chat) key — one-time migration source. */
+  private static readonly LS_NAV_BAR_HEIGHT_LEGACY = 'chat-client.navbar.height';
+
+  /** Explicit height (px) of the node-nav-bar for the CURRENT chat, or null =
+   *  DEFAULT handling: content-sized, capped at 4 lines with a scrollbar, and
+   *  auto-scrolled to the marked node's line. Re-applied on every chat switch. */
+  readonly navBarHeight = signal<number | null>(null);
+  readonly isNavResizing = signal(false);
+
+  /** The node-nav-bar element — measured at drag start for the baseline height. */
+  private readonly nodeNavBar = viewChild<ElementRef<HTMLElement>>('nodeNavBar');
+
+  private navResizeStartY = 0;
+  private navResizeStartHeight = 0;
+  /** Chat the nav-bar height was last applied for (undefined = not yet applied). */
+  private navHeightChatId: string | null | undefined = undefined;
+
+  private navBarHeightKey(chatId: string | null): string | null {
+    return chatId ? `${ChatComponent.LS_NAV_BAR_HEIGHT_PREFIX}${chatId}` : null;
+  }
+
+  private loadNavBarHeight(chatId: string | null): number | null {
+    // `getItem` returns null (→ Number(null) === 0) when never persisted —
+    // distinguish "absent" from a stored 0 so auto-sizing stays the default.
+    const key = this.navBarHeightKey(chatId);
+    let raw: string | null = null;
+    if (key) {
+      raw = localStorage.getItem(key);
+      // One-time migration from the old single global key (pre-per-chat).
+      if (raw == null) raw = this.migrateLegacyNavBarHeight();
+    }
+    if (raw == null) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return this.clampNavHeight(n);
+  }
+
+  private migrateLegacyNavBarHeight(): string | null {
+    const raw = localStorage.getItem(ChatComponent.LS_NAV_BAR_HEIGHT_LEGACY);
+    if (raw != null) {
+      try { localStorage.removeItem(ChatComponent.LS_NAV_BAR_HEIGHT_LEGACY); } catch { /* non-fatal */ }
+    }
+    return raw;
+  }
+
+  private clampNavHeight(h: number | null): number | null {
+    if (h == null) return null;
+    return Math.min(
+      ChatComponent.NAV_BAR_HEIGHT_MAX,
+      Math.max(ChatComponent.NAV_BAR_HEIGHT_MIN, Math.round(h))
+    );
+  }
+
+  private readonly onNavResizePointerMove = (event: PointerEvent) => {
+    if (!this.isNavResizing()) return;
+    event.preventDefault();
+    const delta = event.clientY - this.navResizeStartY;
+    const next = Math.round(
+      Math.min(
+        Math.max(this.navResizeStartHeight + delta, ChatComponent.NAV_BAR_HEIGHT_MIN),
+        ChatComponent.NAV_BAR_HEIGHT_MAX
+      )
+    );
+    this.navBarHeight.set(next);
+  };
+
+  private readonly onNavResizePointerUp = () => this.endNavResize();
+
+  startNavResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Baseline = the currently rendered height (auto-size or last explicit one).
+    const el = this.nodeNavBar()?.nativeElement;
+    const base = el?.offsetHeight ?? this.navBarHeight() ?? 140;
+    this.isNavResizing.set(true);
+    this.navResizeStartY = event.clientY;
+    this.navResizeStartHeight = base;
+
+    document.body.classList.add('nav-resizing');
+    document.addEventListener('pointermove', this.onNavResizePointerMove);
+    document.addEventListener('pointerup', this.onNavResizePointerUp);
+    document.addEventListener('pointercancel', this.onNavResizePointerUp);
+  }
+
+  endNavResize() {
+    if (!this.isNavResizing()) return;
+    this.isNavResizing.set(false);
+    document.body.classList.remove('nav-resizing');
+    document.removeEventListener('pointermove', this.onNavResizePointerMove);
+    document.removeEventListener('pointerup', this.onNavResizePointerUp);
+    document.removeEventListener('pointercancel', this.onNavResizePointerUp);
+    const h = this.navBarHeight();
+    const key = h != null ? this.navBarHeightKey(this.chatService.currentChatId()) : null;
+    if (key) {
+      try { localStorage.setItem(key, String(h)); } catch { /* non-fatal */ }
+    }
+  }
+
+  /** Double-click on the separator → restore the DEFAULT handling for the
+   *  current chat (auto height: content-sized, max 4 lines, scroll to marked). */
+  resetNavBarHeight() {
+    this.navBarHeight.set(null);
+    this.isNavResizing.set(false);
+    document.body.classList.remove('nav-resizing');
+    document.removeEventListener('pointermove', this.onNavResizePointerMove);
+    document.removeEventListener('pointerup', this.onNavResizePointerUp);
+    document.removeEventListener('pointercancel', this.onNavResizePointerUp);
+    const key = this.navBarHeightKey(this.chatService.currentChatId());
+    if (key) {
+      try { localStorage.removeItem(key); } catch { /* non-fatal */ }
+    }
+  }
+
+  /** Default handling — keep the marked node's line visible inside the nav
+   *  bar's OWN scroll area (the 4-line cap). Mirrors `scrollIntoView` with
+   *  `block:'nearest'` but scoped to the bar, so the page never scrolls. */
+  private scrollNavBarToMarked(markedId: string | null): void {
+    const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
+    if (!bar || !markedId) return;
+    let el: HTMLElement | null = null;
+    try {
+      el = bar.querySelector(`[data-nav-id="${CSS.escape(markedId)}"]`);
+    } catch {
+      el = bar.querySelector(`[data-nav-id="${markedId}"]`);
+    }
+    if (!el) return;
+    const barRect = bar.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    if (elRect.top < barRect.top) {
+      bar.scrollTop += elRect.top - barRect.top - 1;
+    } else if (elRect.bottom > barRect.bottom) {
+      bar.scrollTop += elRect.bottom - barRect.bottom + 1;
+    }
   }
 
   ngOnDestroy() {
@@ -640,6 +1038,27 @@ export class ChatComponent implements OnInit {
         }
       }
     });
+    // Nav-bar height is a PER-CHAT preference. On any chat switch, apply the
+    // saved height for the new chat (or null = default when it was never
+    // manually resized), so a previous chat's tall manual height never leaves
+    // empty lines in the bar of a short path.
+    effect(() => {
+      const chatId = this.chatService.currentChatId();
+      const applied = chatId ?? null;
+      if (applied !== this.navHeightChatId) {
+        this.navHeightChatId = applied;
+        this.navBarHeight.set(chatId ? this.loadNavBarHeight(chatId) : null);
+      }
+    });
+    // Default handling — keep the marked node's line visible inside the
+    // nav bar while it is capped at 4 lines with a scrollbar. Dependencies:
+    // the marked node, the active path and the (manual) bar height.
+    effect(() => {
+      const markedId = this.visibleNodeId();
+      this.getActivePath();
+      this.navBarHeight();
+      this.scrollNavBarToMarked(markedId);
+    });
   }
 
   private positionedChatId: string | null = null;
@@ -761,6 +1180,11 @@ export class ChatComponent implements OnInit {
       if (this.navPasteMenu()) {
         event.preventDefault();
         this.closeNavPasteMenu();
+        return;
+      }
+      if (this.navNodeMenu()) {
+        event.preventDefault();
+        this.closeNavNodeMenu();
         return;
       }
     }
