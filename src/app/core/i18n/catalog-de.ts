@@ -511,6 +511,62 @@ export const DE = {
       'Der reine Bildmodus benötigt die abgeleiteten Beschreibungen – der rohe Geschichtstext erreicht das Bildmodell nie, daher kann die Planung hier nicht deaktiviert werden.',
     confirm: 'Erzeugen',
   },
+  setupWizard: {
+    title: 'Willkommen bei ChapterDesk',
+    skipTitle: 'Schließen und Einrichtung vorerst überspringen',
+    skip: 'Vorerst überspringen',
+    next: 'Weiter',
+    back: 'Zurück',
+    finish: 'Fertig',
+    finishing: 'Wird abgeschlossen…',
+    stepWelcome: 'Willkommen',
+    stepProvider: 'KI-Anbieter',
+    stepModels: 'Standardmodell',
+    stepDemo: 'Demo-Daten',
+    intro:
+      'ChapterDesk hilft Ihnen, Geschichten Abschnitt für Abschnitt mit einem KI-Schreibmodell zu verfassen und sie anschließend wie ein Buch zu lesen und zu bearbeiten.\n\nVerbinden Sie einen KI-Anbieter und wählen Sie ein Standardmodell, um sofort loszuschreiben – oder überspringen Sie das und erkunden Sie zuerst die eingebauten Demo-Daten. Die KI kann jederzeit später unter Einstellungen → KI-Anbieter konfiguriert werden.',
+    providerTitle: 'KI-Anbieter hinzufügen',
+    providerHint:
+      'ChapterDesk ruft die API des Anbieters direkt mit Ihrem Schlüssel auf. Der Schlüssel bleibt auf Ihrem Gerät und wird ausschließlich an den Endpunkt des Anbieters gesendet.',
+    providerName: 'Name',
+    providerType: 'Typ',
+    providerTypeOpenrouter: 'OpenRouter (viele Modelle)',
+    providerTypeOpenai: 'OpenAI',
+    providerTypeCustom: 'Benutzerdefiniert / OpenAI-kompatibel',
+    providerBaseUrl: 'Basis-URL',
+    providerApiKey: 'API-Schlüssel',
+    apiKeyRequired: 'Bitte zuerst einen API-Schlüssel eingeben.',
+    providerExistsHint:
+      'Ein Anbieter ist bereits eingerichtet – dieser Schritt lädt nur den Modellkatalog erneut.',
+    test: 'Verbindung testen',
+    testing: 'Wird getestet…',
+    testOk: 'Verbindung erfolgreich',
+    testFail: 'Verbindung fehlgeschlagen',
+    saveAndFetch: 'Speichern & Modelle laden',
+    savingProvider: 'Wird gespeichert…',
+    fetching: 'Modelle werden geladen…',
+    fetchFailed: 'Laden des Modellkatalogs fehlgeschlagen: {{error}}',
+    modelsTitle: 'Standardmodell wählen',
+    modelsHint:
+      'Wählen Sie das Modell, mit dem Sie am häufigsten schreiben. Es wird aktiviert und als Standard für Titel, Überschriften, Zusammenfassungen und Sprachprüfungen verwendet. Weitere Modelle können Sie später unter Einstellungen → KI-Anbieter aktivieren.',
+    modelsEmpty:
+      'Der Katalog enthält noch keine Modelle – laden Sie zuerst die Modellliste des Anbieters.',
+    fetchModels: 'Modelle laden',
+    modelLabel: 'Standard-Schreibmodell',
+    enablingModel: 'Modell wird aktiviert…',
+    demoTitle: 'Eingebaute Demo-Daten',
+    demoHint:
+      'Der Demo-Arbeitsbereich zeigt die Struktur einer Geschichte, die Leseansicht und den Editor – alles nutzbar, ohne dass ein KI-Modell konfiguriert ist.',
+    demoLoadLabel: 'Demo-Arbeitsbereich laden',
+    demoLoadTitle:
+      'Importiert den Arbeitsbereich „ChapterDesk Demo“ mit zwei Geschichten („Reader & Editor Tour“ und „The Lantern Keeper“), die Sie lesen, bearbeiten und erweitern können.',
+    demoLoaded:
+      'Der Demo-Arbeitsbereich ist bereits geladen – „Reader & Editor Tour“ und „The Lantern Keeper“ finden Sie in der Seitenleiste.',
+    demoBusy: 'Demo-Daten werden geladen…',
+    finishHint:
+      'Alles bereit. Neue Geschichten erstellen Sie über die Seitenleiste; Ihre eigene Geschichte können Sie jederzeit beginnen.',
+    error: 'Etwas ist schiefgelaufen: {{error}}',
+  },
   lightbox: {
     close: 'Schließen',
     prev: 'Vorheriges Bild (←)',

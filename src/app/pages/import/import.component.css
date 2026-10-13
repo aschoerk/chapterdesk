@@ -58,6 +58,51 @@
   color: var(--text, #334155);
 }
 
+/* Built-in demo row */
+.import-demo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  background: var(--panel, #fff);
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.import-demo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 200px;
+  flex: 1;
+}
+
+.import-demo-text strong {
+  font-size: 0.95rem;
+  color: var(--text, #0f172a);
+}
+
+.import-demo-text span {
+  font-size: 0.82rem;
+  color: var(--text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.import-demo-row .btn {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.import-demo-row .btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .file-label {
   display: inline-block;
   cursor: pointer;

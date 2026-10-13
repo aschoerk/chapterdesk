@@ -106,6 +106,28 @@
     </div>
   }
 </section>
+<!-- ========== Built-in demo ========== -->
+<section class="import-demo-row">
+  <div class="import-demo-text">
+    <strong>{{ i18n.t('import.demoTitle') }}</strong>
+    <span>{{ i18n.t('import.demoHintRow') }}</span>
+  </div>
+  <button
+    class="btn primary"
+    type="button"
+    (click)="loadDemo()"
+    [disabled]="loadDemoBusy() || demoIsLoaded()"
+    [title]="i18n.t('import.loadDemoTitle')">
+    @if (loadDemoBusy()) {
+      {{ i18n.t('import.demoLoading') }}
+    } @else if (demoIsLoaded()) {
+      {{ i18n.t('import.demoLoaded') }}
+    } @else {
+      {{ i18n.t('import.loadDemo') }}
+    }
+  </button>
+</section>
+
 <!-- ========== Drop zone ========== -->
 <section
   class="drop-zone"

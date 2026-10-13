@@ -177,6 +177,16 @@ export const DE_PAGES = {
     docPickerHint:
       'Diese Geschichte hat mehrere Story-Pfade. Wählen Sie, welcher exportiert werden soll — der neueste ist vorausgewählt.',
     docPickExport: 'Exportieren',
+    demoTitle: 'Eingebautes Demo',
+    demoHintRow:
+      'Zwei Geschichten ("Reader & Editor Tour", "The Lantern Keeper"), die Struktur, Lesen und Bearbeiten zeigen — ohne dass ein KI-Modell konfiguriert ist. Importiert den Arbeitsbereich „ChapterDesk Demo“.',
+    loadDemo: 'Eingebautes Demo laden',
+    loadDemoTitle:
+      'Den eingebauten Demo-Arbeitsbereich in Ihre Daten importieren (idempotent — nie doppelt).',
+    demoLoaded: 'Demo-Arbeitsbereich bereits geladen',
+    demoLoading: 'Demo wird geladen…',
+    demoDone: 'Demo-Arbeitsbereich geladen — „Reader & Editor Tour“ geöffnet.',
+    demoSkipped: 'Der Demo-Arbeitsbereich ist bereits vorhanden — nichts importiert.',
     dropTitle: 'JSON-Datei(en) hier ablegen',
     dropHint:
       'ChapterDesk-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',

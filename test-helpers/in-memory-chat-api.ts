@@ -12,7 +12,9 @@ import {
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateModelRequest,
-  UpdateModelRequest
+  UpdateModelRequest,
+  CreatePersonaRequest,
+  UpdatePersonaRequest
 } from '../src/app/api/chat-api.types';
 import {
   Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
@@ -39,7 +41,7 @@ class InMemoryChatApi implements Pick<
   | 'getChats' | 'createChat' | 'cloneChat' | 'deleteChat' | 'patchChat'
   | 'getNodes' | 'createNode' | 'editAssistant' | 'editUser' | 'branchUser'
   | 'patchNode' | 'deleteNode' | 'getDeletedNodes' | 'restoreNode' | 'purgeNode'
-  | 'getPersonas'
+  | 'getPersonas' | 'createPersona' | 'updatePersona' | 'deletePersona'
   | 'getProjects' | 'createProject' | 'updateProject' | 'deleteProject'
   | 'getTopics' | 'createTopic' | 'updateTopic' | 'deleteTopic'
   | 'addProjectToTopic' | 'removeProjectFromTopic'
@@ -285,6 +287,28 @@ class InMemoryChatApi implements Pick<
 
   async getPersonas() {
     return [...this.personas];
+  }
+  async createPersona(data: CreatePersonaRequest) {
+    const now = new Date().toISOString();
+    const row: Persona = {
+      id: this.id('persona'),
+      name: data.name,
+      shortName: data.shortName,
+      description: data.description ?? '',
+      avatar: data.avatar ?? '',
+      createdAt: now,
+      updatedAt: now
+    };
+    this.personas.push(row);
+    return row;
+  }
+  async updatePersona(id: string, data: UpdatePersonaRequest) {
+    const row = this.must(this.personas, id, 'Persona');
+    Object.assign(row, data, { updatedAt: new Date().toISOString() });
+    return { ...row };
+  }
+  async deletePersona(id: string) {
+    this.personas = this.personas.filter(p => p.id !== id);
   }
 
   // ---------- Projects ----------

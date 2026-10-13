@@ -1,10 +1,11 @@
-import { Component, inject, signal, HostListener } from '@angular/core';
+import { Component, inject, signal, computed, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ChatService } from '../../core/chat.service';
 import { ProjectService } from '../../core/project.service';
 import { PersonaService } from '../../core/persona.service';
+import { DemoDataService } from '../../core/demo-data/demo-data.service';
 import {
   BUNDLE_FORMAT,
   BundleScope,
@@ -87,11 +88,52 @@ export class ImportComponent {
   private readonly personaService = inject(PersonaService);
   private readonly bundleService = inject(BundleService);
   private readonly router = inject(Router);
+  private readonly demoData = inject(DemoDataService);
 
   readonly projects = this.projectService.projects;
   readonly topics = this.projectService.topics;
   readonly chats = this.chatService.chats;
   readonly personas = this.personaService.personas;
+
+  /** True while the built-in demo workspace is being imported. */
+  readonly loadDemoBusy = signal(false);
+  /** True when the demo workspace is already present. */
+  readonly demoIsLoaded = computed(() => this.demoData.isLoaded());
+
+  /** Import the built-in demo workspace on demand (idempotent). */
+  async loadDemo(): Promise<void> {
+    if (this.loadDemoBusy() || this.demoIsLoaded()) return;
+    this.loadDemoBusy.set(true);
+    try {
+      const chatId = await this.demoData.loadDemoData();
+      if (chatId) {
+        await this.demoData.openFirstDemoChat();
+        this.summaries.update(list => [
+          ...list,
+          {
+            fileName: 'chapterdesk-demo',
+            kind: 'bundle',
+            title: 'ChapterDesk Demo',
+            created: 1,
+            detail: this.i18n.t('import.demoDone')
+          }
+        ]);
+      } else {
+        this.summaries.update(list => [
+          ...list,
+          {
+            fileName: 'chapterdesk-demo',
+            kind: 'bundle',
+            title: 'ChapterDesk Demo',
+            created: 0,
+            detail: this.i18n.t('import.demoSkipped')
+          }
+        ]);
+      }
+    } finally {
+      this.loadDemoBusy.set(false);
+    }
+  }
 
   readonly isDragging = signal(false);
   readonly isImporting = signal(false);

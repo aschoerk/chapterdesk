@@ -1,0 +1,170 @@
+@if (s(); as s) {
+  <div class="setup-backdrop">
+    <div class="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <header class="setup-header">
+        <h3 id="setup-title">{{ i18n.t('setupWizard.title') }}</h3>
+        <button class="setup-close" type="button" (click)="skip()" [title]="i18n.t('setupWizard.skipTitle')" aria-label="Close">×</button>
+      </header>
+
+      <ol class="setup-stepper">
+        @for (item of steps(); track item.key; let i = $index) {
+          <li [class.active]="stepIndex() === i" [class.done]="i < stepIndex()">
+            <span class="setup-step-num">{{ i + 1 }}</span>
+            <span class="setup-step-label">{{ i18n.t(item.labelKey) }}</span>
+          </li>
+        }
+      </ol>
+
+      @if (s.error) {
+        <div class="setup-error">{{ i18n.t('setupWizard.error', { error: s.error }) }}</div>
+      }
+
+      <div class="setup-body">
+        @switch (s.step) {
+          @case ('welcome') {
+            <p class="setup-intro">{{ i18n.t('setupWizard.intro') }}</p>
+          }
+
+          @case ('provider') {
+            <h4 class="setup-section-title">{{ i18n.t('setupWizard.providerTitle') }}</h4>
+            @if (wizard.settingsHasProvider()) {
+              <p class="setup-note">{{ i18n.t('setupWizard.providerExistsHint') }}</p>
+            } @else {
+              <p class="setup-hint">{{ i18n.t('setupWizard.providerHint') }}</p>
+              <label class="setup-field">
+                <span>{{ i18n.t('setupWizard.providerName') }}</span>
+                <input type="text" [ngModel]="s.providerName" (ngModelChange)="wizard.patch({ providerName: $event })" />
+              </label>
+              <label class="setup-field">
+                <span>{{ i18n.t('setupWizard.providerType') }}</span>
+                <select [ngModel]="s.providerType" (ngModelChange)="wizard.patch({ providerType: $event })">
+                  @for (type of providerTypes; track type.value) {
+                    <option [value]="type.value">{{ i18n.t(type.labelKey) }}</option>
+                  }
+                </select>
+              </label>
+              <label class="setup-field">
+                <span>{{ i18n.t('setupWizard.providerBaseUrl') }}</span>
+                <input type="text" [ngModel]="s.baseUrl" (ngModelChange)="wizard.patch({ baseUrl: $event })" />
+              </label>
+              <label class="setup-field">
+                <span>{{ i18n.t('setupWizard.providerApiKey') }}</span>
+                <input type="password" [ngModel]="s.apiKey" (ngModelChange)="wizard.patch({ apiKey: $event })" />
+              </label>
+              @if (s.providerError === 'apiKeyRequired') {
+                <p class="setup-error">{{ i18n.t('setupWizard.apiKeyRequired') }}</p>
+              }
+            }
+
+            @if (s.testResult; as tr) {
+              <p class="setup-test" [class.ok]="tr.ok" [class.fail]="!tr.ok">
+                {{ tr.ok ? i18n.t('setupWizard.testOk') : i18n.t('setupWizard.testFail') + ' — ' + tr.message }}
+              </p>
+            }
+            @if (s.fetchError) {
+              <p class="setup-error">{{ i18n.t('setupWizard.fetchFailed', { error: s.fetchError }) }}</p>
+            }
+
+            <div class="setup-actions">
+              <button class="btn" type="button" [disabled]="s.fetching || s.savingProvider" (click)="testProvider()">
+                {{ s.testing ? i18n.t('setupWizard.testing') : i18n.t('setupWizard.test') }}
+              </button>
+              <button class="btn primary" type="button" [disabled]="s.testing" (click)="saveAndFetch()">
+                @if (s.savingProvider || s.fetching) {
+                  {{ s.fetching ? i18n.t('setupWizard.fetching') : i18n.t('setupWizard.savingProvider') }}
+                } @else {
+                  {{ i18n.t('setupWizard.saveAndFetch') }}
+                }
+              </button>
+            </div>
+          }
+
+          @case ('models') {
+            <h4 class="setup-section-title">{{ i18n.t('setupWizard.modelsTitle') }}</h4>
+            <p class="setup-hint">{{ i18n.t('setupWizard.modelsHint') }}</p>
+
+            @if (models().length === 0) {
+              <p class="setup-note">{{ i18n.t('setupWizard.modelsEmpty') }}</p>
+              <div class="setup-actions">
+                <button class="btn primary" type="button" [disabled]="s.fetching" (click)="fetchModels()">
+                  {{ s.fetching ? i18n.t('setupWizard.fetching') : i18n.t('setupWizard.fetchModels') }}
+                </button>
+              </div>
+            } @else {
+              <label class="setup-field">
+                <span>{{ i18n.t('setupWizard.modelLabel') }}</span>
+                <select [ngModel]="s.writingModelId" (ngModelChange)="onWritingModelChange($event)">
+                  @for (model of models(); track model.id) {
+                    <option [value]="model.modelId">{{ model.displayName }}</option>
+                  }
+                </select>
+              </label>
+              @if (s.enablingModel) {
+                <p class="setup-note">{{ i18n.t('setupWizard.enablingModel') }}</p>
+              }
+            }
+          }
+
+          @case ('demo') {
+            <h4 class="setup-section-title">{{ i18n.t('setupWizard.demoTitle') }}</h4>
+            <p class="setup-hint">{{ i18n.t('setupWizard.demoHint') }}</p>
+
+            @if (s.demoLoaded) {
+              <p class="setup-note setup-loaded">✓ {{ i18n.t('setupWizard.demoLoaded') }}</p>
+            } @else {
+              <label class="setup-check">
+                <input
+                  type="checkbox"
+                  [checked]="s.loadDemo"
+                  (change)="wizard.patch({ loadDemo: ($any($event.target).checked) })"
+                />
+                <span>
+                  {{ i18n.t('setupWizard.demoLoadLabel') }}
+                  <small>{{ i18n.t('setupWizard.demoLoadTitle') }}</small>
+                </span>
+              </label>
+              @if (s.demoBusy) {
+                <p class="setup-note">{{ i18n.t('setupWizard.demoBusy') }}</p>
+              }
+            }
+            <p class="setup-note">{{ i18n.t('setupWizard.finishHint') }}</p>
+          }
+        }
+      </div>
+
+      <footer class="setup-footer">
+        <button class="btn" type="button" (click)="skip()" [disabled]="s.finishing || s.demoBusy || s.fetching || s.savingProvider">
+          {{ i18n.t('setupWizard.skip') }}
+        </button>
+
+        <div class="setup-footer-right">
+          @if (s.step !== 'welcome') {
+            <button class="btn" type="button" [disabled]="s.finishing || s.demoBusy || s.fetching || s.savingProvider" (click)="go('welcome')">
+              {{ i18n.t('setupWizard.back') }}
+            </button>
+          }
+          @switch (s.step) {
+            @case ('welcome') {
+              <button class="btn primary" type="button" (click)="go('provider')">{{ i18n.t('setupWizard.next') }}</button>
+            }
+            @case ('provider') {
+              <button class="btn primary" type="button" [disabled]="s.fetching || s.savingProvider || s.testing" (click)="go('models')">
+                {{ i18n.t('setupWizard.next') }}
+              </button>
+            }
+            @case ('models') {
+              <button class="btn primary" type="button" [disabled]="s.fetching" (click)="go('demo')">
+                {{ i18n.t('setupWizard.next') }}
+              </button>
+            }
+            @case ('demo') {
+              <button class="btn primary" type="button" [disabled]="s.finishing || s.demoBusy" (click)="finish()">
+                {{ s.finishing ? i18n.t('setupWizard.finishing') : i18n.t('setupWizard.finish') }}
+              </button>
+            }
+          }
+        </div>
+      </footer>
+    </div>
+  </div>
+}

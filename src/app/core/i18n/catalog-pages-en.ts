@@ -176,6 +176,16 @@ export const EN_PAGES = {
     docPickerHint:
       'This chat has several story paths. Choose which one to export — the most recent is preselected.',
     docPickExport: 'Export',
+    demoTitle: 'Built-in demo',
+    demoHintRow:
+      'Two stories ("Reader & Editor Tour", "The Lantern Keeper") that demonstrate structure, reading and editing — no AI model configured needed. Imports the “ChapterDesk Demo” workspace.',
+    loadDemo: 'Load built-in demo',
+    loadDemoTitle:
+      'Import the built-in demo workspace into your data (idempotent — never duplicates).',
+    demoLoaded: 'Demo workspace already loaded',
+    demoLoading: 'Loading demo…',
+    demoDone: 'Loaded the demo workspace — opened “Reader & Editor Tour”.',
+    demoSkipped: 'The demo workspace is already present — nothing was imported.',
     dropTitle: 'Drop JSON file(s) here',
     dropHint:
       'ChapterDesk bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',

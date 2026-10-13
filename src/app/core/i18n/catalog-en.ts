@@ -509,6 +509,62 @@ export const EN = {
       'Pure picture mode needs the derived descriptions — the raw story text never reaches the image model, so planning cannot be disabled here.',
     confirm: 'Generate',
   },
+  setupWizard: {
+    title: 'Welcome to ChapterDesk',
+    skipTitle: 'Close and skip the setup for now',
+    skip: 'Skip for now',
+    next: 'Continue',
+    back: 'Back',
+    finish: 'Finish',
+    finishing: 'Finishing…',
+    stepWelcome: 'Welcome',
+    stepProvider: 'AI provider',
+    stepModels: 'Default model',
+    stepDemo: 'Demo data',
+    intro:
+      'ChapterDesk helps you draft stories section by section with an AI writing model, then read and edit them like a book.\n\nConnect an AI provider and pick a default model to get writing right away — or skip and explore the built-in demo data first. You can configure the AI any time later under Settings → AI providers.',
+    providerTitle: 'Add your AI provider',
+    providerHint:
+      'ChapterDesk calls the provider’s API directly with your key. The key stays on your machine and is only ever sent to the provider’s endpoint.',
+    providerName: 'Name',
+    providerType: 'Type',
+    providerTypeOpenrouter: 'OpenRouter (many models)',
+    providerTypeOpenai: 'OpenAI',
+    providerTypeCustom: 'Custom / OpenAI-compatible',
+    providerBaseUrl: 'Base URL',
+    providerApiKey: 'API key',
+    apiKeyRequired: 'Please enter an API key first.',
+    providerExistsHint:
+      'A provider is already configured — this step only fetches its model catalog again.',
+    test: 'Test connection',
+    testing: 'Testing…',
+    testOk: 'Connection successful',
+    testFail: 'Connection failed',
+    saveAndFetch: 'Save & fetch models',
+    savingProvider: 'Saving…',
+    fetching: 'Fetching models…',
+    fetchFailed: 'Fetching the model catalog failed: {{error}}',
+    modelsTitle: 'Choose your default model',
+    modelsHint:
+      'Pick the model you write with most of the time. It will be enabled and used as the default for titles, headings, overviews and language checks. You can enable more models later in Settings → AI providers.',
+    modelsEmpty:
+      'No models in the catalog yet — fetch the provider’s model list first.',
+    fetchModels: 'Fetch models',
+    modelLabel: 'Default writing model',
+    enablingModel: 'Enabling model…',
+    demoTitle: 'Built-in demo data',
+    demoHint:
+      'The demo workspace demonstrates the structure of a story, the reader view and the editor — all usable without an AI model configured.',
+    demoLoadLabel: 'Load the demo workspace',
+    demoLoadTitle:
+      'Imports the “ChapterDesk Demo” workspace with two stories (“Reader & Editor Tour” and “The Lantern Keeper”) you can read, edit and extend.',
+    demoLoaded:
+      'The demo workspace is already loaded — find “Reader & Editor Tour” and “The Lantern Keeper” in the sidebar.',
+    demoBusy: 'Loading demo data…',
+    finishHint:
+      'You’re all set. New stories are created from the sidebar; you can start writing your own at any time.',
+    error: 'Something went wrong: {{error}}',
+  },
   lightbox: {
     close: 'Close',
     prev: 'Previous image (←)',
