@@ -1540,17 +1540,19 @@ export class ChatComponent implements OnInit {
     return hints ? `\nFollow these hints from the user: ${hints}` : '';
   }
 
-  /** Most recent current assistant answer of this chat (model source + attach point). */
-  private mostRecentAssistantNode(): ChatNode | null {
-    const nodes = this.chatService.currentNodes()
-      .filter(n => n.role === 'assistant' && n.isCurrent && n.content?.trim())
-      .sort((a, b) =>
-        (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt)
-      );
-    return nodes[0] ?? null;
+  /** Last assistant answer ON THE CURRENTLY VISIBLE TREE (the active path),
+   *  not the most recent one in the whole chat — a newer branch the user has
+   *  navigated away from must never become the elaborate attach point. */
+  private activeTreeAssistantNode(): ChatNode | null {
+    const path = this.getActivePath();
+    for (let i = path.length - 1; i >= 0; i--) {
+      const n = path[i];
+      if (n.role === 'assistant' && n.content?.trim()) return n;
+    }
+    return null;
   }
 
-  /** Model of the most recent assistant answer, resolvable to a ModelEntry. */
+  /** Model of the visible tree's last assistant answer, resolvable to a ModelEntry. */
   private resolveElaborateModel(node: ChatNode): ModelEntry | null {
     const models = this.enabledModels();
     return models.find(m => !!node.modelId && (m.modelId === node.modelId || m.id === node.modelId))
@@ -1580,7 +1582,7 @@ export class ChatComponent implements OnInit {
   openElaborateDialog(): void {
     const chatId = this.currentChatId();
     if (!chatId || this.isGeneratingStructure() || this.isElaborating()) return;
-    const anchor = this.mostRecentAssistantNode();
+    const anchor = this.activeTreeAssistantNode();
     if (!anchor) {
       alert(this.i18n.t('chat.elaborateNoAnchor'));
       return;
@@ -1597,7 +1599,7 @@ export class ChatComponent implements OnInit {
     this.elaborateHints.set(state.hints);
     this.elaborateStickLast.set(false);
 
-    // initial model = the one that created the most recent assistant answer
+    // initial model = the one that created the visible tree's last answer
     const model = this.resolveElaborateModel(anchor);
     this.elaborateModelId.set(model?.modelId ?? '');
     this.showElaborateDialog.set(true);
@@ -1644,8 +1646,9 @@ export class ChatComponent implements OnInit {
 
     // "Stick to last chapter": ignore the First/Last values and re-elaborate
     // the chapter that was last elaborated for THIS chat. The new question is
-    // chained under the most recent assistant answer (which holds the already
-    // generated text of that chapter), so the model continues it in context.
+    // chained under the visible tree's last assistant answer (which holds the
+    // already generated text of that chapter), so the model continues it in
+    // context.
     if (this.elaborateStickLast()) {
       const state = this.loadElaborateState(chatId);
       last = state.lastChapter > 0 ? state.lastChapter : Math.max(last, 1);
@@ -1659,7 +1662,7 @@ export class ChatComponent implements OnInit {
       .filter(Boolean);
     const hints = this.elaborateHintsText();
 
-    const anchor = this.mostRecentAssistantNode();
+    const anchor = this.activeTreeAssistantNode();
     if (!anchor) return;
 
     const resolved = this.resolveSelectedElaborateModel();
@@ -1709,7 +1712,7 @@ export class ChatComponent implements OnInit {
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;
           // The anchor for each step is the answer node of the previous one
-          // (the first anchor is the most recent assistant answer).
+          // (the first anchor is the visible tree's last assistant answer).
           const parentNode = parentId
             ? this.chatService.currentNodes().find(n => n.id === parentId) ?? anchor
             : anchor;

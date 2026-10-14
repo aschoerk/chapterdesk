@@ -396,6 +396,41 @@ describe('Chat', () => {
     expect(a2.modelId).toBe('alpha/model');
   });
 
+  it('anchors elaborate on the currently visible tree, not the most recent branch', async () => {
+    // Branch A (visible): q0 → a1 → q2 → a2. Branch B (hidden): q0 → aAlt —
+    // aAlt is the NEWEST assistant answer of the chat, but the user is
+    // viewing branch A, so elaborate must hang under a2.
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q0', chatId: 'chat-1', parentId: null, role: 'user', content: 'Chapters', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q0', role: 'assistant', content: 'Old chapter text', modelId: 'alpha/model', providerId: 'prov-1', createdAt: '2025-01-02T00:00:00Z' },
+        { id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Continue', createdAt: '2025-01-03T00:00:00Z' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant', content: 'Visible chapter', modelId: 'alpha/model', providerId: 'prov-1', createdAt: '2025-01-04T00:00:00Z' },
+        // newest assistant answer, but in a branch the user navigated away from
+        { id: 'aAlt', chatId: 'chat-1', parentId: 'q0', role: 'assistant', content: 'Most recent, hidden branch', modelId: 'alpha/model', providerId: 'prov-1', createdAt: '2025-01-05T00:00:00Z' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    // visible tree = branch A
+    chatService.setActiveChild(null, 'q0');
+    chatService.setActiveChild('q0', 'a1');
+    chatService.setActiveChild('a1', 'q2');
+    chatService.setActiveChild('q2', 'a2');
+    orch.completion.mockClear();
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(1);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    const question = chatService.nodes().find(n =>
+      n.role === 'user' && n.content?.startsWith('elaborate on chapter'))!;
+    expect(question.parentId).toBe('a2');      // visible tree anchor
+    expect(question.parentId).not.toBe('aAlt'); // never the hidden newest branch
+  });
+
   it('elaborates each chapter from the point of view of each named character', async () => {
     await openElaborateStory();
     orch.completion.mockClear();
