@@ -1,15 +1,27 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   PROMPT_DEFAULTS,
   promptDefaultById,
   type PromptDefaultCategory,
   type PromptDefaultDef
 } from '../models/prompt-default';
-
-const LS_KEY = 'chat.promptDefaults';
+import {
+  PromptApiService
+} from './prompt-api.service';
+import type {
+  PromptScope,
+  PromptSelection,
+  PromptVersion
+} from '../models/prompt-version';
 
 /** Values that template variables may hold. Booleans allow `{{#if}}` blocks. */
 export type PromptVars = Record<string, string | number | boolean>;
+
+/** Which stored object supplies the effective template for a prompt. */
+export type PromptSource =
+  | { kind: 'default' }
+  | { kind: 'user'; version: PromptVersion }
+  | { kind: 'topic'; topicId: string; version: PromptVersion };
 
 // ---------------------------------------------------------------------------
 // Tiny template evaluator: `{{name}}` substitution plus `{{#if v}}…{{else}}…` /
@@ -82,50 +94,99 @@ function evaluateTemplate(text: string, vars: PromptVars): string {
     + evaluateTemplate(text.slice(end), vars);
 }
 
-function readStored(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return {};
-    const out: Record<string, string> = {};
-    for (const [id, value] of Object.entries(parsed)) {
-      if (typeof value === 'string' && promptDefaultById(id)) {
-        out[id] = value;
-      }
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
 /**
- * User-editable overrides for the auto-generated LLM prompt templates.
+ * User-editable prompt templates, stored in the DATABASE as named versions.
  *
- * Each template has a built-in default (see `models/prompt-default.ts`) and a
- * per-browser override stored in localStorage (like the theme). `effective(id)`
- * returns the override when present, otherwise the built-in default, so the
- * LLM call sites always use the user's latest value. Empty overrides and
- * overrides that equal the default are pruned automatically so a reset is a
- * clean delete.
+ * Every template has a built-in default (see `models/prompt-default.ts`; it is
+ * the fallback when nothing is selected). Beyond that, users store NAMED
+ * VERSIONS of the text in the backend database (global `user` versions and
+ * per-`topic` versions), and pick the ACTIVE version per template:
+ *
+ *   1. a `user` selection wins everywhere;
+ *   2. else a `topic` selection wins when a topic is in play (the chat's
+ *      environment main topic) — `effective(id, topicId)` / `render(..., topicId)`;
+ *   3. else the built-in default.
+ *
+ * Data is loaded once from the API at startup (`load()`), and mutations keep
+ * the in-memory cache in sync. Everything stays synchronous for the LLM call
+ * sites (`effective`/`render` read signals); before the first load they fall
+ * back to the built-in defaults, which is always safe.
  *
  * Prompts are English-only (not i18n).
  */
 @Injectable({ providedIn: 'root' })
 export class PromptDefaultsService {
-  /** Map of id → user override for templates the user has customized. */
-  private readonly _overrides = signal<Record<string, string>>(readStored());
+  private readonly api = inject(PromptApiService);
 
-  /** Public readonly override map (reactive, for the settings UI). */
-  readonly overrides = this._overrides.asReadonly();
+  /** All stored prompt versions (user + every topic), reactive for the UI. */
+  private readonly _versions = signal<PromptVersion[]>([]);
+  readonly versions = this._versions.asReadonly();
 
-  /** All customized override ids (reactive, for the settings UI). */
-  readonly customized = signal<string[]>([]);
+  /** All active prompt selections (user + every topic), reactive for the UI. */
+  private readonly _selections = signal<PromptSelection[]>([]);
+  readonly selections = this._selections.asReadonly();
+
+  /** Whether versions+selections have been loaded from the API at least once. */
+  private readonly _loaded = signal(false);
+  readonly loaded = this._loaded.asReadonly();
+
+  private loadPromise: Promise<void> | null = null;
+
+  /** Template ids that have ANY active selection (user or topic). */
+  readonly customized = computed<string[]>(() =>
+    PROMPT_DEFAULTS
+      .map(d => d.id)
+      .filter(id => this._selections().some(s => s.promptId === id))
+  );
 
   constructor() {
-    this.syncCustomized();
+    // The legacy per-browser localStorage overrides (`chat.promptDefaults`)
+    // are intentionally dropped with this change (the prompts live in the DB
+    // now). Also, remove any stale key so a downgrade never re-applies it.
+    try {
+      localStorage.removeItem('chat.promptDefaults');
+    } catch {
+      /* ignore */
+    }
   }
+
+  // ------------------------------------------------------------- load state
+
+  /** Fetch versions + selections from the API (idempotent; no-op when loaded). */
+  load(): Promise<void> {
+    if (this._loaded()) return Promise.resolve();
+    if (this.loadPromise) return this.loadPromise;
+    this.loadPromise = this.loadFromApi().finally(() => {
+      this.loadPromise = null;
+    });
+    return this.loadPromise;
+  }
+
+  /** Trigger a load if it hasn't happened yet (fire-and-forget). */
+  ensureLoaded(): void {
+    if (!this._loaded() && !this.loadPromise) void this.load();
+  }
+
+  private async loadFromApi(): Promise<void> {
+    try {
+      const [versions, selections] = await Promise.all([
+        this.api.getPromptVersions(),
+        this.api.getPromptSelections(),
+      ]);
+      this._versions.set(versions ?? []);
+      this._selections.set(selections ?? []);
+      this._loaded.set(true);
+    } catch (err) {
+      // The database may be unreachable (e.g. pure-browser dev without the
+      // bundled server). Built-in defaults always apply — never break prompts.
+      console.warn('[prompt-defaults] could not load prompt versions', err);
+      this._versions.set([]);
+      this._selections.set([]);
+      this._loaded.set(true);
+    }
+  }
+
+  // ------------------------------------------------------------ definitions
 
   /** All prompt default definitions. */
   all(): PromptDefaultDef[] {
@@ -142,52 +203,59 @@ export class PromptDefaultsService {
     return promptDefaultById(id);
   }
 
-  /** Effective template: the user override when set, otherwise the default. */
-  effective(id: string): string {
-    const d = promptDefaultById(id);
-    if (!d) return '';
-    return this.overrides()[id] ?? d.default;
+  // ------------------------------------------------------------ resolution
+
+  private versionById(id: string | undefined): PromptVersion | undefined {
+    if (!id) return undefined;
+    return this._versions().find(v => v.id === id);
   }
 
-  /** True when the user has customized this template. */
-  isCustom(id: string): boolean {
-    return Object.prototype.hasOwnProperty.call(this.overrides(), id);
+  private selection(promptId: string, scope: PromptScope, topicId?: string | null): PromptSelection | undefined {
+    const tid = topicId ?? null;
+    return this._selections().find(
+      s => s.promptId === promptId && s.scope === scope && s.topicId === tid,
+    );
+  }
+
+  /** The version that is active for `promptId` (or undefined = built-in default). */
+  activeVersion(promptId: string, topicId?: string | null): PromptVersion | undefined {
+    const userSel = this.selection(promptId, 'user');
+    const userVer = userSel ? this.versionById(userSel.versionId) : undefined;
+    if (userVer) return userVer;
+    const topicSel = topicId ? this.selection(promptId, 'topic', topicId) : undefined;
+    const topicVer = topicSel ? this.versionById(topicSel.versionId) : undefined;
+    if (topicVer) return topicVer;
+    return undefined;
+  }
+
+  /** Which source supplies the effective template for `promptId`. */
+  activeSource(promptId: string, topicId?: string | null): PromptSource {
+    const userSel = this.selection(promptId, 'user');
+    const userVer = userSel ? this.versionById(userSel.versionId) : undefined;
+    if (userVer) return { kind: 'user', version: userVer };
+    const topicVer = topicId
+      ? this.versionById(this.selection(promptId, 'topic', topicId)?.versionId)
+      : undefined;
+    if (topicVer && topicId) return { kind: 'topic', topicId, version: topicVer };
+    return { kind: 'default' };
   }
 
   /**
-   * Set (or clear) the override for one template. Passing the exact default
-   * text removes the override. Empty text restores the default as well.
+   * Effective template for `promptId`:
+   *   user selection → topic selection (`topicId`) → built-in default.
+   * Data is loaded at startup (`app.ts` → `load()`); before that the built-in
+   * default applies (always safe).
    */
-  update(id: string, text: string): void {
-    if (!promptDefaultById(id)) return;
-    this._overrides.update(map => {
-      const next = { ...map };
-      const trimmed = text ?? '';
-      if (!trimmed.trim() || trimmed === promptDefaultById(id)!.default) {
-        delete next[id];
-      } else {
-        next[id] = trimmed;
-      }
-      return next;
-    });
-    this.persist();
+  effective(id: string, topicId?: string | null): string {
+    const d = promptDefaultById(id);
+    if (!d) return '';
+    const version = this.activeVersion(id, topicId);
+    return version ? version.text : d.default;
   }
 
-  /** Restore one template to its built-in default. */
-  reset(id: string): void {
-    if (!promptDefaultById(id)) return;
-    this._overrides.update(map => {
-      const next = { ...map };
-      delete next[id];
-      return next;
-    });
-    this.persist();
-  }
-
-  /** Restore every template to its built-in default. */
-  resetAll(): void {
-    this._overrides.set({});
-    this.persist();
+  /** True when this template has ANY selection (user or topic). */
+  isCustom(id: string): boolean {
+    return this._selections().some(s => s.promptId === id);
   }
 
   /**
@@ -197,24 +265,154 @@ export class PromptDefaultsService {
    * documented `vars`). Unknown placeholders are left as-is; conditional
    * blocks decide on truthiness (non-empty string / non-zero number / true).
    */
-  render(id: string, vars: PromptVars): string {
-    return evaluateTemplate(this.effective(id), vars);
+  render(id: string, vars: PromptVars, topicId?: string | null): string {
+    return evaluateTemplate(this.effective(id, topicId), vars);
   }
 
-  private persist(): void {
-    this.syncCustomized();
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(this.overrides()));
-    } catch {
-      // storage may be unavailable (private mode / SSR) — ignore.
+  // ------------------------------------------------------------ version queries
+
+  /** All stored versions for a template (user + all topics). */
+  versionsFor(promptId: string): PromptVersion[] {
+    return this._versions().filter(v => v.promptId === promptId);
+  }
+
+  /** Global (scope='user') versions for a template. */
+  userVersions(promptId: string): PromptVersion[] {
+    return this._versions().filter(v => v.promptId === promptId && v.scope === 'user');
+  }
+
+  /** Topic-bound versions for a template under `topicId`. */
+  topicVersions(promptId: string, topicId: string): PromptVersion[] {
+    return this._versions().filter(
+      v => v.promptId === promptId && v.scope === 'topic' && v.topicId === topicId,
+    );
+  }
+
+  /** The active selection for (promptId, scope[, topicId]). */
+  selectionFor(promptId: string, scope: PromptScope, topicId?: string | null): PromptSelection | undefined {
+    return this.selection(promptId, scope, topicId);
+  }
+
+  // ------------------------------------------------------------- mutations
+
+  private applyVersion(version: PromptVersion): void {
+    this._versions.update(list =>
+      list.some(v => v.id === version.id)
+        ? list.map(v => (v.id === version.id ? version : v))
+        : [...list, version],
+    );
+  }
+
+  /** Create a named version (global user scope, or bound to a topic). */
+  async createVersion(
+    promptId: string,
+    name: string,
+    text: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<PromptVersion> {
+    const version = await this.api.createPromptVersion({
+      promptId,
+      name,
+      text,
+      scope,
+      topicId,
+    });
+    this.applyVersion(version);
+    return version;
+  }
+
+  /** Update a version's text (replaces the effective text when it is active). */
+  async saveVersionText(id: string, text: string): Promise<PromptVersion> {
+    const version = await this.api.updatePromptVersion(id, { text });
+    this.applyVersion(version);
+    return version;
+  }
+
+  /** Rename a version (its identity for the pickers). */
+  async renameVersion(id: string, name: string): Promise<PromptVersion> {
+    const version = await this.api.updatePromptVersion(id, { name });
+    this.applyVersion(version);
+    return version;
+  }
+
+  /** Delete a version (any selection pointing at it is dropped server-side). */
+  async deleteVersion(id: string): Promise<void> {
+    await this.api.deletePromptVersion(id);
+    this._versions.update(list => list.filter(v => v.id !== id));
+    this._selections.update(list => list.filter(s => s.versionId !== id));
+  }
+
+  /** Set the active version for (promptId, scope[, topicId]). */
+  async selectVersion(
+    promptId: string,
+    versionId: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<PromptSelection> {
+    const selection = await this.api.setPromptSelection({ promptId, scope, topicId, versionId });
+    this._selections.update(list => {
+      const others = list.filter(
+        s => !(s.promptId === promptId && s.scope === scope && s.topicId === (topicId ?? null)),
+      );
+      return [...others, selection];
+    });
+    return selection;
+  }
+
+  /** Clear the active version for (promptId, scope[, topicId]) — falls through. */
+  async clearSelection(promptId: string, scope: PromptScope, topicId?: string | null): Promise<void> {
+    await this.api.deletePromptSelection(promptId, scope, topicId);
+    this._selections.update(list =>
+      list.filter(
+        s => !(s.promptId === promptId && s.scope === scope && s.topicId === (topicId ?? null)),
+      ),
+    );
+  }
+
+  /**
+   * Revert `promptId` to the built-in default: clears the user selection AND
+   * (when a topic is given) the topic selection, so nothing overrides.
+   */
+  async revertToDefault(promptId: string, topicId?: string | null): Promise<void> {
+    await this.clearSelection(promptId, 'user');
+    if (topicId) await this.clearSelection(promptId, 'topic', topicId);
+  }
+
+  // ---- backward-compatible aliases used by the legacy settings UI ----
+
+  /**
+   * Update the effective template text. When a user version is active it is
+   * updated in place; otherwise a new user version named "Customized" is
+   * created and selected. Empty text clears the selection (revert to default).
+   */
+  async update(id: string, text: string): Promise<void> {
+    if (!promptDefaultById(id)) return;
+    const trimmed = (text ?? '').trim();
+    if (!trimmed) {
+      await this.revertToDefault(id);
+      return;
+    }
+    const active = this.activeVersion(id);
+    if (active && active.scope === 'user') {
+      await this.saveVersionText(active.id, text);
+    } else {
+      const version = await this.createVersion(id, 'Customized', text, 'user');
+      await this.selectVersion(id, version.id, 'user');
     }
   }
 
-  private syncCustomized(): void {
-    this.customized.set(
-      PROMPT_DEFAULTS
-        .map(d => d.id)
-        .filter(id => this.isCustom(id))
-    );
+  /** Restore one template to its built-in default (drops all its selections). */
+  reset(id: string): Promise<void> {
+    return this.revertToDefault(id);
+  }
+
+  /** Restore every template to its built-in default (drops all selections). */
+  resetAll(): Promise<void> {
+    const promptIds = [...new Set(this._selections().map(s => s.promptId))];
+    return Promise.all([
+      ...promptIds.map(promptId => this.clearSelection(promptId, 'user')),
+      ...promptIds.map(promptId => this.clearSelection(promptId, 'topic')),
+    ]).then(() => undefined);
   }
 }

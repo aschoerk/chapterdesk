@@ -113,3 +113,27 @@ export interface PatchNodeRequest {
   /** One-shot context node — see ChatNode.excludeAfterSend. */
   excludeAfterSend?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Editable prompt templates (versioned, stored in the database).
+// ---------------------------------------------------------------------------
+
+export interface CreatePromptVersionRequest {
+  promptId: string;
+  name: string;
+  text: string;
+  scope: 'user' | 'topic';
+  topicId?: string | null;
+}
+
+export type UpdatePromptVersionRequest = Partial<{
+  name: string;
+  text: string;
+}>;
+
+export interface SetPromptSelectionRequest {
+  promptId: string;
+  scope: 'user' | 'topic';
+  topicId?: string | null;
+  versionId: string;
+}

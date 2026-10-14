@@ -1,31 +1,42 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { PromptsComponent } from './prompts.component';
 import { PromptDefaultsService } from '../../../core/prompt-defaults.service';
+import { PromptApiService } from '../../../core/prompt-api.service';
+import { ProjectService } from '../../../core/project.service';
+import { TopicSelectionService } from '../../../core/topic-selection.service';
 import { PROMPT_DEFAULTS } from '../../../models/prompt-default';
+import type { Topic } from '../../../models/chat';
+import { makeTopic } from '../../../../../test-helpers/factories';
+import { FakePromptApiService } from '../../../../../test-helpers/fake-prompt-api';
 
 describe('PromptsComponent', () => {
   let fixture: ComponentFixture<PromptsComponent>;
   let component: PromptsComponent;
   let defaults: PromptDefaultsService;
+  let topicSelection: TopicSelectionService;
+  const topics = signal<Topic[]>([]);
 
   beforeEach(async () => {
+    topics.set([]);
     localStorage.removeItem('chat.promptDefaults');
+    localStorage.removeItem('chat.selectedTopicId');
     await TestBed.configureTestingModule({
       imports: [PromptsComponent],
-      providers: [provideZonelessChangeDetection()]
+      providers: [
+        provideZonelessChangeDetection(),
+        { provide: PromptApiService, useValue: new FakePromptApiService() },
+        { provide: ProjectService, useValue: { topics: () => topics() } },
+      ],
     }).compileComponents();
 
     defaults = TestBed.inject(PromptDefaultsService);
+    topicSelection = TestBed.inject(TopicSelectionService);
 
     fixture = TestBed.createComponent(PromptsComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
-  });
-
-  afterEach(() => {
-    localStorage.removeItem('chat.promptDefaults');
   });
 
   it('renders every prompt default with its built-in text', () => {
@@ -45,22 +56,24 @@ describe('PromptsComponent', () => {
     }
   });
 
-  it('edits a template and marks it customized; Reset restores the default', () => {
-    const textarea = (fixture.nativeElement as HTMLElement)
-      .querySelector<HTMLTextAreaElement>('textarea');
-    expect(textarea).not.toBeNull();
-
+  it('saves a new user version and reverts to the default', async () => {
+    // Type a draft, then materialize it as a named user version.
     component.onInput('structure.title', 'Give this story a punchy title.');
+    expect(component.hasDraft('structure.title')).toBe(true);
+
+    component.startNewVersion('structure.title');
+    component.newVersionName.set('Punchy');
+    await component.confirmNewVersion('structure.title');
     fixture.detectChanges();
 
     expect(defaults.effective('structure.title')).toBe('Give this story a punchy title.');
     expect(defaults.isCustom('structure.title')).toBe(true);
+    expect(defaults.userVersions('structure.title')).toHaveLength(1);
     expect(component.customizedCount()).toBe(1);
-    // Persisted.
-    const stored = JSON.parse(localStorage.getItem('chat.promptDefaults') ?? '{}');
-    expect(stored['structure.title']).toBe('Give this story a punchy title.');
+    expect(component.hasDraft('structure.title')).toBe(false);
 
-    component.reset('structure.title');
+    // Revert — the selection is dropped and the built-in default returns.
+    await component.revertToDefault('structure.title');
     fixture.detectChanges();
     expect(defaults.effective('structure.title')).toBe(
       PROMPT_DEFAULTS.find(d => d.id === 'structure.title')!.default
@@ -69,38 +82,104 @@ describe('PromptsComponent', () => {
     expect(component.customizedCount()).toBe(0);
   });
 
-  it('restores the default when the user types the exact default text', () => {
-    const def = PROMPT_DEFAULTS.find(d => d.id === 'structure.title')!;
-    component.onInput('structure.title', 'Custom');
-    expect(defaults.isCustom('structure.title')).toBe(true);
+  it('edits the text of the active version via Save changes', async () => {
+    component.onInput('structure.title', 'First custom text');
+    component.startNewVersion('structure.title');
+    component.newVersionName.set('Punchy');
+    await component.confirmNewVersion('structure.title');
+    expect(defaults.effective('structure.title')).toBe('First custom text');
 
-    // Typing the exact default clears the override.
-    component.onInput('structure.title', def.default);
-    expect(defaults.isCustom('structure.title')).toBe(false);
-    expect(defaults.effective('structure.title')).toBe(def.default);
+    // The active source is now a user version → saving edits it in place.
+    component.onInput('structure.title', 'Updated custom text');
+    expect(component.hasDraft('structure.title')).toBe(true);
+    await component.saveChanges('structure.title');
+    fixture.detectChanges();
+
+    expect(defaults.effective('structure.title')).toBe('Updated custom text');
+    expect(defaults.userVersions('structure.title')).toHaveLength(1);
   });
 
-  it('Reset all clears every customization', () => {
+  it('creates and applies a topic version when a topic is selected', async () => {
+    topics.set([makeTopic({ id: 't1', name: 'Cyberpunk' })]);
+    topicSelection.selectTopic('t1');
+    const fx = TestBed.createComponent(PromptsComponent);
+    const c = fx.componentInstance;
+    fx.detectChanges();
+    expect(c.topicId()).toBe('t1');
+
+    c.onInput('structure.title', 'Neon-flavored title');
+    c.startNewVersion('structure.title');
+    c.newVersionName.set('Cyber v1');
+    c.newVersionScope.set('topic');
+    await c.confirmNewVersion('structure.title');
+    fx.detectChanges();
+
+    // The topic version applies for that topic (and as the current topic).
+    expect(defaults.effective('structure.title', 't1')).toBe('Neon-flavored title');
+    expect(c.effective('structure.title')).toBe('Neon-flavored title');
+    expect(defaults.activeSource('structure.title', 't1').kind).toBe('topic');
+    // ...but not for another topic (built-in default).
+    expect(defaults.effective('structure.title', 't2')).toBe(
+      PROMPT_DEFAULTS.find(d => d.id === 'structure.title')!.default
+    );
+  });
+
+  it('picking Built-in default in the selector reverts user and topic scope', async () => {
+    const version = await defaults.createVersion('structure.title', 'Punchy', 'Custom.', 'user');
+    await defaults.selectVersion('structure.title', version.id, 'user');
+    expect(defaults.isCustom('structure.title')).toBe(true);
+
+    await component.onSelectVersion('structure.title', '');
+    expect(defaults.isCustom('structure.title')).toBe(false);
+    expect(defaults.effective('structure.title')).toBe(
+      PROMPT_DEFAULTS.find(d => d.id === 'structure.title')!.default
+    );
+  });
+
+  it('renames and deletes a version', async () => {
+    const version = await defaults.createVersion('structure.title', 'Old name', 'Custom.', 'user');
+    await defaults.selectVersion('structure.title', version.id, 'user');
+
+    component.startRename('structure.title', version);
+    component.renameText.set('New name');
+    await component.confirmRename('structure.title', version);
+    expect(defaults.userVersions('structure.title')[0].name).toBe('New name');
+
+    await component.deleteVersion('structure.title', version.id);
+    expect(defaults.isCustom('structure.title')).toBe(false);
+    expect(defaults.effective('structure.title')).toBe(
+      PROMPT_DEFAULTS.find(d => d.id === 'structure.title')!.default
+    );
+  });
+
+  it('Reset all clears every customization', async () => {
     component.onInput('structure.title', 'T1');
+    component.startNewVersion('structure.title');
+    component.newVersionName.set('A');
+    await component.confirmNewVersion('structure.title');
+
     component.onInput('image.create', 'Draw differently.');
+    component.startNewVersion('image.create');
+    component.newVersionName.set('B');
+    await component.confirmNewVersion('image.create');
     fixture.detectChanges();
     expect(component.customizedCount()).toBe(2);
 
-    component.resetAll();
+    await component.resetAll();
     fixture.detectChanges();
     expect(component.customizedCount()).toBe(0);
     expect(defaults.isCustom('structure.title')).toBe(false);
     expect(defaults.isCustom('image.create')).toBe(false);
   });
 
-  it('render() fills placeholders from the effective template', () => {
-    defaults.update('structure.elaborate', 'Chapter {{chapter}} — go!');
+  it('render() fills placeholders from the effective template', async () => {
+    await defaults.update('structure.elaborate', 'Chapter {{chapter}} — go!');
     expect(defaults.render('structure.elaborate', { chapter: 7 }))
       .toBe('Chapter 7 — go!');
 
     // Default template keeps the built-in placeholders working; empty hints
     // leave no blank line thanks to the {{#if hints}} conditional block.
-    defaults.reset('structure.elaborate');
+    await defaults.reset('structure.elaborate');
     expect(defaults.render('structure.elaborate', { chapter: 3, hints: '' }))
       .toBe(`elaborate on chapter 3
 Expand chapter 3 in detail. Use only material that belongs in chapter 3; do not incorporate any events, details, or information from chapters that come after it.`);

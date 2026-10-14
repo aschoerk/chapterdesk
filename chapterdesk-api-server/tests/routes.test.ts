@@ -1083,4 +1083,145 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(project.body.chatParametersId).toBeNull();
     });
   });
+
+  // ------------------------------------------------------------------------
+  // Prompt versions + selections (editable prompt templates in the DB)
+  // ------------------------------------------------------------------------
+  describe('Prompt versions & selections', () => {
+    let topicId: string;
+    let userVersionId: string;
+    let topicVersionId: string;
+
+    test('GET /api/prompt-versions starts empty', async () => {
+      const res = await request(app).get('/api/prompt-versions');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    test('GET /api/prompt-selections starts empty', async () => {
+      const res = await request(app).get('/api/prompt-selections');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    test('POST /api/prompt-versions creates a user version', async () => {
+      const res = await request(app).post('/api/prompt-versions').send({
+        promptId: 'structure.title',
+        name: 'Punchy',
+        text: 'Give me a punchy title.',
+        scope: 'user',
+      });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        promptId: 'structure.title',
+        name: 'Punchy',
+        text: 'Give me a punchy title.',
+        scope: 'user',
+        topicId: null,
+      });
+      expect(res.body.id).toBeDefined();
+      userVersionId = res.body.id;
+    });
+
+    test('POST /api/prompt-versions rejects scope=topic without topicId', async () => {
+      const res = await request(app).post('/api/prompt-versions').send({
+        promptId: 'structure.headings',
+        name: 'Bad',
+        text: 'x',
+        scope: 'topic',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('POST /api/prompt-versions creates a topic version', async () => {
+      const topic = await request(app).post('/api/topics').send({ name: 'Prompt Topic' });
+      topicId = topic.body.id;
+      const res = await request(app).post('/api/prompt-versions').send({
+        promptId: 'structure.title',
+        name: 'Topic flair',
+        text: 'Title in the voice of the topic.',
+        scope: 'topic',
+        topicId,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.scope).toBe('topic');
+      expect(res.body.topicId).toBe(topicId);
+      topicVersionId = res.body.id;
+    });
+
+    test('PUT /api/prompt-versions/:id updates text and name', async () => {
+      const res = await request(app)
+        .put(`/api/prompt-versions/${userVersionId}`)
+        .send({ name: 'Punchy v2', text: 'A shorter, punchy title.' });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Punchy v2');
+      expect(res.body.text).toBe('A shorter, punchy title.');
+    });
+
+    test('PUT /api/prompt-selections upserts a user selection', async () => {
+      const res = await request(app).put('/api/prompt-selections').send({
+        promptId: 'structure.title',
+        scope: 'user',
+        versionId: userVersionId,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        promptId: 'structure.title',
+        scope: 'user',
+        topicId: null,
+        versionId: userVersionId,
+      });
+    });
+
+    test('settings a selection to a missing version 404s', async () => {
+      const res = await request(app).put('/api/prompt-selections').send({
+        promptId: 'structure.title',
+        scope: 'user',
+        versionId: 'does-not-exist',
+      });
+      expect(res.status).toBe(404);
+    });
+
+    test('PUT /api/prompt-selections upserts a topic selection', async () => {
+      const res = await request(app).put('/api/prompt-selections').send({
+        promptId: 'structure.title',
+        scope: 'topic',
+        topicId,
+        versionId: topicVersionId,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.topicId).toBe(topicId);
+      expect(res.body.versionId).toBe(topicVersionId);
+    });
+
+    test('GET /api/prompt-selections lists both selections', async () => {
+      const res = await request(app).get('/api/prompt-selections');
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(2);
+    });
+
+    test('DELETE /api/prompt-selections clears a selection', async () => {
+      const res = await request(app)
+        .delete('/api/prompt-selections')
+        .query({ promptId: 'structure.title', scope: 'topic', topicId });
+      expect(res.status).toBe(204);
+      const remaining = await request(app).get('/api/prompt-selections');
+      expect(remaining.body).toHaveLength(1);
+      expect(remaining.body[0].scope).toBe('user');
+    });
+
+    test('DELETE /api/prompt-versions/:id also clears its selections', async () => {
+      await request(app).delete(`/api/prompt-versions/${userVersionId}`).expect(204);
+      const selections = await request(app).get('/api/prompt-selections');
+      expect(selections.body).toEqual([]);
+      const versions = await request(app).get('/api/prompt-versions');
+      expect(versions.body).toHaveLength(1);
+      expect(versions.body[0].id).toBe(topicVersionId);
+    });
+
+    test('DELETE /api/prompt-versions/:id on a missing version 404s', async () => {
+      const res = await request(app).delete('/api/prompt-versions/missing');
+      expect(res.status).toBe(404);
+    });
+  });
 });

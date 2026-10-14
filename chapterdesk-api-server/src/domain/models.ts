@@ -172,3 +172,46 @@ export interface ModelEntry {
   pricing_input_cache_read?: string;
   supported_parameters?: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Editable prompt templates (stored in the database, versioned).
+//
+// A prompt template (e.g. `structure.title`) has a built-in default that lives
+// in the Angular app (`models/prompt-default.ts`). Beyond that, users can store
+// NAMED VERSIONS of the template text in the database, either globally
+// (scope = 'user') or bound to one topic (scope = 'topic').
+//
+// The ACTIVE version per prompt is chosen by a small selection table:
+//   user  → wins everywhere;
+//   topic → used when the chat belongs to a topic (its environment's main
+//           topic) and no user selection exists;
+//   none  → the built-in default.
+// ---------------------------------------------------------------------------
+
+export type PromptScope = 'user' | 'topic';
+
+export interface PromptVersion {
+  id: string;
+  /** Template id, e.g. `structure.title` (matches PromptDefaultDef.id). */
+  promptId: string;
+  /** User-chosen version name (e.g. "Dark style"). */
+  name: string;
+  text: string;
+  /** 'user' = global override; 'topic' = bound to topicId. */
+  scope: PromptScope;
+  /** Topic the version belongs to (null when scope = 'user'). */
+  topicId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromptSelection {
+  /** Template id the selection applies to. */
+  promptId: string;
+  scope: PromptScope;
+  /** Topic the selection applies to (null when scope = 'user'). */
+  topicId: string | null;
+  /** The selected PromptVersion.id. */
+  versionId: string;
+  updatedAt: string;
+}

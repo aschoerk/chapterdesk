@@ -1681,6 +1681,13 @@ export class ChatComponent implements OnInit {
     // One Stop press cancels the whole chain (all chapters / views).
     this.chatService.beginOperation('elaborate');
     try {
+      // Topic-scoped prompt versions apply to the chat's environment topic.
+      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+      const project = chat?.projectId
+        ? this.projectService.getProject(chat.projectId) ?? null
+        : null;
+      const topicId = this.projectService
+        .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
       let parentId: string | null = anchor.id;
       for (let chapter = first; chapter <= last; chapter++) {
         if (this.chatService.isOperationCancelled()) break;
@@ -1696,8 +1703,8 @@ export class ChatComponent implements OnInit {
               name,
               hints,
               isFirst: !this.elaborateStickLast() && i === 0
-            }))
-          : [this.promptDefaults.render('structure.elaborate', { chapter, hints })];
+            }, topicId))
+          : [this.promptDefaults.render('structure.elaborate', { chapter, hints }, topicId)];
 
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;

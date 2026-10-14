@@ -107,6 +107,7 @@ export const openApiSpec: OpenApiDocument = {
     { name: 'Providers', description: 'LLM credentials' },
     { name: 'Models', description: 'Catalog entries' },
     { name: 'ChatParameters', description: 'Sampling / thinking settings' },
+    { name: 'Prompts', description: 'Editable prompt templates (named versions + selections)' },
     { name: 'Proxy', description: 'Streaming LLM forwarder (not on ChatApiPort)' }
   ],
   paths: {
@@ -640,6 +641,64 @@ export const openApiSpec: OpenApiDocument = {
         responses: noContent,
       },
     },
+    '/api/prompt-versions': {
+      get: {
+        tags: ['Prompts'],
+        summary: 'List stored prompt versions',
+        operationId: 'getPromptVersions',
+        responses: ok({ type: 'array', items: ref('PromptVersion') }),
+      },
+      post: {
+        tags: ['Prompts'],
+        summary: 'Create a named prompt version',
+        operationId: 'createPromptVersion',
+        requestBody: { required: true, content: json(ref('CreatePromptVersionRequest')) },
+        responses: created(ref('PromptVersion')),
+      },
+    },
+    '/api/prompt-versions/{id}': {
+      put: {
+        tags: ['Prompts'],
+        summary: 'Update a prompt version (name/text)',
+        operationId: 'updatePromptVersion',
+        parameters: [idParam()],
+        requestBody: { required: true, content: json(ref('UpdatePromptVersionRequest')) },
+        responses: ok(ref('PromptVersion')),
+      },
+      delete: {
+        tags: ['Prompts'],
+        summary: 'Delete a prompt version (its selections are dropped)',
+        operationId: 'deletePromptVersion',
+        parameters: [idParam()],
+        responses: noContent,
+      },
+    },
+    '/api/prompt-selections': {
+      get: {
+        tags: ['Prompts'],
+        summary: 'List active prompt selections',
+        operationId: 'getPromptSelections',
+        responses: ok({ type: 'array', items: ref('PromptSelection') }),
+      },
+      put: {
+        tags: ['Prompts'],
+        summary: 'Set the active version for (promptId, scope, topicId)',
+        operationId: 'setPromptSelection',
+        requestBody: { required: true, content: json(ref('SetPromptSelectionRequest')) },
+        responses: ok(ref('PromptSelection')),
+      },
+      delete: {
+        tags: ['Prompts'],
+        summary: 'Clear the active version for (promptId, scope, topicId)',
+        operationId: 'deletePromptSelection',
+        parameters: [
+          { name: 'promptId', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'scope', in: 'query', required: true, schema: { type: 'string', enum: ['user', 'topic'] } },
+          { name: 'topicId', in: 'query', required: false, schema: { type: 'string' } },
+        ],
+        responses: noContent,
+      },
+    },
   },
   components: {
     schemas: {
@@ -1016,6 +1075,59 @@ export const openApiSpec: OpenApiDocument = {
           stream: { type: 'boolean', nullable: true },
           thinking: { type: 'boolean', nullable: true },
           thinkingLevel,
+        },
+      },
+      PromptVersion: {
+        type: 'object',
+        required: ['id', 'promptId', 'name', 'text', 'scope', 'topicId', 'createdAt', 'updatedAt'],
+        properties: {
+          id: { type: 'string' },
+          promptId: { type: 'string' },
+          name: { type: 'string' },
+          text: { type: 'string' },
+          scope: { type: 'string', enum: ['user', 'topic'] },
+          topicId: { type: 'string', nullable: true },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreatePromptVersionRequest: {
+        type: 'object',
+        required: ['promptId', 'name', 'text', 'scope'],
+        properties: {
+          promptId: { type: 'string' },
+          name: { type: 'string' },
+          text: { type: 'string' },
+          scope: { type: 'string', enum: ['user', 'topic'] },
+          topicId: { type: 'string', nullable: true },
+        },
+      },
+      UpdatePromptVersionRequest: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          text: { type: 'string' },
+        },
+      },
+      PromptSelection: {
+        type: 'object',
+        required: ['promptId', 'scope', 'topicId', 'versionId'],
+        properties: {
+          promptId: { type: 'string' },
+          scope: { type: 'string', enum: ['user', 'topic'] },
+          topicId: { type: 'string', nullable: true },
+          versionId: { type: 'string' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      SetPromptSelectionRequest: {
+        type: 'object',
+        required: ['promptId', 'scope', 'versionId'],
+        properties: {
+          promptId: { type: 'string' },
+          scope: { type: 'string', enum: ['user', 'topic'] },
+          topicId: { type: 'string', nullable: true },
+          versionId: { type: 'string' },
         },
       },
     },

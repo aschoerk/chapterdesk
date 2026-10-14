@@ -8,6 +8,9 @@ import type {
   NodeAttachment,
   Persona,
   Project,
+  PromptScope,
+  PromptSelection,
+  PromptVersion,
   ProviderConfig,
   Topic
 } from './models.js';
@@ -16,15 +19,18 @@ import type {
   CreateModelRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
+  CreatePromptVersionRequest,
   CreateProviderRequest,
   CreateTopicRequest,
   PatchChatRequest,
   PatchNodeRequest,
+  SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
+  UpdatePromptVersionRequest,
   UpdateTopicRequest
 } from './requests.js';
 
@@ -103,6 +109,24 @@ export interface ChatApiPort {
   createChatParameters(data: ChatParametersDraft): Promise<ChatParameters>;
   updateChatParameters(id: string, data: ChatParametersDraft): Promise<ChatParameters>;
   deleteChatParameters(id: string): Promise<void>;
+
+  // Editable prompt templates (versioned, stored in the database).
+
+  /** All stored prompt versions (user + every topic). */
+  getPromptVersions(): Promise<PromptVersion[]>;
+  createPromptVersion(data: CreatePromptVersionRequest): Promise<PromptVersion>;
+  updatePromptVersion(id: string, data: UpdatePromptVersionRequest): Promise<PromptVersion>;
+  deletePromptVersion(id: string): Promise<void>;
+  /** All active prompt selections (user + every topic). */
+  getPromptSelections(): Promise<PromptSelection[]>;
+  /** Upsert the active version for (promptId, scope, topicId). */
+  setPromptSelection(data: SetPromptSelectionRequest): Promise<PromptSelection>;
+  /** Clear the active version for (promptId, scope, topicId) → falls through. */
+  deletePromptSelection(
+    promptId: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<void>;
 }
 
 export type PersistenceKind = 'memory' | 'sqlite' | 'firebase';

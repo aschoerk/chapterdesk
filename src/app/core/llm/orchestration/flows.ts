@@ -881,6 +881,8 @@ export class LlmFlowRunner {
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk'] } = {}): Promise<EvalSlots> {
     const cx = this.factory.buildContext(build);
+    // Topic-scoped prompt versions apply to the request's chat.
+    this.factory.setPromptTopic(this.factory.topicIdForChat(cx.chat));
     // An explicit model override (e.g. a model chosen in a dialog) wins over
     // the node's own model — see `send-elaborate`.
     const write = this.factory.resolveWriteModel(cx.node, build.vars.modelId, build.vars.providerId);

@@ -10,6 +10,9 @@ import type {
   NodeAttachment,
   Persona,
   Project,
+  PromptScope,
+  PromptSelection,
+  PromptVersion,
   ProviderConfig,
   Topic,
 } from '../../domain/models.js';
@@ -18,15 +21,18 @@ import type {
   CreateModelRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
+  CreatePromptVersionRequest,
   CreateProviderRequest,
   CreateTopicRequest,
   PatchChatRequest,
   PatchNodeRequest,
+  SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
+  UpdatePromptVersionRequest,
   UpdateTopicRequest,
 } from '../../domain/requests.js';
 import { badRequest, notFound } from '../../http/http-error.js';
@@ -79,6 +85,8 @@ export class MemoryPersistence implements PersistencePort {
   private providers = new Map<string, ProviderConfig>();
   private models = new Map<string, ModelEntry>();
   private parameters = new Map<string, ChatParameters>();
+  private promptVersions = new Map<string, PromptVersion>();
+  private promptSelections = new Map<string, PromptSelection>();
   private topicRevisions = new Map<string, SnapshotMeta>();
   private providerRevisions = new Map<string, SnapshotMeta>();
 
@@ -839,6 +847,76 @@ export class MemoryPersistence implements PersistencePort {
       if (node.chatParametersId === id) node.chatParametersId = null;
     }
     this.parameters.delete(id);
+  }
+
+  // ---------- Editable prompt templates (versions + selections) ----------
+
+  private selectionKey(promptId: string, scope: PromptScope, topicId?: string | null): string {
+    return `${promptId}::${scope}::${topicId ?? ''}`;
+  }
+
+  async getPromptVersions(): Promise<PromptVersion[]> {
+    return [...this.promptVersions.values()].map(clone);
+  }
+  async createPromptVersion(data: CreatePromptVersionRequest): Promise<PromptVersion> {
+    const ts = now();
+    const scope = data.scope === 'topic' ? 'topic' : 'user';
+    const version: PromptVersion = {
+      id: randomUUID(),
+      promptId: data.promptId,
+      name: data.name ?? '',
+      text: data.text ?? '',
+      scope,
+      topicId: scope === 'topic' ? (data.topicId ?? null) : null,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    this.promptVersions.set(version.id, version);
+    return clone(version);
+  }
+  async updatePromptVersion(id: string, data: UpdatePromptVersionRequest): Promise<PromptVersion> {
+    const existing = this.promptVersions.get(id);
+    if (!existing) throw notFound('prompt-version', id);
+    const next: PromptVersion = {
+      ...existing,
+      name: data.name !== undefined ? data.name : existing.name,
+      text: data.text !== undefined ? data.text : existing.text,
+      updatedAt: now(),
+    };
+    this.promptVersions.set(id, next);
+    return clone(next);
+  }
+  async deletePromptVersion(id: string): Promise<void> {
+    if (!this.promptVersions.has(id)) throw notFound('prompt-version', id);
+    this.promptVersions.delete(id);
+    for (const [key, selection] of this.promptSelections) {
+      if (selection.versionId === id) this.promptSelections.delete(key);
+    }
+  }
+
+  async getPromptSelections(): Promise<PromptSelection[]> {
+    return [...this.promptSelections.values()].map(clone);
+  }
+  async setPromptSelection(data: SetPromptSelectionRequest): Promise<PromptSelection> {
+    const scope = data.scope === 'topic' ? 'topic' : 'user';
+    const topicId = scope === 'topic' ? (data.topicId ?? null) : null;
+    if (!this.promptVersions.has(data.versionId)) throw notFound('prompt-version', data.versionId);
+    const selection: PromptSelection = {
+      promptId: data.promptId,
+      scope,
+      topicId,
+      versionId: data.versionId,
+      updatedAt: now(),
+    };
+    this.promptSelections.set(this.selectionKey(data.promptId, scope, topicId), selection);
+    return clone(selection);
+  }
+  async deletePromptSelection(
+    promptId: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<void> {
+    this.promptSelections.delete(this.selectionKey(promptId, scope, topicId));
   }
 
   private requireChat(id: string): Chat {

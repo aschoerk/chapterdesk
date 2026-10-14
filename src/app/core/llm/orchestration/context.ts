@@ -93,6 +93,29 @@ export class UsecaseContextFactory {
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
 
+  /**
+   * The topic whose prompt versions apply to the request currently being
+   * built. Set by the runners from the request's chat (its environment's main
+   * topic) at the start of each `run()`. Null = no topic scope.
+   */
+  private promptTopic: string | null = null;
+
+  /** Set the topic used to resolve topic-scoped prompt versions. */
+  setPromptTopic(topicId: string | null): void {
+    this.promptTopic = topicId;
+  }
+
+  /** Topic bound to a chat's environment (its main topic), or null. */
+  topicIdForChat(chat: Chat | null): string | null {
+    if (!chat) return null;
+    const project = chat.projectId
+      ? this.projectService.getProject(chat.projectId) ?? null
+      : null;
+    if (!project) return null;
+    const topic = this.projectService.topicForProject(project.id, this.projectService.topics());
+    return topic?.id ?? null;
+  }
+
   /** Enabled image-capable models, sorted by display name. */
   private enabledImageModels(): ModelEntry[] {
     return this.settings.enabledModels().filter(canGenerateImages);
@@ -245,7 +268,7 @@ export class UsecaseContextFactory {
 
   /** The image-interpret prompt template (image.interpret default/override). */
   imageInterpretPrompt(): string {
-    return this.promptDefaults.effective('image.interpret');
+    return this.promptDefaults.effective('image.interpret', this.promptTopic);
   }
 
   /**
@@ -378,7 +401,7 @@ export class UsecaseContextFactory {
   /** The task prompt (or its built-in default) for the image-create task. */
   drawingInstruction(): string {
     return this.generation.get('image-create').prompt.trim()
-      || this.promptDefaults.effective('image.create');
+      || this.promptDefaults.effective('image.create', this.promptTopic);
   }
 
   /** Style-wrapped drawing instruction. */
@@ -397,15 +420,15 @@ export class UsecaseContextFactory {
   structureInstruction(task: 'title' | 'overview' | 'headings'): string {
     const prompt = this.generation.get(task).prompt.trim();
     if (prompt) return prompt;
-    if (task === 'title') return this.promptDefaults.effective('structure.title');
-    if (task === 'overview') return this.promptDefaults.effective('structure.overview');
-    return this.promptDefaults.effective('structure.headings');
+    if (task === 'title') return this.promptDefaults.effective('structure.title', this.promptTopic);
+    if (task === 'overview') return this.promptDefaults.effective('structure.overview', this.promptTopic);
+    return this.promptDefaults.effective('structure.headings', this.promptTopic);
   }
 
   /** The language-check instruction (config override or built-in default). */
   englishCheckInstruction(): string {
     const prompt = this.generation.get('language-check').prompt.trim();
-    return prompt || this.promptDefaults.effective('language.check');
+    return prompt || this.promptDefaults.effective('language.check', this.promptTopic);
   }
 
   /**
@@ -415,12 +438,12 @@ export class UsecaseContextFactory {
    * structured lines.
    */
   chapterDescriptionsInstruction(): string {
-    return this.promptDefaults.effective('structure.chapterDescriptions');
+    return this.promptDefaults.effective('structure.chapterDescriptions', this.promptTopic);
   }
 
   /** The rewrite-selection instruction (editable prompt default). */
   rewriteInstruction(): string {
-    return this.promptDefaults.effective('language.rewrite');
+    return this.promptDefaults.effective('language.rewrite', this.promptTopic);
   }
 
   /** Topic system prompt for a chat (reuses legacy helper conceptually). */
@@ -464,7 +487,7 @@ export class UsecaseContextFactory {
 
   /** The planner instruction (from the image.planning template). */
   picturePlanningInstruction(total: number, extra?: string): string {
-    const base = this.promptDefaults.render('image.planning', { total });
+    const base = this.promptDefaults.render('image.planning', { total }, this.promptTopic);
     return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 
@@ -474,7 +497,7 @@ export class UsecaseContextFactory {
    * fewer static stills and more alive, action-bearing scenes.
    */
   pictureScenePlanningInstruction(total: number, extra?: string): string {
-    const base = this.promptDefaults.render('image.planning-scenes', { total });
+    const base = this.promptDefaults.render('image.planning-scenes', { total }, this.promptTopic);
     return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 
@@ -558,7 +581,7 @@ export class UsecaseContextFactory {
   /** The one-shot storyboard prompt (from the image.one-shot template). */
   oneShotStoryboardPrompt(basePrompt: string, descriptions: string[], total: number, extra?: string): string {
     let text = basePrompt ? `${basePrompt}\n\n` : '';
-    text += this.promptDefaults.render('image.one-shot', { total });
+    text += this.promptDefaults.render('image.one-shot', { total }, this.promptTopic);
     if (descriptions.length > 0) {
       text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
       descriptions.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
@@ -576,7 +599,7 @@ export class UsecaseContextFactory {
    */
   oneShotScenesPrompt(basePrompt: string, descriptions: string[], total: number, extra?: string): string {
     let text = basePrompt ? `${basePrompt}\n\n` : '';
-    text += this.promptDefaults.render('image.one-shot-scenes', { total });
+    text += this.promptDefaults.render('image.one-shot-scenes', { total }, this.promptTopic);
     if (descriptions.length > 0) {
       text += `\n\nThe exact scenes to render (one image per scene, in this order):\n`;
       descriptions.forEach((p, i) => { text += `${i + 1}. ${p}\n`; });
@@ -591,14 +614,14 @@ export class UsecaseContextFactory {
     const numbered = descriptions
       .map((d, i) => `${i + 1}. ${d.trim()}`)
       .join('\n') + (descriptions.length ? '\n' : '');
-    text += this.promptDefaults.render('image.pure', { total, descriptions: numbered });
+    text += this.promptDefaults.render('image.pure', { total, descriptions: numbered }, this.promptTopic);
     if (extra?.trim()) text += `\n\nAdditional rules for every picture:\n${extra.trim()}`;
     return text;
   }
 
   /** Per-scene storyboard instruction (from the image.storyboard template). */
   storyboardInstruction(index: number, total: number, extra?: string): string {
-    const base = this.promptDefaults.render('image.storyboard', { index: index + 1, total });
+    const base = this.promptDefaults.render('image.storyboard', { index: index + 1, total }, this.promptTopic);
     return extra?.trim() ? `${base}\n\nRules for every picture:\n${extra.trim()}` : base;
   }
 }

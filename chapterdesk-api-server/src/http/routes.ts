@@ -12,14 +12,17 @@ import type {
   CreateModelRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
+  CreatePromptVersionRequest,
   CreateProviderRequest,
   CreateTopicRequest,
   PatchChatRequest,
   PatchNodeRequest,
+  SetPromptSelectionRequest,
   UpdateModelRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
+  UpdatePromptVersionRequest,
   UpdateTopicRequest,
 } from '../domain/requests.js';
 import { badRequest, notFound } from './http-error.js';
@@ -612,6 +615,97 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
     '/api/chat-parameters/:id',
     wrap(async (req, res) => {
       await api.deleteChatParameters(param(req, 'id'));
+      res.status(204).end();
+    }),
+  );
+
+  // Editable prompt templates (versioned, stored in the database).
+  //   GET/POST    /api/prompt-versions
+  //   PUT/DELETE  /api/prompt-versions/:id
+  //   GET         /api/prompt-selections
+  //   PUT/DELETE  /api/prompt-selections  (upsert / clear by promptId+scope+topicId)
+  const PROMPT_SCOPES = new Set(['user', 'topic']);
+
+  app.get(
+    '/api/prompt-versions',
+    wrap(async (_req, res) => {
+      res.json(await api.getPromptVersions());
+    }),
+  );
+  app.post(
+    '/api/prompt-versions',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.promptId !== 'string' || !body.promptId) {
+        throw badRequest('promptId (string) is required');
+      }
+      if (typeof body.name !== 'string') body.name = '';
+      if (typeof body.text !== 'string') throw badRequest('text (string) is required');
+      if (body.scope !== 'user' && body.scope !== 'topic') body.scope = 'user';
+      if (body.scope === 'topic' && typeof body.topicId !== 'string') {
+        throw badRequest('topicId (string) is required for scope=topic versions');
+      }
+      res.status(201).json(await api.createPromptVersion(body as unknown as CreatePromptVersionRequest));
+    }),
+  );
+  app.put(
+    '/api/prompt-versions/:id',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (body.name !== undefined && typeof body.name !== 'string') {
+        throw badRequest('name must be a string');
+      }
+      if (body.text !== undefined && typeof body.text !== 'string') {
+        throw badRequest('text must be a string');
+      }
+      res.json(await api.updatePromptVersion(param(req, 'id'), body as UpdatePromptVersionRequest));
+    }),
+  );
+  app.delete(
+    '/api/prompt-versions/:id',
+    wrap(async (req, res) => {
+      await api.deletePromptVersion(param(req, 'id'));
+      res.status(204).end();
+    }),
+  );
+
+  app.get(
+    '/api/prompt-selections',
+    wrap(async (_req, res) => {
+      res.json(await api.getPromptSelections());
+    }),
+  );
+  app.put(
+    '/api/prompt-selections',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.promptId !== 'string' || !body.promptId) {
+        throw badRequest('promptId (string) is required');
+      }
+      if (!PROMPT_SCOPES.has(String(body.scope ?? 'user'))) {
+        throw badRequest('scope must be "user" or "topic"');
+      }
+      if (typeof body.versionId !== 'string' || !body.versionId) {
+        throw badRequest('versionId (string) is required');
+      }
+      const scope = String(body.scope) as CreatePromptVersionRequest['scope'];
+      if (scope === 'topic' && typeof body.topicId !== 'string') {
+        throw badRequest('topicId (string) is required for scope=topic selections');
+      }
+      res.json(await api.setPromptSelection(body as unknown as SetPromptSelectionRequest));
+    }),
+  );
+  app.delete(
+    '/api/prompt-selections',
+    wrap(async (req, res) => {
+      const promptId = String(req.query.promptId ?? '');
+      const scope = String(req.query.scope ?? 'user');
+      if (!promptId) throw badRequest('promptId query param is required');
+      if (!PROMPT_SCOPES.has(scope)) throw badRequest('scope must be "user" or "topic"');
+      const topicId = req.query.topicId
+        ? String(req.query.topicId)
+        : null;
+      await api.deletePromptSelection(promptId, scope as 'user' | 'topic', topicId);
       res.status(204).end();
     }),
   );

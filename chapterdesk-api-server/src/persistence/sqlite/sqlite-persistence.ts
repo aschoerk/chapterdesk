@@ -13,6 +13,9 @@ import type {
   NodeAttachment,
   Persona,
   Project,
+  PromptScope,
+  PromptSelection,
+  PromptVersion,
   ProviderConfig,
   Topic,
 } from '../../domain/models.js';
@@ -21,15 +24,18 @@ import type {
   CreateModelRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
+  CreatePromptVersionRequest,
   CreateProviderRequest,
   CreateTopicRequest,
   PatchChatRequest,
   PatchNodeRequest,
+  SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
+  UpdatePromptVersionRequest,
   UpdateTopicRequest,
 } from '../../domain/requests.js';
 import { badRequest, notFound } from '../../http/http-error.js';
@@ -181,6 +187,29 @@ function mapParameters(row: Row): ChatParameters {
   };
 }
 
+function mapPromptVersion(row: Row): PromptVersion {
+  return {
+    id: row.id as string,
+    promptId: row.prompt_id as string,
+    name: (row.name as string) ?? '',
+    text: (row.text as string) ?? '',
+    scope: (row.scope as PromptScope) ?? 'user',
+    topicId: (row.topic_id as string | null) ?? null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+function mapPromptSelection(row: Row): PromptSelection {
+  return {
+    promptId: row.prompt_id as string,
+    scope: (row.scope as PromptScope) ?? 'user',
+    topicId: (row.topic_id as string | null) ?? null,
+    versionId: row.version_id as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 export class SqlitePersistence implements PersistencePort {
   readonly kind = 'sqlite' as const;
   private readonly db: Database.Database;
@@ -203,6 +232,9 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
       CREATE TABLE IF NOT EXISTS chat_parameters (id TEXT PRIMARY KEY, name TEXT DEFAULT '', temperature REAL, top_k INTEGER, top_m REAL, top_p REAL, stream INTEGER, thinking INTEGER, thinking_level TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS prompt_versions (id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS prompt_selections (prompt_id TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(prompt_id, scope, topic_id));
+      CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(prompt_id);
       CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
     `);
     this.addColumn('projects', 'main_topic_id', 'TEXT');
@@ -1047,5 +1079,79 @@ export class SqlitePersistence implements PersistencePort {
       this.db.prepare('DELETE FROM chat_parameters WHERE id=?').run(id);
     });
     tx();
+  }
+
+  // ---------- Editable prompt templates (versions + selections) ----------
+
+  async getPromptVersions(): Promise<PromptVersion[]> {
+    return this.rows('SELECT * FROM prompt_versions ORDER BY rowid').map(mapPromptVersion);
+  }
+  async createPromptVersion(data: CreatePromptVersionRequest): Promise<PromptVersion> {
+    const id = randomUUID();
+    const ts = now();
+    const scope = data.scope === 'topic' ? 'topic' : 'user';
+    this.db
+      .prepare(
+        'INSERT INTO prompt_versions(id,prompt_id,name,text,scope,topic_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+      )
+      .run(
+        id,
+        data.promptId,
+        data.name ?? '',
+        data.text ?? '',
+        scope,
+        scope === 'topic' ? (data.topicId ?? null) : null,
+        ts,
+        ts,
+      );
+    return mapPromptVersion(this.requireRow('prompt-version', id, 'prompt_versions'));
+  }
+  async updatePromptVersion(id: string, data: UpdatePromptVersionRequest): Promise<PromptVersion> {
+    const old = this.requireRow('prompt-version', id, 'prompt_versions');
+    this.db
+      .prepare('UPDATE prompt_versions SET name=?,text=?,updated_at=? WHERE id=?')
+      .run(
+        data.name !== undefined ? data.name : old.name,
+        data.text !== undefined ? data.text : old.text,
+        now(),
+        id,
+      );
+    return mapPromptVersion(this.requireRow('prompt-version', id, 'prompt_versions'));
+  }
+  async deletePromptVersion(id: string): Promise<void> {
+    this.requireRow('prompt-version', id, 'prompt_versions');
+    const tx = this.db.transaction(() => {
+      // A deleted version can no longer be "active" — clear its selections.
+      this.db.prepare('DELETE FROM prompt_selections WHERE version_id=?').run(id);
+      this.db.prepare('DELETE FROM prompt_versions WHERE id=?').run(id);
+    });
+    tx();
+  }
+
+  async getPromptSelections(): Promise<PromptSelection[]> {
+    return this.rows('SELECT * FROM prompt_selections').map(mapPromptSelection);
+  }
+  async setPromptSelection(data: SetPromptSelectionRequest): Promise<PromptSelection> {
+    const scope = data.scope === 'topic' ? 'topic' : 'user';
+    const topicId = scope === 'topic' ? (data.topicId ?? null) : null;
+    this.requireRow('prompt-version', data.versionId, 'prompt_versions');
+    const ts = now();
+    this.db
+      .prepare(
+        'INSERT INTO prompt_selections(prompt_id,scope,topic_id,version_id,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(prompt_id,scope,topic_id) DO UPDATE SET version_id=excluded.version_id, updated_at=excluded.updated_at',
+      )
+      .run(data.promptId, scope, topicId, data.versionId, ts);
+    return { promptId: data.promptId, scope, topicId, versionId: data.versionId, updatedAt: ts };
+  }
+  async deletePromptSelection(
+    promptId: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<void> {
+    this.db
+      .prepare(
+        'DELETE FROM prompt_selections WHERE prompt_id=? AND scope=? AND topic_id IS ?',
+      )
+      .run(promptId, scope, topicId ?? null);
   }
 }

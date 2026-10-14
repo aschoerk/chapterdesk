@@ -612,6 +612,8 @@ export class LlmUseCaseRunner {
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void; nodeId?: string } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
     const cx = this.factory.buildContext(build);
+    // Topic-scoped prompt versions apply to the request's chat.
+    this.factory.setPromptTopic(this.factory.topicIdForChat(cx.chat));
 
     // Structural flows (branch/insert/regenerate/rewrite/prepend): delegate
     // to the flow runner, which handles its own env (write model + ChatService

@@ -9,6 +9,9 @@ import type {
   NodeAttachment,
   Persona,
   Project,
+  PromptScope,
+  PromptSelection,
+  PromptVersion,
   ProviderConfig,
   Topic
 } from '../domain/models.js';
@@ -17,15 +20,18 @@ import type {
   CreateModelRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
+  CreatePromptVersionRequest,
   CreateProviderRequest,
   CreateTopicRequest,
   PatchChatRequest,
   PatchNodeRequest,
+  SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
+  UpdatePromptVersionRequest,
   UpdateTopicRequest
 } from '../domain/requests.js';
 import {
@@ -328,6 +334,35 @@ export class SnapshotPersistence implements PersistencePort {
   async deleteChatParameters(id: string): Promise<void> {
     await this.memory.deleteChatParameters(id);
     await this.flush();
+  }
+
+  // Prompt versions + selections are global (shared) data — persisted in the
+  // plain memory store, no topic/provider snapshot flush needed.
+
+  async getPromptVersions(): Promise<PromptVersion[]> {
+    return this.memory.getPromptVersions();
+  }
+  async createPromptVersion(data: CreatePromptVersionRequest): Promise<PromptVersion> {
+    return this.memory.createPromptVersion(data);
+  }
+  async updatePromptVersion(id: string, data: UpdatePromptVersionRequest): Promise<PromptVersion> {
+    return this.memory.updatePromptVersion(id, data);
+  }
+  async deletePromptVersion(id: string): Promise<void> {
+    await this.memory.deletePromptVersion(id);
+  }
+  async getPromptSelections(): Promise<PromptSelection[]> {
+    return this.memory.getPromptSelections();
+  }
+  async setPromptSelection(data: SetPromptSelectionRequest): Promise<PromptSelection> {
+    return this.memory.setPromptSelection(data);
+  }
+  async deletePromptSelection(
+    promptId: string,
+    scope: PromptScope,
+    topicId?: string | null,
+  ): Promise<void> {
+    await this.memory.deletePromptSelection(promptId, scope, topicId);
   }
 }
 

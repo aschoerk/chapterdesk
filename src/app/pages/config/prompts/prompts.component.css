@@ -117,3 +117,310 @@
   line-height: 1.45;
   color: var(--text, #222);
 }
+
+/* ---------- version management ---------- */
+
+.prompt-topic-warn {
+  display: block;
+  margin-top: 0.4rem;
+  color: #b45309;
+}
+
+.prompt-version-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.prompt-select {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-muted, #888);
+}
+
+.prompt-select select {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+  min-width: 16rem;
+}
+
+.prompt-source-label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+  align-self: center;
+}
+
+.prompt-draft-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed var(--color-primary, #2563eb);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 6%, transparent);
+}
+
+.prompt-draft-hint {
+  flex: 1;
+  font-size: 0.76rem;
+  color: var(--text-muted, #666);
+}
+
+.prompt-new-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-new-version label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-muted, #888);
+}
+
+.prompt-new-version input,
+.prompt-new-version select {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+}
+
+.prompt-new-version-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.prompt-versions {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.prompt-versions summary {
+  cursor: pointer;
+  color: var(--text-muted, #666);
+}
+
+.prompt-versions-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.prompt-version-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-version-scope {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #888);
+  min-width: 5rem;
+}
+
+.prompt-version-name {
+  flex: 1;
+  font-size: 0.82rem;
+}
+
+.prompt-rename {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.prompt-rename input {
+  flex: 1;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+}
+
+.prompt-version-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+/* ------ named-version management ------ */
+
+.prompt-topic-warn {
+  display: block;
+  margin-top: 0.5rem;
+  color: #b45309;
+}
+
+.prompt-version-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+.prompt-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+}
+
+.prompt-select select {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+}
+
+.prompt-source-label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+}
+
+.prompt-draft-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.prompt-draft-hint {
+  font-size: 0.78rem;
+  color: #b45309;
+}
+
+.prompt-new-version {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-new-version label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #666);
+}
+
+.prompt-new-version input,
+.prompt-new-version select {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+}
+
+.prompt-new-version-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.prompt-versions {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.prompt-versions summary {
+  cursor: pointer;
+  color: var(--text-muted, #666);
+}
+
+.prompt-versions-list {
+  margin: 0.4rem 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.prompt-version-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border, #eee);
+  border-radius: 6px;
+  background: var(--panel, #fafafa);
+}
+
+.prompt-version-scope {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #888);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.prompt-version-name {
+  font-size: 0.85rem;
+}
+
+.prompt-version-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.prompt-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.prompt-rename input {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--text, #222);
+}

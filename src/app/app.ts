@@ -17,6 +17,7 @@ import {PersonaService} from './core/persona.service';
 import {DemoDataService} from './core/demo-data/demo-data.service';
 import {SetupWizardComponent} from './components/setup-wizard/setup-wizard.component';
 import {SetupWizardService} from './core/setup-wizard.service';
+import {PromptDefaultsService} from './core/prompt-defaults.service';
 
 @Component({
   selector: 'app-root',
@@ -33,6 +34,7 @@ export class App {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly personaService = inject(PersonaService);
+  private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly demoData = inject(DemoDataService);
   private readonly setupWizard = inject(SetupWizardService);
   readonly router = inject(Router);
@@ -60,7 +62,8 @@ export class App {
         this.chatService.loadChats(),
         this.projectService.loadProjects(),
         this.projectService.loadTopics(),
-        this.personaService.loadPersonas()
+        this.personaService.loadPersonas(),
+        this.promptDefaults.load()
       ]);
     } catch (err) {
       console.error('first-run data load failed', err);

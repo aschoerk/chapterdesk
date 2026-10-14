@@ -16,10 +16,21 @@
   <p class="hint">
     These are the prompts and prompt-parts the app builds automatically and sends to the language models:
     story titles, introductions, headings, chapter elaboration, image generation and the language check.
-    Edit any template here to take full control over what is sent; the built-in default is restored per template
-    (or for all templates) with the Reset buttons. Each template documents its available variables
-    (shown as chips with an example), supports <code>{{'{{name}}'}}</code> substitution and
-    <code>{{'{{#if name}}…{{else}}…{{/if}}'}}</code> conditional blocks, and shows a live preview of the result.
+    Every template has a built-in default (always the fallback). You can store any number of <strong>named
+    versions</strong> — as <em>your</em> versions (applied everywhere) or as <em>topic</em> versions (applied
+    only to chats whose environment's main topic matches). A version is active when selected below; a user
+    version wins over a topic version, which wins over the built-in default. Revert any template to the default
+    (or to the topic version) by picking it in the list or using <em>Revert to default</em>.
+    Each template documents its available variables (shown as chips with an example), supports
+    <code>{{'{{name}}'}}</code> substitution and <code>{{'{{#if name}}…{{else}}…{{/if}}'}}</code> conditional
+    blocks, and shows a live preview of the result.
+    @if (!topicId()) {
+      <strong class="prompt-topic-warn">
+        Select a topic (sidebar / Topics page) to manage topic-specific versions here.
+      </strong>
+    } @else {
+      <strong>Topic scope: “{{ topicName(topicId()) }}”.</strong>
+    }
   </p>
 
   @for (category of categories; track category) {
@@ -54,23 +65,117 @@
               type="button"
               class="btn small"
               [disabled]="!isCustom(def.id)"
-              (click)="reset(def.id)">
-              {{ isCustom(def.id) ? 'Reset to default' : 'Default' }}
+              (click)="revertToDefault(def.id)">
+              {{ isCustom(def.id) ? 'Revert to default' : 'Default' }}
             </button>
           </div>
+
+          <div class="prompt-version-row">
+            <label class="prompt-select">
+              <span>Active version</span>
+              <select
+                [ngModel]="selectedValue(def.id)"
+                (ngModelChange)="onSelectVersion(def.id, $event)">
+                <option value="">Built-in default</option>
+                @if (userVersions(def.id).length > 0) {
+                  <optgroup label="Your versions">
+                    @for (version of userVersions(def.id); track version.id) {
+                      <option [value]="version.id">{{ version.name }}</option>
+                    }
+                  </optgroup>
+                }
+                @if (currentTopicVersions(def.id).length > 0) {
+                  <optgroup [label]="'Topic — ' + topicName(topicId())">
+                    @for (version of currentTopicVersions(def.id); track version.id) {
+                      <option [value]="version.id">{{ version.name }}</option>
+                    }
+                  </optgroup>
+                }
+              </select>
+            </label>
+            <span class="prompt-source-label">Using: {{ sourceLabel(def.id) }}</span>
+            <button type="button" class="btn small" (click)="startNewVersion(def.id)">
+              Save as version…
+            </button>
+          </div>
+
           <textarea
             class="prompt-text"
             rows="6"
             spellcheck="false"
-            [ngModel]="effective(def.id)"
+            [ngModel]="draftText(def.id)"
             (ngModelChange)="onInput(def.id, $event)"
+            [title]="sourceLabel(def.id)"
           ></textarea>
-          @if (unknownTokens(def.id, effective(def.id)).length > 0) {
-            <div class="prompt-warn">
-              Unknown token{{ unknownTokens(def.id, effective(def.id)).length === 1 ? '' : 's' }}:
-              {{ unknownTokens(def.id, effective(def.id)).join(', ') }}
+
+          @if (hasDraft(def.id)) {
+            <div class="prompt-draft-bar">
+              <span class="prompt-draft-hint">You have unsaved changes to this template.</span>
+              @if (activeSource(def.id).kind !== 'default') {
+                <button type="button" class="btn small primary" (click)="saveChanges(def.id)">Save changes</button>
+              }
+              <button type="button" class="btn small" (click)="discardDraft(def.id)">Discard</button>
             </div>
           }
+
+          @if (newVersionFor() === def.id) {
+            <div class="prompt-new-version">
+              <label>
+                <span>Version name</span>
+                <input type="text" [ngModel]="newVersionName()" (ngModelChange)="newVersionName.set($event)"
+                       placeholder="e.g. Dark style" />
+              </label>
+              @if (topicId()) {
+                <label>
+                  <span>For</span>
+                  <select [ngModel]="newVersionScope()" (ngModelChange)="newVersionScope.set($event)">
+                    <option value="user">You (all chats)</option>
+                    <option value="topic">Topic “{{ topicName(topicId()) }}”</option>
+                  </select>
+                </label>
+              }
+              <div class="prompt-new-version-actions">
+                <button type="button" class="btn small" (click)="cancelNewVersion()">Cancel</button>
+                <button type="button" class="btn small primary" (click)="confirmNewVersion(def.id)">Create &amp; use</button>
+              </div>
+            </div>
+          }
+
+          @if (unknownTokens(def.id, draftText(def.id)).length > 0) {
+            <div class="prompt-warn">
+              Unknown token{{ unknownTokens(def.id, draftText(def.id)).length === 1 ? '' : 's' }}:
+              {{ unknownTokens(def.id, draftText(def.id)).join(', ') }}
+            </div>
+          }
+
+          @if (allVersions(def.id).length > 0) {
+            <details class="prompt-versions">
+              <summary>All versions ({{ allVersions(def.id).length }})</summary>
+              <ul class="prompt-versions-list">
+                @for (version of allVersions(def.id); track version.id) {
+                  <li class="prompt-version-item">
+                    <span class="prompt-version-scope">{{ versionScopeLabel(version) }}</span>
+                    @if (renamingId() === version.id) {
+                      <span class="prompt-rename">
+                        <input type="text" [ngModel]="renameText()" (ngModelChange)="renameText.set($event)"
+                               (keydown.enter)="confirmRename(def.id, version)"
+                               (keydown.escape)="cancelRename()" />
+                        <button type="button" class="btn small" (click)="confirmRename(def.id, version)">Save</button>
+                        <button type="button" class="btn small" (click)="cancelRename()">Cancel</button>
+                      </span>
+                    } @else {
+                      <span class="prompt-version-name">{{ version.name }}</span>
+                    }
+                    <span class="prompt-version-actions">
+                      <button type="button" class="btn small" (click)="startRename(def.id, version)">Rename</button>
+                      <button type="button" class="btn small danger" (click)="deleteVersion(def.id, version.id)">Delete</button>
+                    </span>
+                  </li>
+                }
+              </ul>
+            </details>
+          }
+
           @if (varsOf(def.id).length > 0) {
             <div class="prompt-preview">
               <span class="prompt-preview-label">Live preview</span>

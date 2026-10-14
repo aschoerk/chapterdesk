@@ -2547,9 +2547,17 @@ export class ChatNodeComponent implements OnDestroy {
     const stored = this.prependText().trim();
     if (stored) return stored;
     const characters = this.elaborateCharacters();
+    // Topic-scoped prompt versions apply to the current chat's topic.
+    const chatId = this.chatService.currentChatId();
+    const chat = chatId ? this.chatService.chats().find(c => c.id === chatId) ?? null : null;
+    const project = chat?.projectId
+      ? this.projectService.getProject(chat.projectId) ?? null
+      : null;
+    const topicId = this.projectService
+      .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
     return characters
-      ? this.promptDefaults.render('structure.prepend', { characters })
-      : this.promptDefaults.render('structure.prepend-basic', {});
+      ? this.promptDefaults.render('structure.prepend', { characters }, topicId)
+      : this.promptDefaults.render('structure.prepend-basic', {}, topicId);
   }
 
 
