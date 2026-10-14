@@ -4,6 +4,7 @@ import { GenerationSettingsService } from './generation-settings.service';
 import { DemoDataService } from './demo-data/demo-data.service';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { GenerationTaskKind } from '../models/generation-task';
+import { MOCK_MODEL_ID, MOCK_PROVIDER_NAME } from './mock-llm/mock-llm-config';
 
 /** Result of a setup wizard run. */
 export type SetupResult = 'configured' | 'skipped';
@@ -47,6 +48,10 @@ const WRITING_TASKS: GenerationTaskKind[] = [
   'overview',
   'language-check'
 ];
+
+function normName(value: string | null | undefined): string {
+  return (value || '').trim().toLowerCase();
+}
 
 function initialState(settings: SettingsService, demo: DemoDataService): SetupWizardState {
   const firstProvider = settings.providers()[0];
@@ -297,6 +302,52 @@ export class SetupWizardService {
    */
   skip(): void {
     this.closeResolve('skipped');
+  }
+
+  /**
+   * "Play without a key": register the built-in mock provider/model, set the
+   * common authoring tasks to it, optionally load the demo data, and finish.
+   * Lets an installed ChapterDesk be used end-to-end (writing, titles,
+   * headings, language checks) with no API key — the mock answers through the
+   * local API server.
+   */
+  async useMock(): Promise<void> {
+    const s = this.requireState();
+    this.patch({ finishing: true, error: null });
+    try {
+      await this.demoData.ensureMockProvider();
+
+      const provider = this.settings
+        .providers()
+        .find(p => normName(p.name) === normName(MOCK_PROVIDER_NAME));
+      if (provider) {
+        const model = this.settings
+          .models()
+          .find(m => m.providerId === provider.id && m.modelId === MOCK_MODEL_ID);
+        if (model && !model.enabled) {
+          await this.settings.toggleModelEnabled(model.id);
+        }
+        for (const kind of WRITING_TASKS) {
+          this.generation.update(kind, { providerId: provider.id, modelId: MOCK_MODEL_ID });
+        }
+      }
+
+      if (s.loadDemo && !this.demoData.isLoaded()) {
+        this.patch({ demoBusy: true });
+        const chatId = await this.demoData.loadDemoData();
+        if (chatId) {
+          await this.demoData.openFirstDemoChat();
+        }
+        this.patch({ demoBusy: false });
+      }
+
+      this.closeResolve('configured');
+    } catch (err: any) {
+      this.patch({
+        finishing: false,
+        error: err?.message || 'Setup failed'
+      });
+    }
   }
 
   private closeResolve(value: SetupResult): void {

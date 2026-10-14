@@ -128,6 +128,28 @@
   </button>
 </section>
 
+<!-- ========== Key-free mock provider ========== -->
+<section class="import-demo-row">
+  <div class="import-demo-text">
+    <strong>{{ i18n.t('import.mockTitle') }}</strong>
+    <span>{{ i18n.t('import.mockHintRow') }}</span>
+  </div>
+  <button
+    class="btn primary import-mock-btn"
+    type="button"
+    (click)="loadMock()"
+    [disabled]="mockBusy() || mockExists()"
+    [title]="i18n.t('import.loadMockTitle')">
+    @if (mockBusy()) {
+      {{ i18n.t('import.mockLoading') }}
+    } @else if (mockExists()) {
+      {{ i18n.t('import.mockLoaded') }}
+    } @else {
+      {{ i18n.t('import.loadMock') }}
+    }
+  </button>
+</section>
+
 <!-- ========== Drop zone ========== -->
 <section
   class="drop-zone"

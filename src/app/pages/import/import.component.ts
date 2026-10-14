@@ -100,6 +100,32 @@ export class ImportComponent {
   /** True when the demo workspace is already present. */
   readonly demoIsLoaded = computed(() => this.demoData.isLoaded());
 
+  /** True while the key-free mock provider is being registered. */
+  readonly mockBusy = signal(false);
+  /** True when the mock provider is already present. */
+  readonly mockExists = computed(() => this.demoData.mockProviderExists());
+
+  /** Register the key-free mock provider/model (idempotent by name). */
+  async loadMock(): Promise<void> {
+    if (this.mockBusy() || this.mockExists()) return;
+    this.mockBusy.set(true);
+    try {
+      await this.demoData.ensureMockProvider();
+      this.summaries.update(list => [
+        ...list,
+        {
+          fileName: 'chapterdesk-mock',
+          kind: 'bundle',
+          title: 'Mock (no key)',
+          created: 1,
+          detail: this.i18n.t('import.mockDone')
+        }
+      ]);
+    } finally {
+      this.mockBusy.set(false);
+    }
+  }
+
   /** Import the built-in demo workspace on demand (idempotent). */
   async loadDemo(): Promise<void> {
     if (this.loadDemoBusy() || this.demoIsLoaded()) return;

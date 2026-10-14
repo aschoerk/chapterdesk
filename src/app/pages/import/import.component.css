@@ -103,6 +103,12 @@
   cursor: not-allowed;
 }
 
+.import-demo-row .btn.import-mock-btn {
+  background: var(--bg-answer, #f0fdf4);
+  border-color: var(--success, #15803d);
+  color: var(--success, #15803d);
+}
+
 .file-label {
   display: inline-block;
   cursor: pointer;

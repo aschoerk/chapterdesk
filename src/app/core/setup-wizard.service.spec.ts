@@ -173,4 +173,32 @@ describe('SetupWizardService', () => {
     expect(openSpy).toHaveBeenCalledOnce();
     expect(await promise).toBe('configured');
   });
+
+  it('useMock() registers the mock provider, sets defaults and finishes', async () => {
+    const ensureSpy = vi.spyOn(demoData, 'ensureMockProvider').mockResolvedValue();
+
+    await settings.loadAll(); // empty workspace — no provider configured
+    expect(settings.providers().length).toBe(0);
+
+    seedApi(api, {
+      providers: [{ id: 'prov-mock', name: 'Mock (no key)' }],
+      models: [{ id: 'm-mock', modelId: 'mock-writer', providerId: 'prov-mock', enabled: false }]
+    });
+    await settings.loadAll();
+
+    const promise = service.open();
+    service.patch({ loadDemo: false });
+    await service.useMock();
+
+    expect(ensureSpy).toHaveBeenCalledOnce();
+    // defaults point at the mock model
+    for (const kind of ['title', 'headings', 'overview', 'language-check'] as const) {
+      expect(generation.get(kind).providerId).toBe('prov-mock');
+      expect(generation.get(kind).modelId).toBe('mock-writer');
+    }
+    const mockModel = settings.models().find(m => m.modelId === 'mock-writer');
+    expect(mockModel?.enabled).toBe(true);
+    expect(await promise).toBe('configured');
+    expect(service.current()).toBeNull();
+  });
 });

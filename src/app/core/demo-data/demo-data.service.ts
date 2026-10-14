@@ -2,7 +2,14 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { BundleService } from '../bundle.service';
 import { ChatService } from '../chat.service';
 import { ProjectService } from '../project.service';
+import { SettingsService } from '../settings.service';
 import { DEMO_BUNDLE } from './demo-bundle';
+import {
+  MOCK_MODEL_DISPLAY,
+  MOCK_MODEL_ID,
+  MOCK_PROVIDER_NAME,
+  mockProviderBaseUrl,
+} from '../mock-llm/mock-llm-config';
 
 /** Name used by the bundled demo project (the idempotency guard). */
 export const DEMO_PROJECT_NAME = 'ChapterDesk Demo';
@@ -25,6 +32,7 @@ export class DemoDataService {
   private readonly bundleService = inject(BundleService);
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
+  private readonly settings = inject(SettingsService);
 
   /** True while an import is running (for UI spinners). */
   readonly loading = signal(false);
@@ -46,6 +54,42 @@ export class DemoDataService {
   /** True when the demo workspace is present. */
   isLoaded(): boolean {
     return this.hasDemoProject();
+  }
+
+  /** True when the key-free mock provider is registered. */
+  mockProviderExists(): boolean {
+    return this.settings.providers().some(p => normName(p.name) === normName(MOCK_PROVIDER_NAME));
+  }
+
+  /**
+   * Register the built-in "Mock (no key)" provider + preset model (idempotent
+   * by provider name). Lets an installed ChapterDesk be played with without
+   * any API key — the mock's baseUrl points back at the local API server's
+   * `/chat/completions` and `/models` endpoints.
+   */
+  async ensureMockProvider(): Promise<void> {
+    await this.settings.loadAll();
+    if (this.mockProviderExists()) return;
+
+    const provider = await this.settings.addProvider({
+      name: MOCK_PROVIDER_NAME,
+      type: 'custom',
+      baseUrl: mockProviderBaseUrl(),
+      apiKey: 'local', // never called anywhere external
+      enabled: true,
+    });
+
+    const exists = this.settings
+      .models()
+      .some(m => m.providerId === provider.id && m.modelId === MOCK_MODEL_ID);
+    if (!exists) {
+      await this.settings.addPreset(
+        MOCK_MODEL_DISPLAY,
+        MOCK_MODEL_ID,
+        provider.id,
+        { input_modalities: ['text'], output_modalities: ['text'] }
+      );
+    }
   }
 
   /**

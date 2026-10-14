@@ -8,6 +8,7 @@ import { HttpError } from './http-error.js';
 import { registerOpenApiRoutes } from './openapi.js';
 import { registerProxyRoutes } from './proxy.js';
 import { registerChatApiRoutes } from './routes.js';
+import { registerMockLlmRoutes } from './mock-llm.js';
 
 function publicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,9 @@ export function createApp(store: PersistencePort) {
   registerOpenApiRoutes(app);
   registerChatApiRoutes(app, store);
   registerProxyRoutes(app, store);
+  // Must be registered before the SPA static fallback so the mock provider
+  // (whose baseUrl points back at this server) is reachable through /proxy.
+  registerMockLlmRoutes(app);
 
   app.use(express.static(spaRoot, { index: 'index.html', fallthrough: true }));
 

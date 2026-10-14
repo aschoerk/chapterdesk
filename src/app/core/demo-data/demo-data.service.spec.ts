@@ -7,18 +7,19 @@ import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeProject } from '../../../../test-helpers/factories';
 import { ChatService } from '../chat.service';
 import { ProjectService } from '../project.service';
+import { SettingsService } from '../settings.service';
 import { DemoDataService, DEMO_PROJECT_NAME } from './demo-data.service';
-
-const LS_DEMO = 'chat.demoData.loadedV1';
+import { MOCK_PROVIDER_NAME, MOCK_MODEL_ID } from '../mock-llm/mock-llm-config';
 
 describe('DemoDataService', () => {
   let api: InMemoryChatApi;
   let service: DemoDataService;
   let chatService: ChatService;
   let projectService: ProjectService;
+  let settings: SettingsService;
 
   beforeEach(() => {
-    localStorage.removeItem(LS_DEMO);
+    localStorage.removeItem('chat.demoData.loadedV1');
     api = new InMemoryChatApi();
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -31,10 +32,33 @@ describe('DemoDataService', () => {
     service = TestBed.inject(DemoDataService);
     chatService = TestBed.inject(ChatService);
     projectService = TestBed.inject(ProjectService);
+    settings = TestBed.inject(SettingsService);
   });
 
   afterEach(() => {
-    localStorage.removeItem(LS_DEMO);
+    localStorage.removeItem('chat.demoData.loadedV1');
+  });
+
+  it('registers the key-free mock provider + model exactly once', async () => {
+    expect(service.mockProviderExists()).toBe(false);
+
+    await service.ensureMockProvider();
+
+    expect(service.mockProviderExists()).toBe(true);
+    const mockProviders = settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME);
+    expect(mockProviders).toHaveLength(1);
+    // preset model is enabled and text-only so no image features are offered
+    const [mockProvider] = mockProviders;
+    const model = settings.models().find(
+      m => m.providerId === mockProvider.id && m.modelId === MOCK_MODEL_ID
+    );
+    expect(model).toBeDefined();
+    expect(model?.enabled).toBe(true);
+
+    // Idempotent — a second call creates no duplicates.
+    await service.ensureMockProvider();
+    expect(settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME)).toHaveLength(1);
+    expect(settings.models().filter(m => m.modelId === MOCK_MODEL_ID)).toHaveLength(1);
   });
 
   it('loads the demo bundle exactly once on an empty workspace', async () => {

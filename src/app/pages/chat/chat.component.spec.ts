@@ -435,6 +435,45 @@ describe('Chat', () => {
     expect(orch.completion).toHaveBeenCalledTimes(2);
   });
 
+  it('renders stick-to-last character views as follow-ups, never as first views', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // First use: elaborate chapter 2 → stored last chapter = 2.
+    component.elaborateFirst.set(2);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('Anna, Ben');
+    await component.confirmElaborate();
+
+    // Reopen, tick "stick to last chapter" (which clears the names field),
+    // then type the characters back in — the names field stays editable while
+    // sticking, so the re-elaboration runs with named views.
+    orch.completion.mockClear();
+    component.openElaborateDialog();
+    component.onStickLastToggle(true);
+    component.elaborateNames.set(' Anna,Ben ');
+    await component.confirmElaborate();
+
+    // Phase 1 already produced two chapter-2 questions, so only the two most
+    // recent ones are the stick-to-last run.
+    const questions = chatService.nodes()
+      .filter(n => n.role === 'user' && n.content?.startsWith('Expand chapter 2'))
+      .slice(-2)
+      .map(n => n.content ?? '');
+    // Sticking re-elaborates the existing chapter text, so even the first of
+    // the two named views is a follow-up ({{#if isFirst}} → false).
+    expect(questions.map(q => q.split('\n')[1])).toEqual([
+      'Elaborate the chapter this time out of the view of Anna in first person.',
+      'Elaborate the chapter this time out of the view of Ben in first person.'
+    ]);
+    for (const question of questions) {
+      expect(question.split('\n')[2]).toContain('This is a follow-up view');
+      expect(question.split('\n')[2])
+        .not.toContain('write the chapter freely from scratch');
+    }
+    expect(orch.completion).toHaveBeenCalledTimes(2);
+  });
+
   it('elaborates each chapter following the dialog hints', async () => {
     await openElaborateStory();
     orch.completion.mockClear();

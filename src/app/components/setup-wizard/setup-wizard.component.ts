@@ -68,6 +68,11 @@ export class SetupWizardComponent {
     void this.wizard.finish();
   }
 
+  /** "Play without a key": register the built-in mock provider and finish. */
+  useMock(): void {
+    void this.wizard.useMock();
+  }
+
   skip(): void {
     this.wizard.skip();
   }

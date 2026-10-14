@@ -72,6 +72,17 @@ describe('SetupWizardComponent', () => {
     await p;
   });
 
+  it('offers the key-free mock option on the provider step', async () => {
+    const p = wizard.open();
+    fixture.detectChanges();
+    wizard.go('provider');
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('Play with the built-in mock model (no key)');
+    wizard.skip();
+    await p;
+  });
+
   it('lists the fetched models on the models step', async () => {
     const p = wizard.open();
     fixture.detectChanges();

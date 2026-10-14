@@ -534,6 +534,10 @@ export const EN = {
     providerBaseUrl: 'Base URL',
     providerApiKey: 'API key',
     apiKeyRequired: 'Please enter an API key first.',
+    or: 'or',
+    useMock: 'Play with the built-in mock model (no key)',
+    useMockTitle:
+      'Registers a local “Mock (no key)” provider and the “Mock Writer” model. Every AI feature (writing, titles, headings, language checks) is answered with plausible demo text by a local endpoint — no API key needed. You can replace it with a real provider any time under Settings → AI providers.',
     providerExistsHint:
       'A provider is already configured — this step only fetches its model catalog again.',
     test: 'Test connection',

@@ -186,6 +186,15 @@ export const EN_PAGES = {
     demoLoading: 'Loading demo…',
     demoDone: 'Loaded the demo workspace — opened “Reader & Editor Tour”.',
     demoSkipped: 'The demo workspace is already present — nothing was imported.',
+    mockTitle: 'Key-free mock provider',
+    mockHintRow:
+      'Registers a local “Mock (no key)” provider with the “Mock Writer” model. Every AI feature is answered by a local endpoint with plausible demo text — no API key needed.',
+    loadMock: 'Add mock provider',
+    loadMockTitle:
+      'Registers the built-in “Mock (no key)” provider + “Mock Writer” model (idempotent by name). Lets you play with the app without a provider key.',
+    mockLoading: 'Adding…',
+    mockLoaded: 'Mock provider added',
+    mockDone: 'Mock provider “Mock (no key)” + “Mock Writer” model are ready.',
     dropTitle: 'Drop JSON file(s) here',
     dropHint:
       'ChapterDesk bundle → restore immediately  |  Copilots → Projects immediately  |  Sessions → review list  |  Grok export → one session per conversation',

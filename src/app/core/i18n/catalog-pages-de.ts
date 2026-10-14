@@ -187,6 +187,15 @@ export const DE_PAGES = {
     demoLoading: 'Demo wird geladen…',
     demoDone: 'Demo-Arbeitsbereich geladen — „Reader & Editor Tour“ geöffnet.',
     demoSkipped: 'Der Demo-Arbeitsbereich ist bereits vorhanden — nichts importiert.',
+    mockTitle: 'Schlüsselfreier Mock-Anbieter',
+    mockHintRow:
+      'Registriert einen lokalen Anbieter „Mock (no key)“ mit dem Modell „Mock Writer“. Alle KI-Funktionen werden von einem lokalen Endpunkt mit plausiblem Demotext beantwortet — kein API-Schlüssel nötig.',
+    loadMock: 'Mock-Anbieter hinzufügen',
+    loadMockTitle:
+      'Registriert den eingebauten Anbieter „Mock (no key)“ + Modell „Mock Writer“ (idempotent nach Name). Ermöglicht das Ausprobieren ohne Anbieter-Schlüssel.',
+    mockLoading: 'Wird hinzugefügt…',
+    mockLoaded: 'Mock-Anbieter hinzugefügt',
+    mockDone: 'Mock-Anbieter „Mock (no key)“ + Modell „Mock Writer“ sind bereit.',
     dropTitle: 'JSON-Datei(en) hier ablegen',
     dropHint:
       'ChapterDesk-Bündel → sofort wiederherstellen  |  Copilots → Projekte sofort  |  Sitzungen → Prüfungsliste  |  Grok-Export → eine Sitzung je Gespräch',

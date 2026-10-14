@@ -850,4 +850,27 @@ describe('ImportComponent', () => {
     await component.goToChat();
     expect(router.navigate).toHaveBeenCalledWith(['/chat']);
   });
+
+  // ------------------------------------------------------------------
+  // Key-free mock provider
+  // ------------------------------------------------------------------
+
+  it('loadMock() registers the mock provider + model and reports it', async () => {
+    await createComponent();
+    expect(component.mockExists()).toBe(false);
+
+    await component.loadMock();
+
+    expect(component.mockExists()).toBe(true);
+    expect(api.providers.some(p => p.name === 'Mock (no key)')).toBe(true);
+    const mockProvider = api.providers.find(p => p.name === 'Mock (no key)')!;
+    expect(api.models.some(m => m.providerId === mockProvider.id && m.modelId === 'mock-writer')).toBe(true);
+
+    // A summary entry was added.
+    expect(component.summaries().some(s => s.title === 'Mock (no key)')).toBe(true);
+
+    // Idempotent on the UI side.
+    await component.loadMock();
+    expect(api.providers.filter(p => p.name === 'Mock (no key)')).toHaveLength(1);
+  });
 });

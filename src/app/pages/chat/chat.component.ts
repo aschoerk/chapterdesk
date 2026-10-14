@@ -1687,13 +1687,15 @@ export class ChatComponent implements OnInit {
         // No names → one generic elaboration per chapter.
         // With names → one elaboration per name, in first person; only the very
         // first view is "first" — the template renders the non-repetition
-        // instruction via {{#if isFirst}} for every follow-up view.
+        // instruction via {{#if isFirst}} for every follow-up view. When
+        // sticking to the last chapter we re-elaborate existing text, so no
+        // view is ever the "first" one ({{#if isFirst}} always resolves false).
         const prompts = names.length > 0
           ? names.map((name, i) => this.promptDefaults.render('structure.elaborate-view', {
               chapter,
               name,
               hints,
-              isFirst: i === 0
+              isFirst: !this.elaborateStickLast() && i === 0
             }))
           : [this.promptDefaults.render('structure.elaborate', { chapter, hints })];
 

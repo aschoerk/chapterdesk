@@ -536,6 +536,10 @@ export const DE = {
     providerBaseUrl: 'Basis-URL',
     providerApiKey: 'API-Schlüssel',
     apiKeyRequired: 'Bitte zuerst einen API-Schlüssel eingeben.',
+    or: 'oder',
+    useMock: 'Mit dem eingebauten Mock-Modell spielen (ohne Schlüssel)',
+    useMockTitle:
+      'Registriert einen lokalen Anbieter „Mock (no key)“ und das Modell „Mock Writer“. Alle KI-Funktionen (Schreiben, Titel, Überschriften, Sprachprüfung) werden von einem lokalen Endpunkt mit plausiblem Demotext beantwortet — kein API-Schlüssel nötig. Sie können ihn jederzeit unter Einstellungen → KI-Anbieter durch einen echten Anbieter ersetzen.',
     providerExistsHint:
       'Ein Anbieter ist bereits eingerichtet – dieser Schritt lädt nur den Modellkatalog erneut.',
     test: 'Verbindung testen',

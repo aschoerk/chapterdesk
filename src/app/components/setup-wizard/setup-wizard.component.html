@@ -77,6 +77,20 @@
                 }
               </button>
             </div>
+
+            <div class="setup-or">
+              <span>{{ i18n.t('setupWizard.or') }}</span>
+            </div>
+            <div class="setup-actions">
+              <button
+                class="btn mock-btn"
+                type="button"
+                [disabled]="s.finishing || s.demoBusy || s.fetching || s.savingProvider"
+                [title]="i18n.t('setupWizard.useMockTitle')"
+                (click)="useMock()">
+                {{ s.finishing ? i18n.t('setupWizard.finishing') : i18n.t('setupWizard.useMock') }}
+              </button>
+            </div>
           }
 
           @case ('models') {

@@ -228,6 +228,33 @@
   margin-top: 0.25rem;
 }
 
+/* "or" divider between the real-provider form and the key-free mock option */
+.setup-or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0 0.25rem;
+  color: var(--text-muted, #666);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.setup-or::before,
+.setup-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border, #e5e5e5);
+}
+
+.setup-actions .btn.mock-btn {
+  background: var(--bg-answer, #f0fdf4);
+  border-color: var(--success, #15803d);
+  color: var(--success, #15803d);
+}
+
 .setup-footer {
   display: flex;
   align-items: center;
