@@ -26,6 +26,7 @@ COPY --from=server /pre/src ./src
 COPY --from=server /out/browser ./public
 ENV NODE_ENV=development
 ENV PORT=8080
+ENV CHAPTERDESK_RUNTIME=docker-dev
 
 EXPOSE 8080 9229
 CMD ["node", "dist/server.js"]

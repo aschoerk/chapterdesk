@@ -33,6 +33,19 @@ describe('API Routes (in-memory SQLite)', () => {
     });
   });
 
+  test('GET /api/environment reports the configured Docker runtime', async () => {
+    const originalRuntime = process.env.CHAPTERDESK_RUNTIME;
+    process.env.CHAPTERDESK_RUNTIME = 'docker-prod';
+    try {
+      const res = await request(app).get('/api/environment');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ runtime: 'docker-prod', docker: true });
+    } finally {
+      if (originalRuntime === undefined) delete process.env.CHAPTERDESK_RUNTIME;
+      else process.env.CHAPTERDESK_RUNTIME = originalRuntime;
+    }
+  });
+
   // ------------------------------------------------------------------------
   // Providers
   // ------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { makeProject } from '../../../../test-helpers/factories';
 import { ChatService } from '../chat.service';
 import { ProjectService } from '../project.service';
 import { SettingsService } from '../settings.service';
+import { GenerationSettingsService } from '../generation-settings.service';
 import { DemoDataService, DEMO_PROJECT_NAME } from './demo-data.service';
 import { MOCK_PROVIDER_NAME, MOCK_MODEL_ID } from '../mock-llm/mock-llm-config';
 
@@ -17,6 +18,7 @@ describe('DemoDataService', () => {
   let chatService: ChatService;
   let projectService: ProjectService;
   let settings: SettingsService;
+  let generation: GenerationSettingsService;
 
   beforeEach(() => {
     localStorage.removeItem('chat.demoData.loadedV1');
@@ -33,6 +35,7 @@ describe('DemoDataService', () => {
     chatService = TestBed.inject(ChatService);
     projectService = TestBed.inject(ProjectService);
     settings = TestBed.inject(SettingsService);
+    generation = TestBed.inject(GenerationSettingsService);
   });
 
   afterEach(() => {
@@ -59,6 +62,42 @@ describe('DemoDataService', () => {
     await service.ensureMockProvider();
     expect(settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME)).toHaveLength(1);
     expect(settings.models().filter(m => m.modelId === MOCK_MODEL_ID)).toHaveLength(1);
+  });
+
+  it('repairs an existing mock provider that has no mock model', async () => {
+    api.providers.push({
+      id: 'mock-provider',
+      name: MOCK_PROVIDER_NAME,
+      type: 'custom',
+      baseUrl: 'http://localhost',
+      apiKey: 'local',
+      enabled: true,
+    });
+    await settings.loadAll();
+
+    await service.ensureMockProvider();
+
+    expect(settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME)).toHaveLength(1);
+    expect(settings.models().some(m => m.providerId === 'mock-provider' && m.modelId === MOCK_MODEL_ID)).toBe(true);
+  });
+
+  it('sets Mock Writer as the default only for authoring tasks without a selection', async () => {
+    generation.update('title', { providerId: 'custom-provider', modelId: 'custom-model' });
+
+    await service.ensureMockWriterDefaults();
+
+    const mockProvider = settings.providers().find(p => p.name === MOCK_PROVIDER_NAME)!;
+    const mockModel = settings.models().find(
+      m => m.providerId === mockProvider.id && m.modelId === MOCK_MODEL_ID
+    );
+    expect(mockModel?.enabled).toBe(true);
+    for (const kind of ['title', 'headings', 'overview', 'language-check'] as const) {
+      if (kind === 'title') {
+        expect(generation.get(kind)).toMatchObject({ providerId: 'custom-provider', modelId: 'custom-model' });
+      } else {
+        expect(generation.get(kind)).toMatchObject({ providerId: mockProvider.id, modelId: MOCK_MODEL_ID });
+      }
+    }
   });
 
   it('loads the demo bundle exactly once on an empty workspace', async () => {

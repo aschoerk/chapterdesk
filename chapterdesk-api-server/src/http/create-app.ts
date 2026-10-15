@@ -60,8 +60,11 @@ export function createApp(store: PersistencePort) {
     res.json({ ok: true, persistence: store.kind });
   });
   app.get('/api/environment', (_req, res) => {
+    const runtime = process.env.CHAPTERDESK_RUNTIME;
+    const docker = runtime === 'docker-prod' || runtime === 'docker-dev';
     res.json({
-      runtime: store.kind === 'firebase' ? 'gcloud' : 'local',
+      runtime: docker ? runtime : store.kind === 'firebase' ? 'gcloud' : 'local',
+      docker,
       storage: {
         profile: 'sqlite-all',
         sqlite: [

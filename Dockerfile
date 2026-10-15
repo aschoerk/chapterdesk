@@ -27,6 +27,7 @@ COPY --from=api /api/dist ./dist
 COPY --from=web /out/browser ./public
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV CHAPTERDESK_RUNTIME=docker-prod
 
 EXPOSE 8080
 CMD ["node", "dist/server.js"]

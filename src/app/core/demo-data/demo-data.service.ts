@@ -3,6 +3,8 @@ import { BundleService } from '../bundle.service';
 import { ChatService } from '../chat.service';
 import { ProjectService } from '../project.service';
 import { SettingsService } from '../settings.service';
+import { GenerationSettingsService } from '../generation-settings.service';
+import { GenerationTaskKind } from '../../models/generation-task';
 import { DEMO_BUNDLE } from './demo-bundle';
 import {
   MOCK_MODEL_DISPLAY,
@@ -13,6 +15,13 @@ import {
 
 /** Name used by the bundled demo project (the idempotency guard). */
 export const DEMO_PROJECT_NAME = 'ChapterDesk Demo';
+
+const MOCK_DEFAULT_TASKS: GenerationTaskKind[] = [
+  'title',
+  'headings',
+  'overview',
+  'language-check',
+];
 
 function normName(value: string | null | undefined): string {
   return (value || '').trim().toLowerCase();
@@ -33,6 +42,7 @@ export class DemoDataService {
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
   private readonly settings = inject(SettingsService);
+  private readonly generation = inject(GenerationSettingsService);
 
   /** True while an import is running (for UI spinners). */
   readonly loading = signal(false);
@@ -69,15 +79,18 @@ export class DemoDataService {
    */
   async ensureMockProvider(): Promise<void> {
     await this.settings.loadAll();
-    if (this.mockProviderExists()) return;
-
-    const provider = await this.settings.addProvider({
-      name: MOCK_PROVIDER_NAME,
-      type: 'custom',
-      baseUrl: mockProviderBaseUrl(),
-      apiKey: 'local', // never called anywhere external
-      enabled: true,
-    });
+    let provider = this.settings.providers().find(
+      p => normName(p.name) === normName(MOCK_PROVIDER_NAME)
+    );
+    if (!provider) {
+      provider = await this.settings.addProvider({
+        name: MOCK_PROVIDER_NAME,
+        type: 'custom',
+        baseUrl: mockProviderBaseUrl(),
+        apiKey: 'local', // never called anywhere external
+        enabled: true,
+      });
+    }
 
     const exists = this.settings
       .models()
@@ -89,6 +102,28 @@ export class DemoDataService {
         provider.id,
         { input_modalities: ['text'], output_modalities: ['text'] }
       );
+    }
+  }
+
+  /** Register Mock Writer and use it only for authoring tasks without a default. */
+  async ensureMockWriterDefaults(): Promise<void> {
+    await this.ensureMockProvider();
+    const provider = this.settings.providers().find(
+      p => normName(p.name) === normName(MOCK_PROVIDER_NAME)
+    );
+    if (!provider) return;
+
+    const model = this.settings.models().find(
+      m => m.providerId === provider.id && m.modelId === MOCK_MODEL_ID
+    );
+    if (!model) return;
+    if (!model.enabled) await this.settings.toggleModelEnabled(model.id);
+
+    for (const kind of MOCK_DEFAULT_TASKS) {
+      const config = this.generation.get(kind);
+      if (!config.providerId && !config.modelId) {
+        this.generation.update(kind, { providerId: provider.id, modelId: MOCK_MODEL_ID });
+      }
     }
   }
 

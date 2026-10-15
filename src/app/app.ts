@@ -57,6 +57,7 @@ export class App {
    */
   private async firstRun(): Promise<void> {
     try {
+      await this.environment.ensureLoaded();
       await Promise.all([
         this.settings.loadAll(),
         this.chatService.loadChats(),
@@ -67,6 +68,14 @@ export class App {
       ]);
     } catch (err) {
       console.error('first-run data load failed', err);
+    }
+
+    if (this.environment.info()?.docker) {
+      try {
+        await this.demoData.ensureMockWriterDefaults();
+      } catch (err) {
+        console.error('Docker mock-writer setup failed', err);
+      }
     }
 
     try {
