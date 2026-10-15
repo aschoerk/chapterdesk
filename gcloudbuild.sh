@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT=chapterly-508015
 REGION=europe-west4
-SERVICE=chapterly
+SERVICE=chapterdesk
 
 # Grant each invited viewer roles/run.invoker on the service; do not make it public.
 gcloud run deploy "$SERVICE" \
