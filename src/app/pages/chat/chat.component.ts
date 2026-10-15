@@ -101,6 +101,10 @@ export class ChatComponent implements OnInit {
     return this.navSelectedIds().includes(id);
   }
 
+  isNavNodeBeingEdited(id: string): boolean {
+    return this.editSession.editingNodeId() === id;
+  }
+
   /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
   onNavNodeClick(event: MouseEvent, node: ChatNode): void {
     if (event.ctrlKey || event.metaKey) return;

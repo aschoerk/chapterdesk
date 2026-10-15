@@ -139,6 +139,20 @@ describe('Chat', () => {
     expect(units).toEqual([{ key: a1.id, text: 'X' + (a1.content ?? '') }]);
   });
 
+  it('marks the node being edited with a dot in the node navbar', async () => {
+    await openStory();
+    fixture.detectChanges();
+    const editSession = TestBed.inject(NodeEditSession);
+    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
+    fixture.detectChanges();
+
+    const edited = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    const other = fixture.nativeElement.querySelector('[data-nav-id="q1"]') as HTMLElement;
+    expect(edited.querySelector('.nav-edit-dot')).not.toBeNull();
+    expect(edited.classList.contains('editing')).toBe(true);
+    expect(other.querySelector('.nav-edit-dot')).toBeNull();
+  });
+
   /** Seed a story with two assistant answers and make it the active chat. */
   async function openStory(): Promise<void> {
     seedApi(api, {

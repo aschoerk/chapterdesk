@@ -227,6 +227,7 @@ export const EN = {
   node: {
     dir: 'Dir',
     ch: 'Ch',
+    currentlyEditing: 'Currently being edited',
     chars: '{{count}} chars',
     version: 'v{{n}}',
     priorVersions: '{{n}} previous version(s)',

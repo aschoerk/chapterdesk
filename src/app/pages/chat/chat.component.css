@@ -348,6 +348,19 @@ body.nav-resizing * {
   border-color: var(--accent);
 }
 
+.nav-edit-dot {
+  flex: 0 0 0.45rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent, #2563eb);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 20%, transparent);
+}
+
+.nav-node.editing {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+}
+
 .nav-paste-after {
   display: inline-flex;
   align-items: center;

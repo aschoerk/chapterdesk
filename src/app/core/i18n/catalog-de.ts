@@ -228,6 +228,7 @@ export const DE = {
   node: {
     dir: 'An',
     ch: 'Kap',
+    currentlyEditing: 'Wird gerade bearbeitet',
     chars: '{{count}} Zeichen',
     version: 'v{{n}}',
     priorVersions: '{{n}} frühere Version(en)',

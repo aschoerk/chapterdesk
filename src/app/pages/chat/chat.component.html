@@ -343,6 +343,7 @@
                     [class.answer]="node.role === 'assistant'"
                     [class.active]="isNearViewport(node.id)"
                     [class.selected]="isNavNodeSelected(node.id)"
+                    [class.editing]="isNavNodeBeingEdited(node.id)"
                     (click)="onNavNodeClick($event, node)"
                     (pointerdown)="onNavPointerDown($event, node)"
                     (pointerenter)="onNavPointerEnter(node)"
@@ -351,6 +352,12 @@
                     [attr.data-nav-id]="node.id"
                     [title]="node.content">
 
+                    @if (isNavNodeBeingEdited(node.id)) {
+                      <span class="nav-edit-dot"
+                            role="img"
+                            [attr.aria-label]="i18n.t('node.currentlyEditing')"
+                            [title]="i18n.t('node.currentlyEditing')"></span>
+                    }
                     <span class="nav-badge">{{ node.role === 'user' ? 'D' : (node.role === 'assistant' ? 'C' :'S') }}</span>
 
                     @if (getChildren(node.parentId).length > 1) {
