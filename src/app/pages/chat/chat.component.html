@@ -217,6 +217,12 @@
                            [disabled]="elaborateStickLast()" />
                   </label>
                 </div>
+                  <label class="elaborate-field">
+                    <span>{{ i18n.t('chat.elaboratePrefix') }}</span>
+                    <input type="text" [ngModel]="elaboratePrefix()"
+                           (ngModelChange)="elaboratePrefix.set($event)"
+                           [placeholder]="i18n.t('chat.elaboratePrefixPlaceholder')" />
+                  </label>
                 <label class="elaborate-field elaborate-stick"
                        [title]="i18n.t('chat.elaborateStickLastHint')">
                   <input type="checkbox" [ngModel]="elaborateStickLast()"

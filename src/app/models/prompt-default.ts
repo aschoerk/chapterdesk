@@ -89,9 +89,9 @@ export const PROMPT_DEFAULTS: PromptDefaultDef[] = [
     id: 'structure.elaborate',
     category: 'structure',
     label: 'Elaborate chapter (no characters)',
-    description: 'One generic elaboration prompt per chapter. `{{chapter}}` is the 1-based chapter number, `{{hints}}` the hints from the Elaborate dialog (empty when none given).',
+    description: 'One generic elaboration prompt per chapter. `{{chapter}}` is the chapter number with any dialog prefix, `{{hints}}` the hints from the Elaborate dialog (empty when none given).',
     vars: [
-      { name: 'chapter', type: 'number', description: '1-based chapter number being elaborated.', example: 4 },
+      { name: 'chapter', type: 'string', description: 'Chapter number being elaborated, including any optional prefix.', example: 'ARC-4' },
       { name: 'hints', type: 'string', description: 'Formatted Elaborate-dialog hints (empty string when none were given).', example: 'Follow these hints from the user: keep it dark' }
     ],
     default: `elaborate on chapter {{chapter}}
@@ -102,9 +102,9 @@ Expand chapter {{chapter}} in detail. Use only material that belongs in chapter 
     id: 'structure.elaborate-view',
     category: 'structure',
     label: 'Elaborate chapter (from a character)',
-    description: 'One elaboration prompt per named character, first person. `{{chapter}}`, `{{name}}`, `{{isFirst}}` and `{{hints}}` are replaced at call time.',
+    description: 'One elaboration prompt per named character, first person. `{{chapter}}` (including any dialog prefix), `{{name}}`, `{{isFirst}}` and `{{hints}}` are replaced at call time.',
     vars: [
-      { name: 'chapter', type: 'number', description: '1-based chapter number being elaborated.', example: 2 },
+      { name: 'chapter', type: 'string', description: 'Chapter number being elaborated, including any optional prefix.', example: 'ARC-2' },
       { name: 'name', type: 'string', description: 'Name of the character whose point of view this elaboration takes.', example: 'Anna' },
       { name: 'isFirst', type: 'boolean', description: 'True for the first view of a chapter; false for follow-up views.', example: true },
       { name: 'hints', type: 'string', description: 'Formatted Elaborate-dialog hints (empty string when none were given).', example: 'Follow these hints from the user: keep it dark' }

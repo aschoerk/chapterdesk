@@ -101,6 +101,8 @@ export const EN = {
       'The last answer describes chapters 1..n. Elaborate each chosen chapter — optionally from the point of view of named characters (comma separated).',
     elaborateFirst: 'First chapter',
     elaborateLast: 'Last chapter',
+    elaboratePrefix: 'Chapter number prefix',
+    elaboratePrefixPlaceholder: 'Optional, e.g. ARC-',
     elaborateNames: 'Characters',
     elaborateNamesPlaceholder: 'e.g. Anna, Ben (comma separated, optional)',
     elaborateHints: 'Hints',

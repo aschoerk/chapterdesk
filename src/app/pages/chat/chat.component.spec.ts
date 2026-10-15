@@ -533,6 +533,28 @@ describe('Chat', () => {
     expect(orch.completion).toHaveBeenCalledTimes(2);
   });
 
+  it('prefixes generated chapter identifiers and remembers the prefix per chat', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    component.elaborateFirst.set(4);
+    component.elaborateLast.set(5);
+    component.elaboratePrefix.set('ARC-');
+    await component.confirmElaborate();
+
+    const questions = chatService.nodes()
+      .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'))
+      .map(n => n.content ?? '');
+    expect(questions.map(q => q.split('\n')[0])).toEqual([
+      'elaborate on chapter ARC-4',
+      'elaborate on chapter ARC-5'
+    ]);
+
+    component.openElaborateDialog();
+    expect(component.elaborateFirst()).toBe(6);
+    expect(component.elaboratePrefix()).toBe('ARC-');
+  });
+
   it('pre-selects the most recent answer model when opening the elaborate dialog', async () => {
     await openElaborateStory();
 

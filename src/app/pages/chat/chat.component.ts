@@ -659,6 +659,7 @@ export class ChatComponent implements OnInit {
   readonly elaborateFirst = signal(1);
   readonly elaborateLast = signal(1);
   readonly elaborateNames = signal('');
+  readonly elaboratePrefix = signal('');
   readonly elaborateHints = signal('');
   /** When checked, the dialog ignores First/Last and re-elaborates the chapter
    *  that was last elaborated, chaining onto its already generated text. */
@@ -1504,7 +1505,7 @@ export class ChatComponent implements OnInit {
   // ------------------------------------------------------------------
 
   /** Per-chat continuation state for the Elaborate dialog. */
-  private loadElaborateState(chatId: string): { lastChapter: number; characters: string; hints: string } {
+  private loadElaborateState(chatId: string): { lastChapter: number; characters: string; hints: string; prefix: string } {
     try {
       const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
       const map = raw ? JSON.parse(raw) : {};
@@ -1514,15 +1515,16 @@ export class ChatComponent implements OnInit {
           lastChapter: Math.max(0, Math.floor(entry.lastChapter)),
           characters: typeof entry.characters === 'string' ? entry.characters : '',
           hints: typeof entry.hints === 'string' ? entry.hints : '',
+          prefix: typeof entry.prefix === 'string' ? entry.prefix : '',
         };
       }
     } catch {
       /* corrupted / blocked storage — start fresh */
     }
-    return { lastChapter: 0, characters: '', hints: '' };
+    return { lastChapter: 0, characters: '', hints: '', prefix: '' };
   }
 
-  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string; hints: string }): void {
+  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string; hints: string; prefix: string }): void {
     try {
       const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
       const map = raw ? JSON.parse(raw) : {};
@@ -1596,6 +1598,7 @@ export class ChatComponent implements OnInit {
     this.elaborateFirst.set(next);
     this.elaborateLast.set(next);
     this.elaborateNames.set(state.characters);
+    this.elaboratePrefix.set(state.prefix);
     this.elaborateHints.set(state.hints);
     this.elaborateStickLast.set(false);
 
@@ -1660,6 +1663,7 @@ export class ChatComponent implements OnInit {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
+    const prefix = this.elaboratePrefix().trim();
     const hints = this.elaborateHintsText();
 
     const anchor = this.activeTreeAssistantNode();
@@ -1676,7 +1680,8 @@ export class ChatComponent implements OnInit {
     this.saveElaborateState(chatId, {
       lastChapter: last,
       characters: this.elaborateNames(),
-      hints: this.elaborateHints()
+      hints: this.elaborateHints(),
+      prefix
     });
 
     this.isElaborating.set(true);
@@ -1702,12 +1707,12 @@ export class ChatComponent implements OnInit {
         // view is ever the "first" one ({{#if isFirst}} always resolves false).
         const prompts = names.length > 0
           ? names.map((name, i) => this.promptDefaults.render('structure.elaborate-view', {
-              chapter,
+              chapter: `${prefix}${chapter}`,
               name,
               hints,
               isFirst: !this.elaborateStickLast() && i === 0
             }, topicId))
-          : [this.promptDefaults.render('structure.elaborate', { chapter, hints }, topicId)];
+          : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
 
         for (const prompt of prompts) {
           if (this.chatService.isOperationCancelled()) break;

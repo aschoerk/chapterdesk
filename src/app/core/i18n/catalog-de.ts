@@ -102,6 +102,8 @@ export const DE = {
       'Die letzte Antwort beschreibt die Kapitel 1..n. Arbeiten Sie jedes gewählte Kapitel aus — optional aus der Sicht der genannten Figuren (durch Kommas getrennt).',
     elaborateFirst: 'Erstes Kapitel',
     elaborateLast: 'Letztes Kapitel',
+    elaboratePrefix: 'Kapitelnummer-Präfix',
+    elaboratePrefixPlaceholder: 'Optional, z. B. ARC-',
     elaborateNames: 'Figuren',
     elaborateNamesPlaceholder: 'z. B. Anna, Ben (mit Komma getrennt, optional)',
     elaborateHints: 'Hinweise',
