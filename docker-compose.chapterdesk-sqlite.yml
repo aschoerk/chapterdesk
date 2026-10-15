@@ -24,7 +24,7 @@ services:
       - "9229:9229"
     volumes:
       - ./chapterdesk-api-server/data:/app/data
-      - ./dist/chat/browser:/app/public
+      - ./electron/renderer/browser:/app/public
       - ./chapterdesk-api-server/dist:/app/dist
       - ./chapterdesk-api-server/src:/app/src
     # Keep container running even if the process waits on the debugger

@@ -6,7 +6,7 @@ RUN npm ci
 COPY angular.json tsconfig.json tsconfig.app.json ./
 COPY public ./public
 COPY src ./src
-RUN npx ng build --configuration=production --output-path=/out
+RUN npx ng build --configuration=production --base-href=/ --output-path=/out
 
 FROM node:22-trixie
 WORKDIR /app
