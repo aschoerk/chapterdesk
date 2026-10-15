@@ -54,6 +54,8 @@ export interface SearchReplaceSession {
   scopes(): SearchScopeDef[];
   /** Units that belong to a given scope (reactive). */
   unitsFor(scope: SearchScopeId): SearchUnit[];
+  /** Current unit to start searching from, when the page has one. */
+  startUnitKey?(scope: SearchScopeId): string | null;
   /**
    * Navigate to + highlight the current occurrence. `occ.localNth` is the
    * occurrence's index within the unit, so the page can mark exactly one
@@ -77,11 +79,11 @@ export class SearchReplaceService {
   private readonly session = signal<SearchReplaceSession | null>(null);
   readonly scope = signal<SearchScopeId>('node');
   readonly currentIndex = signal(0);
+  private initialFindPending = false;
 
   /** Register the active page's session (called on init / destroy). */
   setSession(session: SearchReplaceSession | null): void {
     this.session.set(session);
-    this.currentIndex.set(0);
     const scopes = session?.scopes() ?? [];
     // Reset to the first available scope when a new page registers.
     if (scopes.length > 0 && !scopes.some((s) => s.id === this.scope())) {
@@ -89,6 +91,7 @@ export class SearchReplaceService {
     } else if (scopes.length === 0) {
       this.scope.set('node');
     }
+    this.resetToStart();
   }
 
   readonly scopes = computed(() => this.session()?.scopes() ?? []);
@@ -132,7 +135,7 @@ export class SearchReplaceService {
 
   openDialog(): void {
     this.open.set(true);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   close(): void {
@@ -145,7 +148,7 @@ export class SearchReplaceService {
 
   setTerm(term: string): void {
     this.term.set(term);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   setReplaceTerm(term: string): void {
@@ -154,28 +157,33 @@ export class SearchReplaceService {
 
   setCaseSensitive(on: boolean): void {
     this.caseSensitive.set(on);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   setWholeWord(on: boolean): void {
     this.wholeWord.set(on);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   setUseRegex(on: boolean): void {
     this.useRegex.set(on);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   setScope(scope: SearchScopeId): void {
     this.scope.set(scope);
-    this.currentIndex.set(0);
+    this.resetToStart();
   }
 
   /** Find the next occurrence (wrap-around). Always navigates to it. */
   findNext(): void {
     const list = this.occurrences();
     if (list.length === 0) return;
+    if (this.initialFindPending) {
+      this.initialFindPending = false;
+      this.navigateToCurrent();
+      return;
+    }
     const next = (this.currentIndex() + 1) % list.length;
     this.currentIndex.set(next);
     this.navigateToCurrent();
@@ -184,6 +192,11 @@ export class SearchReplaceService {
   findPrev(): void {
     const list = this.occurrences();
     if (list.length === 0) return;
+    if (this.initialFindPending) {
+      this.initialFindPending = false;
+      this.navigateToCurrent();
+      return;
+    }
     const prev = (this.currentIndex() - 1 + list.length) % list.length;
     this.currentIndex.set(prev);
     this.navigateToCurrent();
@@ -193,7 +206,28 @@ export class SearchReplaceService {
   navigateToCurrent(): void {
     const occ = this.current();
     if (!occ) return;
+    this.initialFindPending = false;
     this.session()?.navigate(occ);
+  }
+
+  private resetToStart(): void {
+    const session = this.session();
+    const list = this.occurrences();
+    const startKey = session?.startUnitKey?.(this.scope());
+    if (!session || !startKey || list.length === 0) {
+      this.currentIndex.set(0);
+      this.initialFindPending = true;
+      return;
+    }
+
+    const units = session.unitsFor(this.scope());
+    const startUnitIndex = units.findIndex((unit) => unit.key === startKey);
+    const startOccurrence = list.findIndex((occurrence) => {
+      const unitIndex = units.findIndex((unit) => unit.key === occurrence.unit.key);
+      return unitIndex >= startUnitIndex;
+    });
+    this.currentIndex.set(startOccurrence === -1 ? 0 : startOccurrence);
+    this.initialFindPending = true;
   }
 
   async replaceCurrent(): Promise<void> {
@@ -244,10 +278,12 @@ export class SearchReplaceService {
     const list = this.occurrences();
     if (list.length === 0) {
       this.currentIndex.set(0);
+      this.initialFindPending = false;
       return;
     }
     let next = list.findIndex((o) => o.unit.key !== occ.unit.key || o.match.start >= replacedStart);
     if (next === -1) next = 0;
     this.currentIndex.set(next);
+    this.initialFindPending = false;
   }
 }

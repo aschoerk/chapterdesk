@@ -898,6 +898,7 @@ export class ChatComponent implements OnInit {
       { id: 'chat', labelKey: 'search.scope.chat' },
     ],
     unitsFor: (scope) => this.searchUnits(scope),
+    startUnitKey: (scope) => scope === 'chat' ? this.activeSearchNode()?.id ?? null : null,
     navigate: (occ) => this.searchNavigate(occ),
     apply: (updates) => this.searchApply(updates),
   };

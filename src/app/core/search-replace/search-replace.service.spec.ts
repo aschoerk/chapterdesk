@@ -78,7 +78,7 @@ describe('SearchReplaceService', () => {
     expect(service.total()).toBe(0);
   });
 
-  it('navigates next/prev with wrap-around', () => {
+  it('navigates the initial match and then next/prev with wrap-around', () => {
     const nav: string[] = [];
     service.setSession({
       scopes: () => [{ id: 'chat', labelKey: 'search.scope.chat' }],
@@ -90,6 +90,8 @@ describe('SearchReplaceService', () => {
     service.setTerm('x');
     expect(service.currentIndex()).toBe(0);
     service.findNext();
+    expect(service.currentIndex()).toBe(0);
+    service.findNext();
     expect(service.currentIndex()).toBe(1);
     service.findNext();
     expect(service.currentIndex()).toBe(2);
@@ -97,6 +99,47 @@ describe('SearchReplaceService', () => {
     expect(service.currentIndex()).toBe(0); // wraps
     service.findPrev();
     expect(service.currentIndex()).toBe(2); // wraps back
+  });
+
+  it('starts chat-scope search at the current unit and continues forward', () => {
+    const nav: string[] = [];
+    service.setSession({
+      scopes: () => [{ id: 'chat', labelKey: 'search.scope.chat' }],
+      unitsFor: () => [
+        { key: 'first', text: 'match' },
+        { key: 'current', text: 'match here' },
+        { key: 'last', text: 'match' },
+      ],
+      startUnitKey: () => 'current',
+      navigate: (occ) => nav.push(`${occ.unit.key}:${occ.match.start}`),
+      apply: async () => {},
+    });
+    service.setTerm('match');
+
+    expect(service.current()?.unit.key).toBe('current');
+    service.findNext();
+    expect(nav).toEqual(['current:0']);
+    service.findNext();
+    expect(nav).toEqual(['current:0', 'last:0']);
+    service.findNext();
+    expect(nav).toEqual(['current:0', 'last:0', 'first:0']);
+  });
+
+  it('starts at the first unit when the current unit has no matches after it', () => {
+    const nav: string[] = [];
+    service.setSession({
+      scopes: () => [{ id: 'chat', labelKey: 'search.scope.chat' }],
+      unitsFor: () => [
+        { key: 'first', text: 'match' },
+        { key: 'current', text: 'none' },
+      ],
+      startUnitKey: () => 'current',
+      navigate: (occ) => nav.push(occ.unit.key),
+      apply: async () => {},
+    });
+    service.setTerm('match');
+    service.findNext();
+    expect(nav).toEqual(['first']);
   });
 
   it('replaceCurrent persists the updated unit and continues', async () => {
