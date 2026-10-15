@@ -1,4 +1,4 @@
-# Production image for Cloud Run: SPA + proxy in one process.
+# Production image for Cloud Run: Angular SPA + typed API and mock LLM server.
 FROM node:22-trixie AS web
 WORKDIR /angular
 COPY package.json package-lock.json ./
@@ -8,16 +8,25 @@ COPY public ./public
 COPY src ./src
 RUN npx ng build --configuration=production --base-href=/ --output-path=/out
 
+FROM node:22-trixie AS api
+WORKDIR /api
+COPY chapterdesk-api-server/package.json chapterdesk-api-server/package-lock.json ./
+RUN npm ci
+COPY chapterdesk-api-server/tsconfig.json ./
+COPY chapterdesk-api-server/src ./src
+RUN npm run build
+
 FROM node:22-trixie
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-COPY chat-server-js/package.json chat-server-js/package-lock.json ./
+COPY chapterdesk-api-server/package.json chapterdesk-api-server/package-lock.json ./
 RUN npm ci --omit=dev
-COPY chat-server-js/ ./
+COPY --from=api /api/dist ./dist
 COPY --from=web /out/browser ./public
 ENV NODE_ENV=production
+ENV PORT=8080
 
 EXPOSE 8080
-CMD ["node", "server.js"]
+CMD ["node", "dist/server.js"]

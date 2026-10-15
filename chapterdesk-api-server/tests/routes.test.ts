@@ -22,6 +22,17 @@ beforeAll(async () => {
 });
 
 describe('API Routes (in-memory SQLite)', () => {
+  test('GET /api/environment reports app login disabled', async () => {
+    const res = await request(app).get('/api/environment');
+    expect(res.status).toBe(200);
+    expect(res.body.auth).toMatchObject({
+      login: 'none',
+      required: false,
+      skipLogin: true,
+      googleConfigured: false,
+    });
+  });
+
   // ------------------------------------------------------------------------
   // Providers
   // ------------------------------------------------------------------------

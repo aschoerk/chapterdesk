@@ -77,6 +77,14 @@ export function createApp(store: PersistencePort) {
         ],
         idb: [],
       },
+      auth: {
+        login: 'none',
+        username: null,
+        userId: null,
+        googleConfigured: false,
+        required: false,
+        skipLogin: true,
+      },
       persistence: store.kind,
     });
   });
