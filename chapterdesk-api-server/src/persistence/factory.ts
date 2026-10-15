@@ -16,7 +16,7 @@ export function detectPersistenceKind(): PersistenceKind {
   const forced = env('PERSISTENCE');
   if (forced === 'memory' || forced === 'sqlite' || forced === 'firebase') return forced;
   if (env('K_SERVICE') || env('CLOUD_RUN_JOB') || env('AWS_EXECUTION_ENV') || env('AWS_REGION')) {
-    return 'firebase';
+    return 'memory';
   }
   return 'sqlite';
 }

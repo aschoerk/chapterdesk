@@ -28,6 +28,7 @@ COPY --from=web /out/browser ./public
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV CHAPTERDESK_RUNTIME=docker-prod
+ENV PERSISTENCE=memory
 
 EXPOSE 8080
 CMD ["node", "dist/server.js"]

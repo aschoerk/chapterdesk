@@ -34,7 +34,8 @@ Backends:
 
 - `PERSISTENCE=memory` — in-process only
 - `PERSISTENCE=sqlite` — default local / Electron (`data/chapterdesk.sqlite`)
-- `PERSISTENCE=firebase` — Cloud Run / AWS default (`topic_snapshots`, `provider_snapshots`)
+- `PERSISTENCE=memory` — Cloud Run/gcloud; browser application data is stored in IndexedDB
+- `PERSISTENCE=firebase` — optional legacy snapshot backend (`topic_snapshots`, `provider_snapshots`)
 
 ## Run
 

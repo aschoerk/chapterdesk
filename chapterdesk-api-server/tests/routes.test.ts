@@ -33,13 +33,43 @@ describe('API Routes (in-memory SQLite)', () => {
     });
   });
 
-  test('GET /api/environment reports the configured Docker runtime', async () => {
+  test('GET /api/environment reports IndexedDB-only storage for Docker', async () => {
     const originalRuntime = process.env.CHAPTERDESK_RUNTIME;
     process.env.CHAPTERDESK_RUNTIME = 'docker-prod';
     try {
       const res = await request(app).get('/api/environment');
       expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ runtime: 'docker-prod', docker: true });
+      expect(res.body).toMatchObject({
+        runtime: 'docker-prod',
+        docker: true,
+        partlySqlite: false,
+        storage: {
+          profile: 'indexeddb-all',
+          sqlite: [],
+          idb: ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'],
+        },
+      });
+    } finally {
+      if (originalRuntime === undefined) delete process.env.CHAPTERDESK_RUNTIME;
+      else process.env.CHAPTERDESK_RUNTIME = originalRuntime;
+    }
+  });
+
+  test('GET /api/environment reports IndexedDB-only storage for gcloud', async () => {
+    const originalRuntime = process.env.CHAPTERDESK_RUNTIME;
+    process.env.CHAPTERDESK_RUNTIME = 'gcloud';
+    try {
+      const res = await request(app).get('/api/environment');
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        runtime: 'gcloud',
+        docker: false,
+        storage: {
+          profile: 'indexeddb-all',
+          sqlite: [],
+          idb: ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'],
+        },
+      });
     } finally {
       if (originalRuntime === undefined) delete process.env.CHAPTERDESK_RUNTIME;
       else process.env.CHAPTERDESK_RUNTIME = originalRuntime;

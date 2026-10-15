@@ -13,6 +13,7 @@ export type RuntimeKind =
 
 export type StorageProfile =
   | 'sqlite-all'
+  | 'indexeddb-all'
   | 'chats-idb'
   | 'chats-params-idb'
   | 'content-idb'
@@ -117,7 +118,11 @@ export class EnvironmentService {
         docker: true,
         localShell: true,
         partlySqlite: false,
-        storage: { profile: 'sqlite-all', sqlite: [], idb: [] },
+        storage: {
+          profile: 'indexeddb-all',
+          sqlite: [],
+          idb: ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'],
+        },
         auth: {
           login: 'direct',
           username: null,

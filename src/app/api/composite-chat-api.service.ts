@@ -27,6 +27,7 @@ import { EnvironmentService, StorageKind } from '../core/environment.service';
 /**
  * Storage split comes from GET /api/environment.
  *   sqlite-all          → HTTP/SQLite
+ *   indexeddb-all        → all app data in IndexedDB
  *   chats-params-idb    → chats + chat-parameters in IDB
  *   content-idb         → all except user/login/auth/providers/models in IDB
  *   theme-local         → personas + environments (projects) in IDB

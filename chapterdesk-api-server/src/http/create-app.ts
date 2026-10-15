@@ -62,23 +62,28 @@ export function createApp(store: PersistencePort) {
   app.get('/api/environment', (_req, res) => {
     const runtime = process.env.CHAPTERDESK_RUNTIME;
     const docker = runtime === 'docker-prod' || runtime === 'docker-dev';
+    const gcloud = runtime === 'gcloud' || store.kind === 'firebase';
+    const indexeddb = docker || gcloud;
+    const idbKinds = ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'];
+    const sqliteKinds = [
+      'users',
+      'auth',
+      'chats',
+      'chat-parameters',
+      'projects',
+      'topics',
+      'personas',
+      'providers',
+      'models',
+    ];
     res.json({
-      runtime: docker ? runtime : store.kind === 'firebase' ? 'gcloud' : 'local',
+      runtime: docker ? runtime : gcloud ? 'gcloud' : 'local',
       docker,
+      partlySqlite: false,
       storage: {
-        profile: 'sqlite-all',
-        sqlite: [
-          'users',
-          'auth',
-          'chats',
-          'chat-parameters',
-          'projects',
-          'topics',
-          'personas',
-          'providers',
-          'models',
-        ],
-        idb: [],
+        profile: indexeddb ? 'indexeddb-all' : 'sqlite-all',
+        sqlite: indexeddb ? [] : sqliteKinds,
+        idb: indexeddb ? idbKinds : [],
       },
       auth: {
         login: 'none',
