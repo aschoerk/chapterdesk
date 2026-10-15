@@ -109,10 +109,53 @@ describe('buildChatReply (reply generator)', () => {
 
   test('produces a short title for a title request', () => {
     const reply = buildChatReply(
-      [{ role: 'user', content: 'Generate a title for this story about a lighthouse.' }],
+      [{ role: 'user', content: 'Generate a concise title for this story.\n\nCurrent chat context:\nA keeper guards the lighthouse through winter.\n\nReturn only the resulting text.' }],
       MOCK_MODEL_ID,
     );
     expect(reply.length).toBeLessThan(120);
+    expect(reply).not.toContain('\n');
+    expect(reply.toLowerCase()).toMatch(/keeper|lighthouse|winter/);
+  });
+
+  test('writes a distinct plain-text introduction for the overview template', () => {
+    const reply = buildChatReply(
+      [{ role: 'user', content: 'Write an engaging introduction to this story.\n\nCurrent chat context:\nA keeper discovers a letter beneath the lighthouse floorboards.\n\nReturn only the resulting text.' }],
+      MOCK_MODEL_ID,
+    );
+    expect(reply).toContain('story follows');
+    expect(reply).toMatch(/keeper|letter|lighthouse/);
+    expect(reply.trim().startsWith('[')).toBe(false);
+  });
+
+  test('writes a concise plain-text heading for the chapter-heading template', () => {
+    const reply = buildChatReply(
+      [{ role: 'user', content: 'Generate a concise chapter or section heading for this point in the story.\n\nCurrent chat context:\nThe keeper finds a sealed letter beneath the floorboards.' }],
+      MOCK_MODEL_ID,
+    );
+    expect(reply).toMatch(/keeper|letter|floorboards/i);
+    expect(reply).not.toContain('\n');
+    expect(reply.trim().startsWith('[')).toBe(false);
+  });
+
+  test('returns the required three JSON variants for the language-check template', () => {
+    const reply = buildChatReply(
+      [{ role: 'user', content: 'You are a careful copy-editor for writing directions.\nProduce EXACTLY 3 variants of the corrected direction:\n1. "minimal"\n2. "clearer"\n3. "rewritten"\nReturn ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].\n\nOriginal direction:\nplease keep the old lighthouse open in winter' }],
+      MOCK_MODEL_ID,
+    );
+    const variants = JSON.parse(reply);
+    expect(variants).toHaveLength(3);
+    expect(variants[0]).toContain('please keep the old lighthouse open in winter');
+    expect(variants[2]).toMatch(/^Continue the story by following this direction:/);
+  });
+
+  test('returns the requested numbered chapter descriptions', () => {
+    const reply = buildChatReply(
+      [{ role: 'user', content: 'Plan a list of chapter headings and descriptions for the chapters that still have to be written.\nReturn only the chapter heading and description list, numbered starting at the given first chapter number, in the format: "<number>. <heading> — <description>".\nNumber of chapters to plan: 2\nSentences per chapter description: 2\nFirst chapter number: 4\nWhat the chapters are meant to achieve:\nReveal the keeper’s secret\nReturn only the chapter list, starting at chapter 4.' }],
+      MOCK_MODEL_ID,
+    );
+    expect(reply.split('\n')).toHaveLength(2);
+    expect(reply).toMatch(/^4\. .+ — .+\n5\. .+ — /);
+    expect(reply).toContain('keeper');
   });
 
   test('produces a JSON array for a chapter-headings request', () => {

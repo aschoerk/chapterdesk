@@ -133,14 +133,79 @@ function wordNumber(i: number): string {
 }
 
 function mockLanguageCheck(): string {
-  return [
-    'Your text reads well. I clarified a few phrasings and smoothed two long sentences.',
-    '',
-    'Suggested rewrite:',
-    '“The wind carried the salt in from the harbour, and the day settled into its slow work.”',
-    '',
-    'Grammar and clarity are already strong — the main change is rhythm.',
-  ].join('\n');
+  return JSON.stringify([
+    'Please keep the old lighthouse open through winter.',
+    'Please keep the old lighthouse open throughout the winter.',
+    'Please ensure that the old lighthouse remains open during the winter season.',
+  ]);
+}
+
+type MockTask = 'language-check' | 'chapter-descriptions' | 'title' | 'overview' | 'heading' | 'writing';
+
+function identifyTask(prompt: string): MockTask {
+  if (/exactly\s+3\s+variants[\s\S]*corrected direction|json array of exactly 3 strings[\s\S]*minimal, clearer, rewritten/i.test(prompt)) {
+    return 'language-check';
+  }
+  if (/plan a list of chapter headings and descriptions|chapter description list|number of chapters to plan/i.test(prompt)) {
+    return 'chapter-descriptions';
+  }
+  if (/generate a concise title for this story|generate a title for this story|story title/i.test(prompt)) {
+    return 'title';
+  }
+  if (/write an engaging introduction to this story|introduction \/ overview|story overview/i.test(prompt)) {
+    return 'overview';
+  }
+  if (/generate a concise chapter or section heading|generate the heading for the last chapter only|chapter heading/i.test(prompt)) {
+    return 'heading';
+  }
+  return 'writing';
+}
+
+function sectionContext(prompt: string, label: string): string {
+  const start = prompt.indexOf(label.replace(/:?$/, ':'));
+  if (start < 0) return prompt;
+  const markerLength = label.replace(/:?$/, ':').length;
+  return prompt.slice(start + markerLength).split(/\n\nReturn only/i)[0].trim();
+}
+
+function mockOverview(context: string): string {
+  const phrases = keyPhrases(context);
+  if (phrases.length === 0) {
+    return 'In a quiet place on the edge of change, an ordinary discovery draws its keeper into a story of difficult choices, unexpected allies, and the courage to begin again.';
+  }
+  const [subject, second, third] = phrases;
+  return `When ${subject} unsettles an otherwise familiar life, a search for answers leads toward ${second ?? 'an unexpected discovery'}. As ${third ?? 'old certainties'} give way to new choices, the story follows the people who must decide what they are willing to protect.`;
+}
+
+function mockHeading(context: string): string {
+  const phrases = keyPhrases(context);
+  if (phrases.length === 0) return 'The Turning Point';
+  return `${capitalize(phrases[0])} and the ${capitalize(phrases[1] ?? 'Hidden Truth')}`;
+}
+
+function mockChapterDescriptions(prompt: string): string {
+  const count = Math.min(Math.max(extractInt(prompt.match(/Number of chapters to plan:\s*(\d+)/i)?.[1] ?? '') ?? 3, 1), 12);
+  const first = extractInt(prompt.match(/First chapter number:\s*(\d+)/i)?.[1] ?? '') ?? 1;
+  const goal = sectionContext(prompt, 'What the chapters are meant to achieve:');
+  const topic = keyPhrases(goal || prompt).slice(0, 2).map(capitalize).join(' and ') || 'The Unfinished Journey';
+  return Array.from({ length: count }, (_, index) => {
+    const number = first + index;
+    const heading = index === 0 ? `The ${topic}` : index === count - 1 ? 'A Choice That Changes Everything' : `What the ${topic} Reveals`;
+    const description = index === 0
+      ? `The story establishes ${topic.toLowerCase()} and introduces the problem that will drive the next stage.`
+      : index === count - 1
+        ? 'The characters act on what they have learned, face the central consequence, and move toward the stated goal.'
+        : 'A new complication tests the characters’ assumptions and reveals a useful clue about the path ahead.';
+    return `${number}. ${heading} — ${description}`;
+  }).join('\n');
+}
+
+function mockLanguageVariants(prompt: string): string {
+  const original = sectionContext(prompt, 'Original direction:') || 'Please continue the story from here.';
+  const minimal = original.trim();
+  const clearer = minimal.replace(/\s+/g, ' ').replace(/\bi\b/g, 'I');
+  const rewritten = `Continue the story by following this direction: ${clearer.replace(/[.!?]+$/, '')}.`;
+  return JSON.stringify([minimal, clearer, rewritten]);
 }
 
 const OPENERS = [
@@ -183,15 +248,31 @@ function mockProse(direction: string): string {
 export function buildChatReply(messages: unknown, model: string): string {
   const normalized = normalizeMessages(messages);
   const direction = lastMessage(normalized);
+  const prompt = normalized.map(message => message.content).join('\n\n');
 
   if (!direction.trim()) {
     return mockProse('');
   }
-  if (/title\b/i.test(direction) && direction.length < 120) return mockTitle(direction);
-  if (/(json\s*array|array\s*of|chapter descriptions|headings?)/i.test(direction)) {
+  const task = identifyTask(prompt);
+  if (task !== 'language-check' && task !== 'chapter-descriptions' && /json\s*array|array\s*of/i.test(direction)) {
     return mockList(direction);
   }
-  if (/(english|grammar|language|rephrase)/i.test(direction)) return mockLanguageCheck();
+  switch (task) {
+    case 'language-check':
+      return mockLanguageVariants(direction);
+    case 'chapter-descriptions':
+      return mockChapterDescriptions(direction);
+    case 'title':
+      return mockTitle(sectionContext(direction, 'Current chat context:') || direction);
+    case 'overview':
+      return mockOverview(sectionContext(direction, 'Current chat context:'));
+    case 'heading':
+      return mockHeading(sectionContext(direction, 'Current chat context:'));
+    default:
+      break;
+  }
+
+  if (/(json\s*array|array\s*of|chapter descriptions|headings?)/i.test(direction)) return mockList(direction);
   return mockProse(direction);
 }
 
