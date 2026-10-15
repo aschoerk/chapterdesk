@@ -26,9 +26,9 @@ export class ChapterDescriptionsDialogComponent {
   private readonly settings = inject(SettingsService);
 
   /** Number of chapter headings / descriptions to create. */
-  readonly chapterCount = signal(5);
+  readonly chapterCount = signal(10);
   /** Number of sentences each chapter description should contain. */
-  readonly sentencesPerChapter = signal(1);
+  readonly sentencesPerChapter = signal(5);
   /** Number of the first chapter (default 1 or the last generated + 1). */
   readonly firstChapter = signal(1);
   /** What the chapters are meant to achieve (free text). */

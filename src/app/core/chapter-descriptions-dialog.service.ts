@@ -12,8 +12,8 @@ const LS_PARAMS = 'chat.chapterDescriptions.paramsByChatId';
 const LS_MODEL = 'chat.chapterDescriptions.model.v1';
 
 /** Fallback defaults used the very first time (nothing generated yet). */
-const DEFAULT_CHAPTER_COUNT = 5;
-const DEFAULT_SENTENCES_PER_CHAPTER = 1;
+const DEFAULT_CHAPTER_COUNT = 10;
+const DEFAULT_SENTENCES_PER_CHAPTER = 5;
 
 /** The generated-list parameters the user enters in the dialog. */
 export interface ChapterDescriptionsParams {
