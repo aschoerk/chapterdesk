@@ -16,6 +16,9 @@ import {
 import { Project, ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/common/helpers';
+import { TopicSelectionService } from '../../core/topic-selection.service';
+import { parseDocxBook } from '../../core/docx-import';
+import { parseEpubBook } from '../../core/epub-import';
 import {
   buildDocxBlob,
   buildMarkdown,
@@ -85,6 +88,7 @@ export class ImportComponent {
   readonly i18n = inject(I18nService);
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
+  private readonly topicSelection = inject(TopicSelectionService);
   private readonly personaService = inject(PersonaService);
   private readonly bundleService = inject(BundleService);
   private readonly router = inject(Router);
@@ -304,6 +308,30 @@ export class ImportComponent {
         this.i18n.t('import.reading', { name: file.name, size: this.formatBytes(file.size) }),
       );
       try {
+        if (/\.docx$/i.test(file.name)) {
+          const parsed = await parseDocxBook(file);
+          const created = await this.importBook(parsed.title, parsed.chapters);
+          newSummaries.push({
+            fileName: file.name,
+            kind: 'chat',
+            title: parsed.title,
+            created,
+            detail: this.i18n.t('import.docxImported', { chapters: parsed.chapters.length }),
+          });
+          continue;
+        }
+        if (/\.epub$/i.test(file.name)) {
+          const parsed = await parseEpubBook(file);
+          const created = await this.importBook(parsed.title, parsed.chapters);
+          newSummaries.push({
+            fileName: file.name,
+            kind: 'chat',
+            title: parsed.title,
+            created,
+            detail: this.i18n.t('import.epubImported', { chapters: parsed.chapters.length }),
+          });
+          continue;
+        }
         const results = await this.parseFile(file, slice);
         for (const parsed of results) {
           if (parsed.kind === 'copilots') {
@@ -1268,6 +1296,60 @@ export class ImportComponent {
       });
       parentId = node.id;
       count++;
+    }
+    return count;
+  }
+
+  private async importBook(
+    title: string,
+    chapters: Array<{ heading: string; content: string }>,
+  ): Promise<number> {
+    const currentChat = this.chats().find(chat => chat.id === this.chatService.currentChatId());
+    const currentProject = this.projectService.getProject(currentChat?.projectId);
+    const selectedTopicId = this.topicSelection.selectedTopicId();
+    const topicId = selectedTopicId !== 'all' && selectedTopicId !== 'unassigned'
+      ? selectedTopicId
+      : currentProject?.mainTopicId ?? null;
+
+    let project = currentProject?.id && (
+      !topicId ||
+      currentProject.mainTopicId === topicId ||
+      currentProject.topicIds?.includes(topicId)
+    )
+      ? currentProject
+      : topicId
+        ? this.projectService.projects().find(candidate => candidate.mainTopicId === topicId)
+          ?? this.projectService.projects().find(candidate =>
+            this.projectService.topics().some(topic =>
+            topic.id === topicId && topic.projectIds?.includes(candidate.id),
+            ),
+          )
+        : undefined;
+
+    if (!project) {
+      project = await this.projectService.createProject({
+        name: title,
+        greeting: '',
+        mainTopicId: topicId,
+      });
+    }
+
+    const chat = await this.chatService.createChat(title, project.id);
+    let parentId: string | null = null;
+    let count = 0;
+    for (const chapter of chapters) {
+      const direction = await this.chatService.addNode(chat.id, {
+        parentId,
+        role: 'user',
+        content: `Write chapter: ${chapter.heading}`,
+      });
+      const answer = await this.chatService.addNode(chat.id, {
+        parentId: direction.id,
+        role: 'assistant',
+        content: chapter.content,
+      });
+      parentId = answer.id;
+      count += 2;
     }
     return count;
   }

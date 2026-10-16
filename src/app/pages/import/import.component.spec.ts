@@ -7,11 +7,13 @@ import { ImportComponent } from './import.component';
 import { CHAT_API } from '../../api/chat-api.token';
 import { ChatService } from '../../core/chat.service';
 import { ProjectService } from '../../core/project.service';
+import { TopicSelectionService } from '../../core/topic-selection.service';
 import { PersonaService } from '../../core/persona.service';
 import { BundleService, BundleScope, BUNDLE_FORMAT } from '../../core/bundle.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { seedApi } from '../../../../test-helpers/factories';
+import { strToU8, zipSync } from 'fflate';
 
 /**
  * ImportComponent tests (the /import page).
@@ -157,6 +159,41 @@ describe('ImportComponent', () => {
     return new File([content], name, { type });
   }
 
+  async function makeDocxFile(): Promise<File> {
+    const archive = zipSync({
+      'word/document.xml': strToU8(`<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${[
+      '<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t>Chapter One</w:t><w:tab/><w:t>1</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr><w:r><w:t>Chapter Two</w:t><w:tab/><w:t>3</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Chapter One</w:t></w:r></w:p>',
+      '<w:p><w:r><w:t>First chapter text.</w:t></w:r></w:p>',
+      '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Chapter Two</w:t></w:r></w:p>',
+      '<w:p><w:r><w:t>Second chapter text.</w:t></w:r></w:p>',
+    ].join('')}</w:body></w:document>`),
+      'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Imported DOCX</dc:title></cp:coreProperties>'),
+    });
+    const buffer = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer;
+    return new File([buffer], 'Imported DOCX.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+  }
+
+  async function makeEpubFile(): Promise<File> {
+    const container = `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`;
+    const opf = `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Imported EPUB</dc:title></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="chapter2.xhtml" media-type="application/xhtml+xml"/></manifest><spine toc="ncx"><itemref idref="c1"/><itemref idref="c2"/></spine></package>`;
+    const ncx = `<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><navMap><navPoint id="n1"><navLabel><text>Chapter One</text></navLabel><content src="chapter1.xhtml"/></navPoint><navPoint id="n2"><navLabel><text>Chapter Two</text></navLabel><content src="chapter2.xhtml"/></navPoint></navMap></ncx>`;
+    const ch1 = `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter One</h1><p>First chapter text.</p></body></html>`;
+    const ch2 = `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter Two</h1><p>Second chapter text.</p></body></html>`;
+    const archive = zipSync({
+      'META-INF/container.xml': strToU8(container),
+      'OPS/package.opf': strToU8(opf),
+      'OPS/toc.ncx': strToU8(ncx),
+      'OPS/chapter1.xhtml': strToU8(ch1),
+      'OPS/chapter2.xhtml': strToU8(ch2),
+    });
+    const buffer = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer;
+    return new File([buffer], 'Imported EPUB.epub', { type: 'application/epub+zip' });
+  }
+
   /** Hand-rolled FileList stand-in; this jsdom env has no DataTransfer. */
   function asFileList(files: File[]): FileList {
     return files as unknown as FileList;
@@ -206,7 +243,7 @@ describe('ImportComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Export');
     expect(text).toContain('Scope');
-    expect(text).toContain('Drop JSON file(s) here');
+    expect(text).toContain('Drop import file(s) here');
     expect(text).toContain('Choose file(s)');
   });
 
@@ -511,6 +548,67 @@ describe('ImportComponent', () => {
     expect(component.summaries().length).toBe(1);
     expect(component.summaries()[0].kind).toBe('chat');
     expect(component.summaries()[0].created).toBe(3);
+  });
+
+  it('imports DOCX TOC chapters into the current environment as direction and chapter nodes', async () => {
+    seedApi(api, {
+      topics: [{ id: 'topic-1', name: 'Current topic', projectIds: ['project-1'] }],
+      projects: [{ id: 'project-1', name: 'Current environment', mainTopicId: 'topic-1' }],
+      chats: [{ id: 'current-chat', title: 'Current story', projectId: 'project-1' }],
+    });
+    await chatService.loadChats();
+    await projectService.loadProjects();
+    await projectService.loadTopics();
+    await chatService.selectChat('current-chat');
+    TestBed.inject(TopicSelectionService).selectTopic('topic-1');
+    await createComponent();
+
+    fireDrop([await makeDocxFile()]);
+    await flushAsync();
+    fixture.detectChanges();
+
+    const imported = api.chats.find(chat => chat.title === 'Imported DOCX');
+    expect(imported?.projectId).toBe('project-1');
+    const nodes = api.nodes.filter(node => node.chatId === imported?.id);
+    expect(nodes.map(node => [node.role, node.content])).toEqual([
+      ['user', 'Write chapter: Chapter One'],
+      ['assistant', 'Chapter One\n\nFirst chapter text.'],
+      ['user', 'Write chapter: Chapter Two'],
+      ['assistant', 'Chapter Two\n\nSecond chapter text.'],
+    ]);
+    expect(nodes[1].parentId).toBe(nodes[0].id);
+    expect(nodes[2].parentId).toBe(nodes[1].id);
+    expect(nodes[3].parentId).toBe(nodes[2].id);
+  });
+
+  it('imports EPUB TOC chapters into the current environment as direction and chapter nodes', async () => {
+    seedApi(api, {
+      topics: [{ id: 'topic-1', name: 'Current topic', projectIds: ['project-1'] }],
+      projects: [{ id: 'project-1', name: 'Current environment', mainTopicId: 'topic-1' }],
+      chats: [{ id: 'current-chat', title: 'Current story', projectId: 'project-1' }],
+    });
+    await chatService.loadChats();
+    await projectService.loadProjects();
+    await projectService.loadTopics();
+    await chatService.selectChat('current-chat');
+    TestBed.inject(TopicSelectionService).selectTopic('topic-1');
+    await createComponent();
+
+    fireDrop([await makeEpubFile()]);
+    await flushAsync();
+    fixture.detectChanges();
+
+    const imported = api.chats.find(chat => chat.title === 'Imported EPUB');
+    expect(imported?.projectId).toBe('project-1');
+    const nodes = api.nodes.filter(node => node.chatId === imported?.id);
+    expect(nodes.map(node => [node.role, node.content])).toEqual([
+      ['user', 'Write chapter: Chapter One'],
+      ['assistant', 'Chapter One\n\nFirst chapter text.'],
+      ['user', 'Write chapter: Chapter Two'],
+      ['assistant', 'Chapter Two\n\nSecond chapter text.'],
+    ]);
+    expect(nodes[1].parentId).toBe(nodes[0].id);
+    expect(nodes[3].parentId).toBe(nodes[2].id);
   });
 
   it('places a pending session into the project chosen in the picker', async () => {

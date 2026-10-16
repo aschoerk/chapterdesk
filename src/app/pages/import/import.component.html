@@ -167,7 +167,7 @@
       {{ i18n.t('import.chooseFiles') }}
       <input
         type="file"
-        accept=".json,application/json,.txt"
+        accept=".json,application/json,.txt,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.epub,application/epub+zip"
         multiple
         (change)="onFileSelected($event)"
         hidden />
