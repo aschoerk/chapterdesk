@@ -82,9 +82,10 @@ export const DE_SHELL = {
     nextDoc: 'Nächstes Dokument',
     newestDoc: 'Neuestes Dokument',
     docFolio: 'Dok. {{current}} / {{total}}',
+    bookProgress: 'Buchfortschritt',
     typefaceTitle: 'Schriftart und Größe (f)',
-    showDirections: 'Anweisungen einblenden (d)',
-    hideDirections: 'Anweisungen ausblenden (d)',
+    showDirections: 'Anweisungen einblenden (Strg+D)',
+    hideDirections: 'Anweisungen ausblenden (Strg+D)',
     type: 'Schrift',
     typeSub:
       'Schriftart und Größe für diese Leseransicht. Die Vorschau nutzt das geöffnete Dokument.',

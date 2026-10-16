@@ -58,6 +58,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   readonly columnChoices = [1, 2, 3] as const;
   readonly columnCount = signal<1 | 2 | 3>(this.readStoredColumnCount());
+  private pendingInitialNodeId: string | null = null;
+  private readonly initialPositionRevision = signal(0);
 
   readonly fontChoices: readonly ReaderFont[] = [
     {
@@ -336,9 +338,16 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     effect(() => {
       this.bookHtml();
       this.currentChatId();
+      this.initialPositionRevision();
+      const targetNodeId = this.pendingInitialNodeId;
       queueMicrotask(() => {
-        this.page.set(0);
-        this.layout();
+        if (!targetNodeId || !this.goToNode(targetNodeId)) {
+          this.page.set(0);
+          this.layout();
+        }
+        if (this.pendingInitialNodeId === targetNodeId) {
+          this.pendingInitialNodeId = null;
+        }
       });
     });
 
@@ -353,10 +362,43 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
 
   async ngOnInit() {
     this.search.setSession(this.readerSearchSession);
+    if (this.currentChatId()) this.selectVisibleDocument();
     await this.chatService.loadChats();
     if (!this.currentChatId()) {
       await this.router.navigate(['/chat']);
+      return;
     }
+    this.selectVisibleDocument();
+  }
+
+  private selectVisibleDocument(): void {
+    const activePath = this.chatService.getActivePath();
+    const activeIds = new Set(activePath.map(node => node.id));
+    const docs = this.documents();
+    const navigationState = this.router.getCurrentNavigation?.()?.extras.state ?? window.history.state;
+    const requestedNodeId = typeof navigationState?.['activeNodeId'] === 'string'
+      ? navigationState['activeNodeId'] as string
+      : null;
+    let bestIndex = 0;
+    let bestMatchCount = 0;
+    docs.forEach((doc, index) => {
+      const matchCount = doc.reduce((count, node) => count + Number(activeIds.has(node.id)), 0);
+      if (matchCount > bestMatchCount) {
+        bestMatchCount = matchCount;
+        bestIndex = index;
+      }
+    });
+    this.docIndex.set(bestIndex);
+
+    const selectedIds = new Set((docs[bestIndex] ?? []).map(node => node.id));
+    const requestedIndex = requestedNodeId
+      ? activePath.findIndex(node => node.id === requestedNodeId)
+      : -1;
+    const targetPath = requestedIndex >= 0 ? activePath.slice(0, requestedIndex + 1) : activePath;
+    this.pendingInitialNodeId = requestedNodeId && selectedIds.has(requestedNodeId)
+      ? requestedNodeId
+      : [...targetPath].reverse().find(node => selectedIds.has(node.id))?.id ?? null;
+    this.initialPositionRevision.update(revision => revision + 1);
   }
 
   ngOnDestroy() {
@@ -436,6 +478,11 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     this.goTo(this.page() + 1);
   }
 
+  onPageInput(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (input) this.goTo(Number(input.value));
+  }
+
   onWheel(event: WheelEvent) {
     event.preventDefault();
     if (event.deltaY > 0 || event.deltaX > 0) this.nextPage();
@@ -477,6 +524,20 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     this.page.set(next);
     this.pageCount.set(pages);
     el.scrollLeft = next * advance; // absolute, never +=
+  }
+
+  private goToNode(nodeId: string): boolean {
+    const root = this.reader()?.nativeElement;
+    if (!root) return false;
+    const index = this.renderedDocNodes().findIndex(node => node.id === nodeId);
+    const section = index >= 0 ? root.querySelectorAll<HTMLElement>('.book-node')[index] : null;
+    if (!section) return false;
+
+    const { advance } = this.metrics(root);
+    if (advance <= 0) return false;
+    const left = section.getBoundingClientRect().left - root.getBoundingClientRect().left + root.scrollLeft;
+    this.goTo(Math.round(Math.max(0, left) / advance));
+    return true;
   }
 
   private layout() {
@@ -555,6 +616,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
         break;
       case 'd':
       case 'D':
+        if (!event.ctrlKey && !event.metaKey) break;
         event.preventDefault();
         this.toggleQuestions();
         break;

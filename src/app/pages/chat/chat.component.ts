@@ -998,7 +998,8 @@ export class ChatComponent implements OnInit {
 
 
   openReader() {
-    void this.router.navigate(['/read']);
+    const activeNodeId = this.visibleNodeId() ?? this.getCurrentLeaf()?.id ?? null;
+    void this.router.navigate(['/read'], { state: { activeNodeId } });
   }
 
   async ngOnInit() {

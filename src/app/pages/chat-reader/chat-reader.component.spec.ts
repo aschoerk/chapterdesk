@@ -34,6 +34,7 @@ describe('ChatReaderComponent', () => {
     TestBed.resetTestingModule();
     api = new InMemoryChatApi();
     localStorage.clear();
+    window.history.replaceState({}, '', '/');
     router.navigate.mockClear();
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -128,10 +129,12 @@ describe('ChatReaderComponent', () => {
     });
   }
 
-  function key(event: { key: string; target?: EventTarget | null }): void {
+  function key(event: { key: string; target?: EventTarget | null; ctrlKey?: boolean; metaKey?: boolean }): void {
     component.onKey({
       key: event.key,
       target: event.target ?? null,
+      ctrlKey: event.ctrlKey ?? false,
+      metaKey: event.metaKey ?? false,
       preventDefault: vi.fn(),
     } as unknown as KeyboardEvent);
   }
@@ -327,7 +330,7 @@ describe('ChatReaderComponent', () => {
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
       { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
-    expect(component.docLabel()).toBe('C v1 · continuation 1');
+    expect(component.docLabel()).toBe('C v1 · continuation 2');
     component.nextDoc();
     expect(component.docLabel()).toBe('C v1 · continuation 2');
   });
@@ -339,8 +342,8 @@ describe('ChatReaderComponent', () => {
       { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
 
-    expect(component.docIndex()).toBe(0);
-    component.prevDoc(); // clamped at 0
+    expect(component.docIndex()).toBe(1);
+    component.prevDoc(); // returns to the first document
     expect(component.docIndex()).toBe(0);
 
     component.nextDoc();
@@ -352,6 +355,61 @@ describe('ChatReaderComponent', () => {
     expect(component.docIndex()).toBe(0);
     component.goLastDoc();
     expect(component.docIndex()).toBe(1);
+  });
+
+  it('opens the document matching the currently active chat branch', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+        { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
+        { id: 'q2', parentId: 'a1', role: 'user', content: 'Q2', createdAt: t(10) },
+        { id: 'a3', parentId: 'q2', role: 'assistant', content: 'A3', version: 1, createdAt: t(11) },
+        { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
+      ],
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild('q1', 'a2');
+    window.history.replaceState({ activeNodeId: 'q1' }, '', '/');
+    const originalGoToNode = (ChatReaderComponent.prototype as any).goToNode;
+    const positionSpy = vi.spyOn(ChatReaderComponent.prototype as any, 'goToNode')
+      .mockImplementation(function (this: ChatReaderComponent, ...args: unknown[]) {
+        const nodeId = String(args[0]);
+        const root = this.reader()?.nativeElement;
+        if (root && nodeId === 'q1') {
+          Object.defineProperty(root, 'clientWidth', { value: 500, configurable: true });
+          Object.defineProperty(root, 'scrollWidth', { value: 1000, configurable: true });
+          vi.spyOn(root, 'getBoundingClientRect').mockReturnValue({ left: 0 } as DOMRect);
+          const activeSection = root.querySelectorAll<HTMLElement>('.book-node')[0];
+          vi.spyOn(activeSection, 'getBoundingClientRect').mockReturnValue({ left: 600 } as DOMRect);
+        }
+        return originalGoToNode.call(this, ...args);
+      });
+
+    createFixture();
+    await fixture.whenStable();
+
+    expect(component.documents().map(doc => doc.at(-1)?.id)).toEqual(['a3', 'a2']);
+    expect(component.docIndex()).toBe(1);
+    expect(component.bookHtml()).toContain('A2');
+    expect(positionSpy).toHaveBeenCalledWith('q1');
+  });
+
+  it('rounds active-node positioning to the nearest spread', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
+    ]);
+    setReaderGeometry({ scrollWidth: 1600 });
+    const root = readerEl();
+    vi.spyOn(root, 'getBoundingClientRect').mockReturnValue({ left: 0 } as DOMRect);
+    const activeSection = root.querySelectorAll<HTMLElement>('.book-node')[1];
+    vi.spyOn(activeSection, 'getBoundingClientRect').mockReturnValue({ left: 750 } as DOMRect);
+
+    expect((component as any).goToNode('a1')).toBe(true);
+    expect(component.page()).toBe(2);
+    expect(root.scrollLeft).toBe(984);
   });
 
   it('renders the doc folio with the label caption', async () => {
@@ -565,11 +623,13 @@ describe('ChatReaderComponent', () => {
   // Keyboard shortcuts
   // ------------------------------------------------------------------
 
-  it('toggles questions with d/D', async () => {
+  it('toggles directions with Ctrl-D but not with bare d', async () => {
     await openChat([{ id: 'q1', parentId: null, role: 'user', content: 'Q1' }]);
     key({ key: 'd' });
+    expect(component.hideQuestions()).toBe(false);
+    key({ key: 'd', ctrlKey: true });
     expect(component.hideQuestions()).toBe(true);
-    key({ key: 'D' });
+    key({ key: 'D', ctrlKey: true });
     expect(component.hideQuestions()).toBe(false);
   });
 
@@ -632,5 +692,19 @@ describe('ChatReaderComponent', () => {
     expect(component.page()).toBe(1);
     component.onWheel({ deltaY: -1, deltaX: 0, preventDefault: () => {} } as unknown as WheelEvent);
     expect(component.page()).toBe(0);
+  });
+
+  it('scrubs to a spread with the bottom progress control', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
+    ]);
+    setReaderGeometry({ scrollWidth: 1000 });
+
+    component.onPageInput({ target: { value: '1' } } as unknown as Event);
+
+    expect(component.pageCount()).toBe(2);
+    expect(component.page()).toBe(1);
+    expect(readerEl().scrollLeft).toBe(492);
   });
 });

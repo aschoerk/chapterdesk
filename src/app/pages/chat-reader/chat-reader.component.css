@@ -73,6 +73,29 @@
   padding: 1.25rem 1.75rem 1.75rem;
 }
 
+.reader-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: 0.45rem 1.25rem;
+  border-top: 1px solid var(--border, #e7e5e4);
+  background: var(--panel, #fff);
+}
+
+.reader-progress {
+  flex: 1;
+  min-width: 0;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--accent, #1d4ed8);
+  cursor: pointer;
+}
+
+.reader-progress:disabled {
+  cursor: default;
+}
+
 .reader {
   box-sizing: border-box;
   padding: 1.25rem 0;

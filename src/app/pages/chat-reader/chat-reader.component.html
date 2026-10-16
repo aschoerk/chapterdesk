@@ -99,6 +99,19 @@
       (wheel)="onWheel($event)">
     </article>
   </div>
+  <footer class="reader-progress-bar">
+    <span class="folio">{{ page() + 1 }} / {{ pageCount() }}</span>
+    <input
+      class="reader-progress"
+      type="range"
+      min="0"
+      [max]="pageCount() - 1"
+      step="1"
+      [value]="page()"
+      [disabled]="pageCount() <= 1"
+      (input)="onPageInput($event)"
+      [attr.aria-label]="i18n.t('reader.bookProgress')">
+  </footer>
 </div>
 
 @if (typeModalOpen()) {

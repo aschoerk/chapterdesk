@@ -169,6 +169,16 @@ describe('Chat', () => {
     chatService.setActiveChild('q1', 'a1');
   }
 
+  it('passes the currently visible node when opening the reader', async () => {
+    await openStory();
+    component.visibleNodeId.set('q1');
+    const navigate = vi.spyOn((component as any).router, 'navigate').mockResolvedValue(true);
+
+    component.openReader();
+
+    expect(navigate).toHaveBeenCalledWith(['/read'], { state: { activeNodeId: 'q1' } });
+  });
+
   it('generates a title that wraps the whole story', async () => {
     await openStory();
     orch.completion.mockResolvedValueOnce({
