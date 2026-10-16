@@ -32,6 +32,7 @@ export class ProvidersComponent {
   readonly showFetchedParams = signal(false);
   readonly fetchedModel = signal<ModelEntry | null>(null);
   readonly searchTerm = signal('');
+  readonly providerFilterId = signal<string>('');
   readonly showEnabledOnly = signal(false);
   readonly showDisabledOnly = signal(false);
   readonly testingId = signal<string | null>(null);
@@ -118,6 +119,7 @@ export class ProvidersComponent {
 
   readonly filteredModels = computed(() => {
     const term = this.searchTerm().toLowerCase().trim();
+    const providerId = this.providerFilterId();
     const enabledOnly = this.showEnabledOnly();
     const disabledOnly = this.showDisabledOnly();
     const allModels = this.models();
@@ -128,34 +130,41 @@ export class ProvidersComponent {
       m.displayName.toLowerCase().includes(term) ||
       m.modelId.toLowerCase().includes(term);
 
+    const matchesProvider = (m: ModelEntry) =>
+      !providerId || m.providerId === providerId;
+
     const sortFn = (a: ModelEntry, b: ModelEntry) =>
       a.displayName.localeCompare(b.displayName, locale, { sensitivity: 'base' });
 
     // Enabled only → search applies to enabled models
     if (enabledOnly) {
       return allModels
-        .filter(m => m.enabled && matchesSearch(m))
+        .filter(m => m.enabled && matchesProvider(m) && matchesSearch(m))
         .sort(sortFn);
     }
 
     // Not enabled only → search applies to disabled models
     if (disabledOnly) {
       return allModels
-        .filter(m => !m.enabled && matchesSearch(m))
+        .filter(m => !m.enabled && matchesProvider(m) && matchesSearch(m))
         .sort(sortFn);
     }
 
     // Default: enabled always on top (ignore search), disabled filtered by search
     const enabledModels = allModels
-      .filter(m => m.enabled)
+      .filter(m => m.enabled && matchesProvider(m))
       .sort(sortFn);
 
     const disabledModels = allModels
-      .filter(m => !m.enabled && matchesSearch(m))
+      .filter(m => !m.enabled && matchesProvider(m) && matchesSearch(m))
       .sort(sortFn);
 
     return [...enabledModels, ...disabledModels];
   });
+
+  setProviderFilter(id: string) {
+    this.providerFilterId.set(id);
+  }
 
   setEnabledOnly(value: boolean) {
     this.showEnabledOnly.set(value);

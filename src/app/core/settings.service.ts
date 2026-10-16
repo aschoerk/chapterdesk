@@ -29,20 +29,47 @@ function lowerModalities(list: unknown): string[] {
     .filter(m => VALID_MODALITIES.has(m));
 }
 
-/** Fallback modality derivation when Gemini omits input/outputModalities. */
-function geminiFallbackModalities(raw: any): { input: string[]; output: string[] } {
+/**
+ * Gemini modalities, derived by UNIONING all available signals instead of
+ * trusting one alone:
+ *   - declared `inputModalities`/`outputModalities` (lowercased), AND
+ *   - `supportedGenerationMethods` (authoritative when present), AND
+ *   - the model id / display name: Google's image models (Nano Banana family,
+ *     `gemini-*-image`) frequently do NOT list `generateImages` in the list
+ *     endpoint's `supportedGenerationMethods` (and modern `models.list` no
+ *     longer exposes `inputModalities`/`outputModalities` at all), so the
+ *     stable `-image` / `nano-banana` naming is used as the fallback signal.
+ */
+const GEMINI_IMAGE_MODEL_RE = /(^|[.-])(image)(\b)|nano[\s-]?banana/i;
+
+function isGeminiImageModel(name: string): boolean {
+  return GEMINI_IMAGE_MODEL_RE.test(name || '');
+}
+
+function geminiModalities(raw: any): { input: string[]; output: string[] } {
   const methods: string[] = Array.isArray(raw.supportedGenerationMethods) ? raw.supportedGenerationMethods : [];
-  const input: string[] = [];
-  const output: string[] = [];
-  if (methods.includes('generateContent')) {
-    // Text in/out is the baseline; most generateContent models are also
-    // multimodal, but without declared modalities we stay conservative.
-    input.push('text');
-    output.push('text');
+  const input = new Set<string>(lowerModalities(raw.inputModalities));
+  const output = new Set<string>(lowerModalities(raw.outputModalities));
+  const has = (m: string) => methods.includes(m);
+
+  if (has('generateContent')) {
+    // Text in/out is the chat baseline.
+    input.add('text');
+    output.add('text');
   }
-  if (methods.includes('generateImages')) output.push('image');
-  if (methods.includes('generateAudio')) output.push('audio');
-  return { input, output };
+  if (has('generateImages')) output.add('image');
+  if (has('generateAudio')) output.add('audio');
+
+  // Name-based fallback: image-generation models signal image capability even
+  // when the list response omits `generateImages`.
+  const name = `${raw.name ?? ''} ${raw.displayName ?? ''}`;
+  if (isGeminiImageModel(name)) {
+    // These models accept image inputs (editing) and produce text + images.
+    input.add('image');
+    output.add('image');
+  }
+
+  return { input: [...input], output: [...output] };
 }
 
 function mapProviderModel(
@@ -56,11 +83,7 @@ function mapProviderModel(
 
   let architecture: ModelArchitecture | undefined;
   if (isGemini) {
-    const inputModalities = lowerModalities(raw.inputModalities);
-    const outputModalities = lowerModalities(raw.outputModalities);
-    const fallback = geminiFallbackModalities(raw);
-    const input = inputModalities.length ? inputModalities : fallback.input;
-    const output = outputModalities.length ? outputModalities : fallback.output;
+    const { input, output } = geminiModalities(raw);
     if (input.length || output.length) {
       architecture = {
         modality: `${input.length ? input.join('+') : 'none'}->${output.length ? output.join('+') : 'none'}`,

@@ -250,6 +250,74 @@ describe('ProvidersComponent', () => {
     expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o']);
   });
 
+  it('filters models by the selected provider only', async () => {
+    const p1 = await settings.addProvider({
+      name: 'OR',
+      type: 'openrouter',
+      baseUrl: 'https://example',
+      apiKey: 'key-xxxxxx',
+      enabled: true
+    });
+    const p2 = await settings.addProvider({
+      name: 'Anthropic',
+      type: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'sk-ant-xxxxxx',
+      enabled: true
+    });
+    await settings.addPreset('Claude', 'anthropic/claude', p2.id);
+    await settings.addPreset('GPT-4o', 'openai/gpt-4o', p1.id);
+    await settings.addPreset('Llama', 'llama3', p1.id);
+    fixture.detectChanges();
+
+    // Default: all providers shown, enabled on top.
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o', 'Llama']);
+
+    // Filter to provider 1 → only its models.
+    component.setProviderFilter(p1.id);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o', 'Llama']);
+
+    // Filter to provider 2 → only its models.
+    component.setProviderFilter(p2.id);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude']);
+
+    // Empty selection → all providers again.
+    component.setProviderFilter('');
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Claude', 'GPT-4o', 'Llama']);
+  });
+
+  it('combines the provider filter with enabled/disabled toggles and search', async () => {
+    const p1 = await settings.addProvider({
+      name: 'OR',
+      type: 'openrouter',
+      baseUrl: 'https://example',
+      apiKey: 'key-xxxxxx',
+      enabled: true
+    });
+    const p2 = await settings.addProvider({
+      name: 'Anthropic',
+      type: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'sk-ant-xxxxxx',
+      enabled: true
+    });
+    await settings.addPreset('Claude', 'anthropic/claude', p2.id);
+    await settings.addPreset('GPT-4o', 'openai/gpt-4o', p1.id);
+    const llama = await settings.addPreset('Llama', 'llama3', p1.id);
+    await settings.toggleModelEnabled(llama.id); // llama disabled
+    fixture.detectChanges();
+
+    component.setProviderFilter(p1.id);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o', 'Llama']);
+
+    component.searchTerm.set('llama');
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['GPT-4o', 'Llama']);
+
+    component.searchTerm.set('');
+    component.setDisabledOnly(true);
+    expect(component.filteredModels().map(m => m.displayName)).toEqual(['Llama']);
+  });
+
   it('creates a preset against the selected provider', async () => {
     const provider = await settings.addProvider({
       name: 'OR',

@@ -734,6 +734,7 @@ export const DE = {
     models: {
       title: 'Verfügbare Modelle / Voreinstellungen',
       addPreset: '+ Voreinstellung hinzufügen',
+      allProviders: 'Alle Anbieter',
       search: 'Modelle suchen…',
       enabledOnly: 'Nur aktivierte',
       disabledOnly: 'Nur nicht aktivierte',

@@ -127,6 +127,15 @@
     </div>
 
     <div class="toolbar">
+      <select
+        class="provider-filter"
+        [ngModel]="providerFilterId()"
+        (ngModelChange)="setProviderFilter($event)">
+        <option value="">{{ i18n.t('config.models.allProviders') }}</option>
+        @for (p of providers(); track p.id) {
+          <option [value]="p.id">{{ p.name }}</option>
+        }
+      </select>
       <input
         type="search"
         [placeholder]="i18n.t('config.models.search')"

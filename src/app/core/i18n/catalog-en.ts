@@ -732,6 +732,7 @@ export const EN = {
     models: {
       title: 'Available Models / Presets',
       addPreset: '+ Add Preset',
+      allProviders: 'All providers',
       search: 'Search models…',
       enabledOnly: 'Enabled only',
       disabledOnly: 'Not enabled only',

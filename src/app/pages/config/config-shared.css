@@ -120,6 +120,15 @@
   border-radius: 6px;
 }
 
+.toolbar select.provider-filter {
+  max-width: 240px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: inherit;
+}
+
 .models-table {
   width: 100%;
   border-collapse: collapse;

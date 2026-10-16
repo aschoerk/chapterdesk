@@ -223,6 +223,136 @@ describe('SettingsService.fetchModels', () => {
     expect(pro?.architecture?.output_modalities).toEqual(['text']);
   });
 
+  it('marks Gemini image models as image-capable even when the catalog declares text-only modalities', async () => {
+    // Google's image models (Nano Banana family) report TEXT/TEXT modalities at
+    // the list endpoint and signal image output via supportedGenerationMethods.
+    const provider = await settings.addProvider({
+      name: 'Google',
+      type: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: 'AIza-img',
+      enabled: true
+    });
+
+    const fetchPromise = settings.fetchModels(provider);
+    const req = http.expectOne(r => r.url.endsWith('/proxy/models'));
+    req.flush({
+      models: [
+        {
+          name: 'models/gemini-2.5-flash-image',
+          displayName: 'Nano Banana',
+          inputTokenLimit: 32768,
+          // Declared modalities say TEXT only — image must still be detected
+          // from the generateImages method.
+          supportedGenerationMethods: ['generateContent', 'generateImages'],
+          inputModalities: ['TEXT'],
+          outputModalities: ['TEXT']
+        },
+        {
+          name: 'models/gemini-nano-banana-2.1',
+          displayName: 'Nano Banana 2.1',
+          inputTokenLimit: 65536,
+          supportedGenerationMethods: ['generateImages'],
+          inputModalities: ['IMAGE'],
+          outputModalities: ['IMAGE']
+        }
+      ]
+    });
+
+    await fetchPromise;
+
+    const nano = settings.models().find(m => m.modelId === 'gemini-2.5-flash-image');
+    // Image models accept image input (editing) and produce text + images —
+    // matching what OpenRouter reports for the same models.
+    expect(nano?.architecture?.input_modalities).toEqual(['text', 'image']);
+    expect(nano?.architecture?.output_modalities).toEqual(['text', 'image']);
+
+    const nano21 = settings.models().find(m => m.modelId === 'gemini-nano-banana-2.1');
+    expect(nano21?.architecture?.input_modalities).toEqual(['image']);
+    expect(nano21?.architecture?.output_modalities).toEqual(['image']);
+  });
+
+  it('detects Gemini image models from their id/name even when the list omits generateImages', async () => {
+    // The real-world case: modern models.list no longer exposes modalities and
+    // does NOT list `generateImages` for the Nano Banana family — only the
+    // stable `-image` / `nano-banana` naming identifies them as image models.
+    const provider = await settings.addProvider({
+      name: 'Google',
+      type: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: 'AIza-img',
+      enabled: true
+    });
+
+    const fetchPromise = settings.fetchModels(provider);
+    const req = http.expectOne(r => r.url.endsWith('/proxy/models'));
+    req.flush({
+      models: [
+        {
+          name: 'models/gemini-2.5-flash-image',
+          displayName: 'Nano Banana',
+          inputTokenLimit: 32768,
+          // No modalities, no generateImages — just generateContent.
+          supportedGenerationMethods: ['generateContent']
+        },
+        {
+          name: 'models/gemini-3-pro-image-preview',
+          displayName: 'Nano Banana Pro Preview',
+          inputTokenLimit: 65536,
+          supportedGenerationMethods: ['generateContent']
+        },
+        {
+          name: 'models/gemini-3.1-flash',
+          displayName: 'Gemini 3.1 Flash',
+          inputTokenLimit: 131072,
+          supportedGenerationMethods: ['generateContent']
+        }
+      ]
+    });
+
+    await fetchPromise;
+
+    const nano = settings.models().find(m => m.modelId === 'gemini-2.5-flash-image');
+    expect(nano?.architecture?.input_modalities).toEqual(['text', 'image']);
+    expect(nano?.architecture?.output_modalities).toEqual(['text', 'image']);
+
+    const pro = settings.models().find(m => m.modelId === 'gemini-3-pro-image-preview');
+    expect(pro?.architecture?.output_modalities).toEqual(['text', 'image']);
+
+    // A plain text model must NOT get image.
+    const flash = settings.models().find(m => m.modelId === 'gemini-3.1-flash');
+    expect(flash?.architecture?.input_modalities).toEqual(['text']);
+    expect(flash?.architecture?.output_modalities).toEqual(['text']);
+  });
+
+  it('leaves Gemini embedding models without image capability', async () => {
+    const provider = await settings.addProvider({
+      name: 'Google',
+      type: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: 'AIza-emb',
+      enabled: true
+    });
+
+    const fetchPromise = settings.fetchModels(provider);
+    const req = http.expectOne(r => r.url.endsWith('/proxy/models'));
+    req.flush({
+      models: [
+        {
+          name: 'models/gemini-embedding-001',
+          displayName: 'Gemini Embedding',
+          inputTokenLimit: 30720,
+          supportedGenerationMethods: ['embedContent']
+        }
+      ]
+    });
+
+    await fetchPromise;
+
+    const emb = settings.models().find(m => m.modelId === 'gemini-embedding-001');
+    expect(emb?.architecture?.output_modalities ?? []).not.toContain('image');
+  });
+
   it('discovers Anthropic models (display_name) via x-api-key + anthropic-version', async () => {
     const provider = await settings.addProvider({
       name: 'Anthropic',
