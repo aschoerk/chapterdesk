@@ -27,6 +27,8 @@ export const EN = {
   },
   nav: {
     brandTitle: 'A chat client that would rather write the next chapter',
+    versionTitle: 'Version {{version}}',
+    currentChat: 'Current story: {{title}}',
     stories: 'Stories',
     storiesTitle: 'Stories',
     read: 'Read',

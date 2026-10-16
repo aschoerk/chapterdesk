@@ -1,7 +1,9 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { EnvironmentService } from '../../core/environment.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { ChatService } from '../../core/chat.service';
+import { APP_VERSION } from '../../core/version';
 
 interface AppNavLink {
   path: string;
@@ -21,6 +23,27 @@ export class AppNavComponent {
   readonly environment = inject(EnvironmentService);
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
+  private readonly chatService = inject(ChatService);
+
+  readonly versionLabel = APP_VERSION;
+
+  /** Title of the currently selected story/chat, or '' when none. */
+  readonly currentChatTitle = computed(() => {
+    const id = this.chatService.currentChatId();
+    const chat = id ? this.chatService.chats().find(c => c.id === id) : null;
+    this.i18n.locale();
+    return chat?.title || '';
+  });
+
+  constructor() {
+    // Keep the window / tab headline (Electron title bar + browser tab) in
+    // sync: "Story title — ChapterDesk (1.0.2)".
+    effect(() => {
+      const title = this.currentChatTitle();
+      const brand = `ChapterDesk (${APP_VERSION})`;
+      document.title = title ? `${title} — ${brand}` : brand;
+    });
+  }
 
   readonly links = computed<AppNavLink[]>(() => {
     this.i18n.locale();

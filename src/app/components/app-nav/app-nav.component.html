@@ -7,6 +7,7 @@
       <path d="M20.5 10.6l1.3.9.7-1-1.3-.9-.7 1z" fill="#fbbf24"/>
     </svg>
     <span class="brand-name">ChapterDesk</span>
+    <span class="brand-version" [title]="i18n.t('nav.versionTitle', { version: versionLabel })">({{ versionLabel }})</span>
   </span>
   <div class="links">
     @for (link of links(); track link.path) {
@@ -78,4 +79,13 @@
       </a>
     }
   </div>
+
+  @if (currentChatTitle()) {
+    <div class="nav-right">
+      <span
+        class="now-chat"
+        [title]="i18n.t('nav.currentChat', { title: currentChatTitle() })"
+      >{{ currentChatTitle() }}</span>
+    </div>
+  }
 </nav>
