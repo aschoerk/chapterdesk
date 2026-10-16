@@ -778,6 +778,7 @@ export const EN = {
       promptPh: 'Optional prompt template for this task',
       emptyProviders: 'Add a provider and enable models to configure generation tasks.',
       tasks: {
+        default: 'Default model',
         title: 'Titles',
         headings: 'Headings',
         overview: 'Overviews',
@@ -786,6 +787,8 @@ export const EN = {
         'language-check': 'Language correction',
       },
       hints: {
+        default:
+          'Fallback model used when a chat or chat node has no explicit model of its own. Leave empty to use the first enabled model.',
         title: 'Used to suggest or generate titles. Model must output plain text.',
         headings: 'Used to generate chapter / section headings. Model must output plain text.',
         overview: 'Used to create summaries / overviews. Model must output plain text.',

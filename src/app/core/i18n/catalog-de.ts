@@ -784,6 +784,7 @@ export const DE = {
       emptyProviders:
         'Fügen Sie einen Anbieter hinzu und aktivieren Sie Modelle, um Generierungsaufgaben zu konfigurieren.',
       tasks: {
+        default: 'Standardmodell',
         title: 'Titel',
         headings: 'Überschriften',
         overview: 'Überblicke',
@@ -792,6 +793,8 @@ export const DE = {
         'language-check': 'Sprachkorrektur',
       },
       hints: {
+        default:
+          'Fallbackmodell, wenn ein Chat oder Chat-Knoten kein eigenes Modell hat. Leer lassen, um das erste aktivierte Modell zu verwenden.',
         title:
           'Wird zum Vorschlagen oder Erzeugen von Titeln verwendet. Das Modell muss Klartext ausgeben.',
         headings:

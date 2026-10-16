@@ -297,4 +297,53 @@ describe('LLM orchestration — append (normal send: user/director at the end + 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(slots.text?.value).toBe('Plain answer.');
   });
+
+  it('uses the "default" generation task model when a node has no model binding', async () => {
+    TestBed.resetTestingModule();
+    api = new InMemoryChatApi();
+    const now = new Date().toISOString();
+    seedApi(api, {
+      providers: [{ id: 'prov-1' }],
+      models: [
+        { id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' },
+        { id: 'm-2', displayName: 'Beta', modelId: 'beta/model' }
+      ]
+    });
+    api.chats.push(makeChat({ id: CHAT_ID, title: 'Story', created_at: now, updated_at: now }));
+    api.nodes = [
+      makeNode({ id: 'n1', chatId: CHAT_ID, parentId: null, role: 'user', content: 'Opening direction.', isCurrent: true }),
+      makeNode({ id: 'a1', chatId: CHAT_ID, parentId: 'n1', role: 'assistant', content: 'The first chapter.', isCurrent: true }),
+      // The last question has NO model binding.
+      makeNode({ id: Q_ID, chatId: CHAT_ID, parentId: 'a1', role: 'user', content: '', isCurrent: true })
+    ];
+    await TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), provideHttpClient(), { provide: CHAT_API, useValue: api }]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    // Configure the "default" task → it must win over the first enabled model.
+    TestBed.inject(GenerationSettingsService).update('default', {
+      providerId: 'prov-1',
+      modelId: 'beta/model'
+    });
+    const chatService = TestBed.inject(ChatService);
+    await chatService.loadChats();
+    await chatService.selectChat(CHAT_ID);
+
+    fetchMock.mockResolvedValueOnce(sseResponse(['The ', 'night ', 'train ', 'arrives.']));
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === Q_ID)!,
+      usecase: 'append',
+      vars: { content: 'Mara boards the train.' }
+    });
+
+    // alpha/model is the FIRST enabled model, but the configured default
+    // (beta/model) is what an unbound node must resolve to.
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as { model: string };
+    expect(body.model).toBe('beta/model');
+    expect(slots.text?.status).toBe('ok');
+  });
 });

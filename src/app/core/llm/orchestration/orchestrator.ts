@@ -15,6 +15,8 @@ export interface PrimitiveRequest {
   readonly messages: ChatMessage[];
   readonly extras?: Record<string, unknown>;
   readonly stream?: boolean;
+  /** Force `modalities: ['text']` on the request (image-interpret). */
+  readonly textOnlyModalities?: boolean;
 }
 
 /** What one primitive call needs besides the transport request. */
@@ -84,6 +86,7 @@ export class LlmOrchestratorService {
       model: req.model,
       messages: req.messages,
       extras: { ...(req.extras ?? {}), stream: req.stream ?? false },
+      textOnlyModalities: req.textOnlyModalities ?? false,
       onChunk: opts.onChunk,
       signal: opts.signal,
       chat: this.chatRef(cx, opts.nodeId)

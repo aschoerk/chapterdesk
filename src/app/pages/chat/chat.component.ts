@@ -1348,6 +1348,7 @@ export class ChatComponent implements OnInit {
     const project = chat?.projectId ? this.projectService.getProject(chat.projectId) : null;
     const topic = this.projectService.topicForProject(project?.id, this.projectService.topics()) ?? null;
     const model = this.settings.models().find(m => m.id === this.lastModelService.selectedModelId())
+      || this.generation.modelFor('default')
       || this.settings.enabledModels()[0]
       || null;
     await this.parameters.loadMany([
@@ -1758,6 +1759,7 @@ export class ChatComponent implements OnInit {
       ?? this.enabledModels().find(m =>
         m.modelId === this.lastModelService.selectedModelId() ||
         m.id === this.lastModelService.selectedModelId())
+      ?? this.generation.modelFor('default')
       ?? this.enabledModels()[0];
     if (!model) return null;
     const provider = this.settings.providers().find(p => p.id === model.providerId);

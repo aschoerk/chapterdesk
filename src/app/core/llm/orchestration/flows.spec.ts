@@ -936,6 +936,69 @@ describe('LLM orchestration — interpretation only when the description is NOT 
     expect(fetchMock).toHaveBeenCalledTimes(1); // answer only — no re-interpret
     expect(slots2.interpretation).toBeUndefined(); // nothing newly merged
     expect(slots2.text?.value).toBe('A second answer.');
+  });
+
+  it('forces text modality when the interpret model can also generate images', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('A red ball on green grass.'));
+    fetchMock.mockResolvedValueOnce(sseResponse(['The ball rolls.']));
+    const { chatService } = await setup();
+    // Mark the interpret model as ALSO image-generating → the request must
+    // force text modality.
+    const settings = TestBed.inject(SettingsService);
+    const beta = settings.models().find(m => m.modelId === 'beta/model')!;
+    beta.architecture = { input_modalities: ['image'], output_modalities: ['text', 'image'] };
+    const q = chatService.nodes().find(n => n.id === 'q1')!;
+    const runner = TestBed.inject(LlmUseCaseRunner);
+
+    await runner.run({
+      chat: api.chats[0],
+      node: q,
+      usecase: 'append-with-images',
+      vars: { content: 'A direction', attachments: q.attachments }
+    });
+
+    const interpretBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(interpretBody.modalities).toEqual(['text']);
+  });
+
+  it('does not merge a placeholder when the interpret reply carries no text', async () => {
+    // Image-only non-stream response: the model answered with an image, not a
+    // description — the merge must be skipped, not filled with a placeholder.
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]
+          }
+        }]
+      })
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce(sseResponse(['Plain fallback answer.']));
+    const { chatService } = await setup();
+    // Mark the interpret model as ALSO image-generating so the text-modality
+    // path is exercised; it still answers with an image → no description.
+    const settings = TestBed.inject(SettingsService);
+    const beta = settings.models().find(m => m.modelId === 'beta/model')!;
+    beta.architecture = { input_modalities: ['image'], output_modalities: ['text', 'image'] };
+    const q = chatService.nodes().find(n => n.id === 'q1')!;
+    const runner = TestBed.inject(LlmUseCaseRunner);
+
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: q,
+      usecase: 'append-with-images',
+      vars: { content: 'A direction', attachments: q.attachments }
+    });
+
+    expect(slots.interpretation).toBeUndefined();
+    expect(slots.text?.value).toBe('Plain fallback answer.');
+    const sendBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    const finalContent = String(sendBody.messages[sendBody.messages.length - 1].content);
+    expect(finalContent).toBe('A direction');
+    expect(finalContent).not.toContain('(no text response)');
   });});
 
 describe('LLM synchronization — excludeFromContext flag in the request builder', () => {
@@ -983,6 +1046,47 @@ describe('LLM synchronization — excludeFromContext flag in the request builder
     expect(text).not.toContain('continue');
     expect(text).toContain('The door opens.');
     expect(text).toContain('Next beat.');
+  });
+
+  it('inlines a text attachment on the current question into the final user message', async () => {
+    const chatService = await openChat([
+      makeNode({ id: 'a0', role: 'assistant', content: 'The door opens.', isCurrent: true }),
+      makeNode({
+        id: 'q1', parentId: 'a0', role: 'user', content: 'Summarise my notes.',
+        isCurrent: true,
+        attachments: [{
+          id: 'att-1', name: 'notes.txt', mimeType: 'text/plain', size: 4,
+          dataUrl: 'data:text/plain;charset=utf-8,The%20secret%20word%20is%20Harbour.'
+        }]
+      })
+    ]);
+    const factory = TestBed.inject(UsecaseContextFactory);
+    const messages = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'q1' });
+    const final = messages[messages.length - 1];
+    expect(String(final.content)).toContain('Summarise my notes.');
+    expect(String(final.content)).toContain('--- attached file: notes.txt (text/plain) ---');
+    expect(String(final.content)).toContain('The secret word is Harbour.');
+  });
+
+  it('keeps a content override and still inlines text attachments on the current question', async () => {
+    const chatService = await openChat([
+      makeNode({ id: 'a0', role: 'assistant', content: 'The door opens.', isCurrent: true }),
+      makeNode({
+        id: 'q1', parentId: 'a0', role: 'user', content: '',
+        isCurrent: true,
+        attachments: [{
+          id: 'att-1', name: 'notes.txt', mimeType: 'text/plain', size: 4,
+          dataUrl: 'data:text/plain;charset=utf-8,The%20secret%20word%20is%20Harbour.'
+        }]
+      })
+    ]);
+    const factory = TestBed.inject(UsecaseContextFactory);
+    const messages = factory.buildSendMessagesEx({
+      chatId: CHAT_ID, nodeId: 'q1', contentOverride: 'Draft direction'
+    });
+    const final = messages[messages.length - 1];
+    expect(String(final.content)).toContain('Draft direction');
+    expect(String(final.content)).toContain('The secret word is Harbour.');
   });
 
   it('still sends an excluded node while it IS the current question (sent once then excluded)', async () => {

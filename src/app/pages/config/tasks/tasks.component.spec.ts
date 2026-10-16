@@ -22,7 +22,10 @@ describe('TasksComponent', () => {
     api = new InMemoryChatApi();
     api.providers.push(makeProvider());
     api.models.push(
-      makeModel({ id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model', providerId: 'prov-1', enabled: true })
+      makeModel({ id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model', providerId: 'prov-1', enabled: true }),
+      makeModel({ id: 'm-vision-text', displayName: 'Vision', modelId: 'vision/model', providerId: 'prov-1', enabled: true, architecture: { input_modalities: ['image'], output_modalities: ['text'] } }),
+      makeModel({ id: 'm-vision-image', displayName: 'VisionGen', modelId: 'vision-gen/model', providerId: 'prov-1', enabled: true, architecture: { input_modalities: ['image'], output_modalities: ['image'] } }),
+      makeModel({ id: 'm-pure-image', displayName: 'GenOnly', modelId: 'gen/model', providerId: 'prov-1', enabled: true, architecture: { input_modalities: [], output_modalities: ['image'] } })
     );
 
     await TestBed.configureTestingModule({
@@ -53,8 +56,9 @@ describe('TasksComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('renders the five generation task cards', () => {
+  it('renders the generation task cards', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Default model');
     expect(text).toContain('Titles');
     expect(text).toContain('Headings');
     expect(text).toContain('Overviews');
@@ -79,7 +83,13 @@ describe('TasksComponent', () => {
   it('picks a provider and resolves its enabled models for the datalist', () => {
     component.onTaskProviderChange('prov-1', 'overview');
     expect(generation.get('overview').providerId).toBe('prov-1');
-    expect(component.modelsForTask('overview').map(m => m.modelId)).toEqual(['alpha/model']);
+    expect(component.modelsForTask('overview').map(m => m.modelId)).toContain('alpha/model');
+  });
+
+  it('image-interpret lists only models that accept images and produce text', () => {
+    component.onTaskProviderChange('prov-1', 'image-interpret');
+
+    expect(component.modelsForTask('image-interpret').map(m => m.modelId)).toEqual(['vision/model']);
   });
 
   it('switches tasks chrome to German', () => {

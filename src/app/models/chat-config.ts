@@ -95,3 +95,8 @@ export function canGenerateImages(model: ModelEntry | null | undefined): boolean
 export function canInterpretImages(model: ModelEntry | null | undefined): boolean {
   return !!model?.architecture?.input_modalities?.includes('image');
 }
+
+/** True when the model accepts images AND produces text (image interpretation). */
+export function canDescribeImages(model: ModelEntry | null | undefined): boolean {
+  return canInterpretImages(model) && !!model?.architecture?.output_modalities?.includes('text');
+}

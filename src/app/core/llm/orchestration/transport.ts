@@ -27,6 +27,9 @@ export interface CompletionRequest {
   imageCapable?: boolean;
   /** When imageCapable, force `modalities: ['image']` (route-fallback). */
   imageOnlyModalities?: boolean;
+  /** Force `modalities: ['text']` (used by image-interpret so a multimodal
+   *  model must answer with text, not a generated image). */
+  textOnlyModalities?: boolean;
   signal?: AbortSignal;
   /** Streaming callback — raw chunks, unpaced (pacing is a view concern). */
   onChunk?: (chunk: LlmChunk) => void;
@@ -110,6 +113,7 @@ export class LlmTransportService {
       ...req.extras,
     };
     if (req.imageCapable) payload['modalities'] = req.imageOnlyModalities ? ['image'] : defaultModalities(req.model);
+    else if (req.textOnlyModalities) payload['modalities'] = ['text'];
     payload['stream'] = stream;
     if (stream) {
       // Ask OpenAI-compatible providers to emit a final chunk carrying the

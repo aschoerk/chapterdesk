@@ -9,6 +9,7 @@
  */
 
 export type GenerationTaskKind =
+  | 'default'         // fallback model used when a chat / chat-node has no explicit model
   | 'title'           // chat / story titles
   | 'headings'        // chapter / section headings
   | 'overview'        // summaries / overviews
@@ -27,6 +28,7 @@ export interface GenerationTaskConfig {
 }
 
 export const GENERATION_TASK_KINDS: GenerationTaskKind[] = [
+  'default',
   'title',
   'headings',
   'overview',

@@ -43,6 +43,7 @@ export interface SetupWizardState {
 
 /** Generation tasks whose default model should follow the chosen writing model. */
 const WRITING_TASKS: GenerationTaskKind[] = [
+  'default',
   'title',
   'headings',
   'overview',

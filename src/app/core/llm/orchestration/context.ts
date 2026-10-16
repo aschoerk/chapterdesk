@@ -172,6 +172,7 @@ export class UsecaseContextFactory {
     let model = nodeModelId
       ? this.settings.enabledModels().find(m => m.modelId === nodeModelId || m.id === nodeModelId)
       : null;
+    if (!model) model = this.generation.modelFor('default');
     if (!model) model = this.settings.enabledModels()[0] ?? null;
     if (!model) return null;
     const provider = this.providerFor(model);
@@ -560,7 +561,28 @@ export class UsecaseContextFactory {
     // The final node is the question — always included.
     const last = path[path.length - 1];
     if (last && last.chatId === chatId) {
-      const finalText = (contentOverride ?? last.content ?? '').trim();
+      // Text attachments are inlined into the FINAL user message too, mirroring
+      // the history rule, so a text file attached to the current question is
+      // actually sent. Binary/image parts stay excluded: the writing path is
+      // text-only (hand-attached images are interpreted up front instead).
+      const hasOverride = contentOverride !== undefined && contentOverride !== null;
+      const override = (contentOverride ?? '').trim();
+      const fullText = messageText({ role: last.role, content: nodeToMessageContent(last) }).trim();
+      const ownText = (last.content ?? '').trim();
+      let finalText: string;
+      if (hasOverride) {
+        // Keep the override (e.g. typed draft or interpreted text), then append
+        // any inlined text attachments so they are not lost on the leaf.
+        finalText = override;
+        if (ownText && fullText.startsWith(ownText)) {
+          const suffix = fullText.slice(ownText.length).trim();
+          if (suffix) finalText = `${finalText}\n\n${suffix}`;
+        } else if (fullText) {
+          finalText = `${finalText}\n\n${fullText}`;
+        }
+      } else {
+        finalText = fullText;
+      }
       // An empty director is still a valid user turn (the model sees it and
       // answers from history), but as a bare user message.
       const user: ChatMessage = { role: 'user', content: finalText || '(no text)' };

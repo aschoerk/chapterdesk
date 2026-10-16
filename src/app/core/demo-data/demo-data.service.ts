@@ -17,6 +17,7 @@ import {
 export const DEMO_PROJECT_NAME = 'ChapterDesk Demo';
 
 const MOCK_DEFAULT_TASKS: GenerationTaskKind[] = [
+  'default',
   'title',
   'headings',
   'overview',

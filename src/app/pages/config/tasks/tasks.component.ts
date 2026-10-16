@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../../core/settings.service';
 import { GenerationSettingsService } from '../../../core/generation-settings.service';
-import { ModelEntry, canGenerateImages, canInterpretImages } from '../../../models/chat-config';
+import { ModelEntry, canGenerateImages, canDescribeImages } from '../../../models/chat-config';
 import { GenerationTaskKind, GENERATION_TASK_KINDS } from '../../../models/generation-task';
 import { I18nService } from '../../../core/i18n/i18n.service';
 
@@ -39,7 +39,9 @@ export class TasksComponent {
     if (kind === 'image-create') {
       models = models.filter(canGenerateImages);
     } else if (kind === 'image-interpret') {
-      models = models.filter(canInterpretImages);
+      // Only models that accept images AND produce text can describe them — a
+      // multimodal image+text model is fine, but a pure image-generator is not.
+      models = models.filter(canDescribeImages);
     }
     return models;
   }

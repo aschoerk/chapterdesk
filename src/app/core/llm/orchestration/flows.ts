@@ -85,14 +85,22 @@ export async function prepareTextSend(
     const interpret = env.factory.resolveInterpretModel();
     const images = env.factory.imageAttachments(atts);
     if (interpret && images.length > 0) {
+      // Force text output when the interpret model can ALSO generate images:
+      // a multimodal model may otherwise answer with an image instead of a
+      // description. Only a genuinely successful TEXT reply is accepted — a
+      // refused/empty/image-only response must never merge a placeholder.
+      const forceText = (interpret.model.architecture?.output_modalities ?? []).includes('image');
       const islots = await env.orch.completion(env.cx, {
         model: interpret.model,
         provider: interpret.provider,
         messages: env.factory.buildInterpretMessage(images),
         extras: await env.factory.resolveTextExtras(interpret.model, env.cx.chat),
-        stream: false
+        stream: false,
+        textOnlyModalities: forceText
       }, { expect: 'text', signal: env.signal, nodeId: question.id });
-      const description = islots.text?.value?.trim() ?? '';
+      const description = islots.text?.status === 'ok'
+        ? (islots.text?.value ?? '').trim()
+        : '';
       if (description) {
         const merged = env.factory.mergeDirectionWithDescription(content, description);
         const messages = env.factory.buildSendMessagesEx({ chatId, nodeId: question.id, contentOverride: merged });

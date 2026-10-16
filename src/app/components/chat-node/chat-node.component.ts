@@ -301,7 +301,8 @@ export class ChatNodeComponent implements OnDestroy {
    * 1. already-queried question → the LLM that produced its answer
    * 2. else project.defaultModelId, if the chat belongs to a project
    * 3. else defaultModelId of a topic that contains that project
-   * 4. else first enabled model (last-resort fallback)
+   * 4. else the configured "default" generation task model
+   * 5. else first enabled model (last-resort fallback)
    */
   resolvePreferredModelId(node: ChatNode): string {
     const models = this.enabledModels();
@@ -339,7 +340,9 @@ export class ChatNodeComponent implements OnDestroy {
       }
     }
 
-    return models[0]?.modelId || '';
+    return this.generation.modelFor('default')?.modelId
+      || models[0]?.modelId
+      || '';
   }
 
   async cancelEdit(): Promise<void> {
