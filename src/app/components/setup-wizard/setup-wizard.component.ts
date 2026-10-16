@@ -36,8 +36,32 @@ export class SetupWizardComponent {
   readonly providerTypes = [
     { value: 'openrouter', labelKey: 'setupWizard.providerTypeOpenrouter' },
     { value: 'openai', labelKey: 'setupWizard.providerTypeOpenai' },
+    { value: 'gemini', labelKey: 'setupWizard.providerTypeGemini' },
+    { value: 'anthropic', labelKey: 'setupWizard.providerTypeAnthropic' },
     { value: 'custom', labelKey: 'setupWizard.providerTypeCustom' }
   ];
+
+  /** Default base URLs per provider kind — prefill when switching types. */
+  private static readonly DEFAULT_BASE_URLS: Record<string, string> = {
+    openrouter: 'https://openrouter.ai/api/v1',
+    openai: 'https://api.openai.com/v1',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta',
+    anthropic: 'https://api.anthropic.com/v1',
+    custom: ''
+  };
+
+  /** On provider-type change in the wizard form: patch the state AND prefill
+   *  the base URL unless the user already typed a custom one. */
+  onProviderTypeChange(value: string): void {
+    const s = this.s();
+    const defaults = Object.values(SetupWizardComponent.DEFAULT_BASE_URLS).filter(Boolean);
+    const current = (s?.baseUrl ?? '').trim();
+    const patch: Record<string, unknown> = { providerType: value as SetupWizardState['providerType'] };
+    if (!current || defaults.includes(current)) {
+      patch['baseUrl'] = SetupWizardComponent.DEFAULT_BASE_URLS[value] ?? '';
+    }
+    this.wizard.patch(patch as { providerType: SetupWizardState['providerType'] });
+  }
 
   /** Models of the provider currently being configured (from the state snapshot). */
   readonly models = computed(() => this.s()?.models ?? []);

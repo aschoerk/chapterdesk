@@ -957,7 +957,7 @@ export const openApiSpec: OpenApiDocument = {
         properties: {
           id: { type: 'string' },
           name: { type: 'string' },
-          type: { type: 'string', enum: ['openrouter', 'openai', 'custom'] },
+          type: { type: 'string', enum: ['openrouter', 'openai', 'custom', 'gemini', 'anthropic'] },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
           enabled: { type: 'boolean' },
@@ -968,7 +968,7 @@ export const openApiSpec: OpenApiDocument = {
         required: ['name', 'type', 'baseUrl', 'apiKey', 'enabled'],
         properties: {
           name: { type: 'string' },
-          type: { type: 'string', enum: ['openrouter', 'openai', 'custom'] },
+          type: { type: 'string', enum: ['openrouter', 'openai', 'custom', 'gemini', 'anthropic'] },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
           enabled: { type: 'boolean' },
@@ -978,7 +978,7 @@ export const openApiSpec: OpenApiDocument = {
         type: 'object',
         properties: {
           name: { type: 'string' },
-          type: { type: 'string', enum: ['openrouter', 'openai', 'custom'] },
+          type: { type: 'string', enum: ['openrouter', 'openai', 'custom', 'gemini', 'anthropic'] },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
           enabled: { type: 'boolean' },

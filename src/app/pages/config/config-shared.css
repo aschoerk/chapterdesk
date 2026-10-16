@@ -248,6 +248,19 @@
   box-sizing: border-box;
 }
 
+.modal label.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.modal label.inline-check input {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

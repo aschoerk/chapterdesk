@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Express, NextFunction, Request, Response } from 'express';
 import type { PersistencePort } from '../domain/chat-api.port.js';
+import type { ProviderConfig } from '../domain/models.js';
 import { badRequest, HttpError } from './http-error.js';
 
 function header(req: Request, name: string): string | undefined {
@@ -28,13 +29,69 @@ function proxySuffix(req: Request): string {
   return `${path}${url.search}`;
 }
 
+/** Auth headers forwarded verbatim when the client addresses the upstream by
+ *  `x-target-base` (provider not persisted yet — e.g. a prospective-provider
+ *  test from the settings dialog). The client sets the right scheme per kind. */
+const FORWARD_AUTH_HEADERS = ['authorization', 'x-goog-api-key', 'x-api-key', 'anthropic-version'] as const;
+
+/** True when a base URL points at Google's Gemini surface (AI Studio console
+ *  or the real API). Used so a provider saved before the `gemini` kind existed
+ *  (e.g. typed `custom`) still authenticates with `x-goog-api-key`. */
+function isGoogleGeminiUrl(baseUrl: string): boolean {
+  const raw = (baseUrl || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw.includes('aistudio.google.com') || raw.includes('generativelanguage.googleapis.com');
+}
+
+/** Rewrite a Google Gemini base URL to the real API endpoint (host-specific;
+ *  any other host — e.g. a local OpenAI-compatible server typed gemini — is
+ *  left untouched). */
+function normalizeGeminiBase(url: string): string {
+  const raw = (url || '').trim().replace(/\/+$/, '');
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'aistudio.google.com') {
+      // AI Studio console → the real API.
+      return 'https://generativelanguage.googleapis.com/v1beta';
+    }
+    if (host === 'generativelanguage.googleapis.com') {
+      // Keep a versioned path; default missing/unversioned to v1beta.
+      if (/^\/(v1|v1beta)(\/|$)/.test(u.pathname)) return raw;
+      return 'https://generativelanguage.googleapis.com/v1beta';
+    }
+  } catch {
+    /* non-parseable: return trimmed */
+  }
+  return raw;
+}
+
+/** Auth headers built from a persisted provider record, by connection kind.
+ *  The kind is derived from the URL when it is clearly Google — a legacy
+ *  `custom` provider pointing at AI Studio would otherwise get a Bearer header
+ *  that Google ignores (→ "Method doesn't allow unregistered callers"). */
+function providerAuthHeaders(provider: ProviderConfig): Record<string, string> {
+  const kind = provider.type === 'gemini' || isGoogleGeminiUrl(provider.baseUrl)
+    ? 'gemini'
+    : provider.type;
+  switch (kind) {
+    case 'gemini':
+      // Google's Generative Language API authenticates with an API-key header.
+      return { 'x-goog-api-key': provider.apiKey };
+    case 'anthropic':
+      // Anthropic requires x-api-key plus a pinned API version header.
+      return { 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
+    default:
+      return { Authorization: `Bearer ${provider.apiKey}` };
+  }
+}
+
 async function resolveUpstream(
   req: Request,
   store: PersistencePort
-): Promise<{ baseUrl: string; authorization: string | undefined; providerId?: string }> {
+): Promise<{ baseUrl: string; authHeaders: Record<string, string>; providerId?: string }> {
   const providerId = header(req, 'x-provider-id');
   const targetBase = header(req, 'x-target-base');
-  const authorization = header(req, 'authorization');
 
   if (providerId) {
     const providers = await store.getProviders();
@@ -46,8 +103,10 @@ async function resolveUpstream(
       throw new HttpError(403, 'provider is disabled');
     }
     return {
-      baseUrl: normalizeBase(provider.baseUrl),
-      authorization: `Bearer ${provider.apiKey}`,
+      // normalizeGeminiBase rewrites only actual Google hosts (AI Studio
+      // console / unversioned API) — every other host passes through.
+      baseUrl: normalizeBase(normalizeGeminiBase(provider.baseUrl)),
+      authHeaders: providerAuthHeaders(provider),
       providerId: provider.id
     };
   }
@@ -56,10 +115,12 @@ async function resolveUpstream(
     throw badRequest('Missing x-target-base or x-provider-id header');
   }
 
-  return {
-    baseUrl: normalizeBase(targetBase),
-    authorization
-  };
+  const authHeaders: Record<string, string> = {};
+  for (const name of FORWARD_AUTH_HEADERS) {
+    const value = header(req, name);
+    if (value) authHeaders[name] = value;
+  }
+  return { baseUrl: normalizeBase(targetBase), authHeaders };
 }
 
 async function handleProxy(req: Request, res: Response, store: PersistencePort): Promise<void> {
@@ -70,7 +131,9 @@ async function handleProxy(req: Request, res: Response, store: PersistencePort):
 
   const method = req.method.toUpperCase();
   const headers: Record<string, string> = {};
-  if (upstream.authorization) headers.Authorization = upstream.authorization;
+  for (const [name, value] of Object.entries(upstream.authHeaders)) {
+    if (value) headers[name] = value;
+  }
   const referer = header(req, 'http-referer') ?? header(req, 'referer');
   if (referer) headers['HTTP-Referer'] = referer;
   const title = header(req, 'x-title');

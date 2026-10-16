@@ -1,7 +1,8 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage } from '../../../models/chat';
-import { canGenerateImages, ModelEntry } from '../../../models/chat-config';
+import { canGenerateImages, ModelEntry, type ProviderConfig } from '../../../models/chat-config';
 import { getServerConfig } from '../../common/server-config';
+import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../provider-url';
 import { LlmLogService } from '../llm-log.service';
 import { normalizeChatMessages, type MessagePart, type LlmImagePart } from '../llm-message';
 import { readSseStream, type LlmChunk } from '../llm-sse';
@@ -15,6 +16,8 @@ const TIMEOUT_MS = 120_000_000;
 export interface ProviderRef {
   baseUrl: string;
   apiKey: string;
+  /** Connection kind — selects the auth header scheme in `headers()`. */
+  type?: ProviderConfig['type'];
 }
 
 export interface CompletionRequest {
@@ -147,7 +150,7 @@ export class LlmTransportService {
     try {
       const response = await fetch(`${config.proxyBase}/chat/completions`, {
         method: 'POST',
-        headers: this.headers(req.provider.apiKey, req.provider.baseUrl),
+        headers: this.headers(req.provider),
         body: JSON.stringify(payload),
         signal: controller.signal
       });
@@ -313,7 +316,7 @@ export class LlmTransportService {
     try {
       const response = await fetch(`${config.proxyBase}/images`, {
         method: 'POST',
-        headers: this.headers(req.provider.apiKey, req.provider.baseUrl),
+        headers: this.headers(req.provider),
         body: JSON.stringify(payload),
         signal: controller.signal
       });
@@ -345,14 +348,24 @@ export class LlmTransportService {
     }
   }
 
-  private headers(apiKey: string, baseUrl: string): Record<string, string> {
-    return {
-      Authorization: `Bearer ${apiKey}`,
+  private headers(provider: ProviderRef): Record<string, string> {
+    const effectiveType = provider.type === 'gemini' || isGoogleGeminiUrl(provider.baseUrl)
+      ? 'gemini'
+      : provider.type ?? 'custom';
+    const base = {
       'Content-Type': 'application/json',
-      'x-target-base': baseUrl,
+      'x-target-base': normalizeProviderBaseUrl(effectiveType, provider.baseUrl),
       'HTTP-Referer': 'https://chat-client.local',
       'X-Title': 'ChapterDesk'
     };
+    switch (effectiveType) {
+      case 'gemini':
+        return { ...base, 'x-goog-api-key': provider.apiKey };
+      case 'anthropic':
+        return { ...base, 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
+      default:
+        return { ...base, Authorization: `Bearer ${provider.apiKey}` };
+    }
   }
 
   private shouldRouteToImages(text: string): boolean {

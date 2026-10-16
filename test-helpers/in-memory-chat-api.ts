@@ -407,14 +407,11 @@ class InMemoryChatApi implements Pick<
     return [...this.models];
   }
   async createModel(data: CreateModelRequest) {
+    // Mirror the real backend, which persists the full model (catalog_json)
+    // — store every provided field, not just the fixed core columns.
     const row: ModelEntry = {
+      ...(data as unknown as ModelEntry),
       id: this.id('model'),
-      displayName: data.displayName,
-      modelId: data.modelId,
-      providerId: data.providerId,
-      type: data.type,
-      enabled: data.enabled ?? true,
-      architecture: data.architecture,
       chatParametersId: data['chatParametersId'] ?? null
     };
     this.models.push(row);

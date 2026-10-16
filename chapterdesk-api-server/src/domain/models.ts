@@ -136,7 +136,7 @@ export interface ChatParametersDraft {
 export interface ProviderConfig {
   id: string;
   name: string;
-  type: 'openrouter' | 'openai' | 'custom';
+  type: 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic';
   baseUrl: string;
   apiKey: string;
   enabled: boolean;

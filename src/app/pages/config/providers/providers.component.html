@@ -32,6 +32,9 @@
               (click)="fetchModels(provider)">
               {{ fetchingId() === provider.id ? i18n.t('config.providers.fetching') : i18n.t('config.providers.fetchModels') }}
             </button>
+            <button class="btn small" (click)="openEditProvider(provider)">
+              {{ i18n.t('config.providers.edit') }}
+            </button>
             <button class="btn small danger" (click)="deleteProvider(provider.id)">
               {{ i18n.t('config.providers.delete') }}
             </button>
@@ -55,15 +58,26 @@
     }
   </section>
 
-  <!-- Add Provider Form -->
+  <!-- Add / Edit Provider Form -->
   @if (showAddProvider()) {
     <div class="modal-backdrop">
       <div class="modal">
-        <h3>{{ i18n.t('config.providers.addTitle') }}</h3>
+        <h3>{{ editingProviderId() ? i18n.t('config.providers.editTitle') : i18n.t('config.providers.addTitle') }}</h3>
 
         <label>
           {{ i18n.t('config.providers.name') }}
           <input [(ngModel)]="newProvider.name" />
+        </label>
+
+        <label>
+          {{ i18n.t('config.providers.type') }}
+          <select
+            [ngModel]="newProvider.type"
+            (ngModelChange)="onProviderTypeChanged($event)">
+            @for (option of providerTypeOptions; track option.value) {
+              <option [value]="option.value">{{ i18n.t(option.labelKey) }}</option>
+            }
+          </select>
         </label>
 
         <label>
@@ -76,9 +90,28 @@
           <input type="password" [(ngModel)]="newProvider.apiKey" />
         </label>
 
+        <label class="inline-check">
+          <input type="checkbox" [(ngModel)]="newProvider.enabled" />
+          {{ i18n.t('config.providers.enabled') }}
+        </label>
+
+        @if (draftTestResult()) {
+          <div class="test-result" [class.ok]="draftTestResult()?.ok" [class.fail]="!draftTestResult()?.ok">
+            {{ draftTestResult()?.message }}
+          </div>
+        }
+
         <div class="modal-actions">
-          <button class="btn" (click)="showAddProvider.set(false)">{{ i18n.t('config.providers.cancel') }}</button>
-          <button class="btn primary" (click)="saveProvider()">{{ i18n.t('config.providers.save') }}</button>
+          <button
+            class="btn"
+            [disabled]="testingDraft()"
+            (click)="testDraftProvider()">
+            {{ testingDraft() ? i18n.t('config.providers.testing') : i18n.t('config.providers.test') }}
+          </button>
+          <button class="btn" (click)="cancelProviderEdit()">{{ i18n.t('config.providers.cancel') }}</button>
+          <button class="btn primary" (click)="saveProvider()">
+            {{ editingProviderId() ? i18n.t('config.providers.saveEdit') : i18n.t('config.providers.save') }}
+          </button>
         </div>
       </div>
     </div>

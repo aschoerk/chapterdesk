@@ -37,7 +37,7 @@
               </label>
               <label class="setup-field">
                 <span>{{ i18n.t('setupWizard.providerType') }}</span>
-                <select [ngModel]="s.providerType" (ngModelChange)="wizard.patch({ providerType: $event })">
+                <select [ngModel]="s.providerType" (ngModelChange)="onProviderTypeChange($event)">
                   @for (type of providerTypes; track type.value) {
                     <option [value]="type.value">{{ i18n.t(type.labelKey) }}</option>
                   }

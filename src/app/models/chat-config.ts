@@ -1,7 +1,12 @@
+/** Provider connection kinds. Bearer-keyed types (openrouter/openai/custom)
+ *  speak OpenAI-compatible APIs; gemini and anthropic use their own auth
+ *  scheme and REST shape (catalog discovery + auth are handled per type). */
+export type ProviderType = 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic';
+
 export interface ProviderConfig {
   id: string;
   name: string;
-  type: 'openrouter' | 'openai' | 'custom';
+  type: ProviderType;
   baseUrl: string;
   apiKey: string;
   enabled: boolean;

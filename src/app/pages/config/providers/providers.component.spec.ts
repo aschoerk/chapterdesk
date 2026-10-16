@@ -102,6 +102,106 @@ describe('ProvidersComponent', () => {
     expect(component.showAddProvider()).toBe(false);
   });
 
+  it('edits an existing provider through SettingsService and re-renders the card', async () => {
+    const provider = await settings.addProvider({
+      name: 'Local',
+      type: 'custom',
+      baseUrl: 'http://localhost:1234/v1',
+      apiKey: 'sk-old-123456',
+      enabled: true
+    });
+    fixture.detectChanges();
+
+    component.openEditProvider(provider);
+    expect(component.editingProviderId()).toBe(provider.id);
+    expect(component.newProvider.name).toBe('Local');
+    expect(component.newProvider.baseUrl).toBe('http://localhost:1234/v1');
+    expect(component.newProvider.apiKey).toBe('sk-old-123456');
+    expect(component.newProvider.enabled).toBe(true);
+
+    component.newProvider.name = 'Local GPU';
+    component.newProvider.type = 'openai';
+    component.newProvider.baseUrl = 'http://localhost:9999/v1';
+    component.newProvider.enabled = false;
+    component.saveProvider();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(api.providers.length).toBe(1);
+    expect(api.providers[0]).toMatchObject({
+      id: provider.id,
+      name: 'Local GPU',
+      type: 'openai',
+      baseUrl: 'http://localhost:9999/v1',
+      apiKey: 'sk-old-123456',
+      enabled: false
+    });
+    expect(component.editingProviderId()).toBeNull();
+    expect(component.showAddProvider()).toBe(false);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Local GPU');
+  });
+
+  it('cancelling an edit closes the modal and clears the editing state', () => {
+    const provider = {
+      id: 'p1',
+      name: 'Local',
+      type: 'custom' as const,
+      baseUrl: 'http://localhost:1234/v1',
+      apiKey: 'sk-old-123456',
+      enabled: true
+    };
+    component.openEditProvider(provider);
+    expect(component.showAddProvider()).toBe(true);
+
+    component.cancelProviderEdit();
+    expect(component.showAddProvider()).toBe(false);
+    expect(component.editingProviderId()).toBeNull();
+  });
+
+  it('prefills the base URL when the provider type is switched', () => {
+    component.openAddProvider();
+    component.onProviderTypeChanged('gemini');
+    expect(component.newProvider.type).toBe('gemini');
+    expect(component.newProvider.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta');
+
+    component.onProviderTypeChanged('anthropic');
+    expect(component.newProvider.baseUrl).toBe('https://api.anthropic.com/v1');
+
+    component.onProviderTypeChanged('custom');
+    // Custom has no default URL.
+    expect(component.newProvider.baseUrl).toBe('');
+  });
+
+  it('does not override a custom base URL when the type is switched back', () => {
+    component.openAddProvider();
+    component.newProvider.baseUrl = 'http://localhost:9999/v1';
+    component.onProviderTypeChanged('gemini');
+    expect(component.newProvider.type).toBe('gemini');
+    expect(component.newProvider.baseUrl).toBe('http://localhost:9999/v1');
+  });
+
+  it('saves a Gemini provider through SettingsService and renders the card', async () => {
+    component.openAddProvider();
+    component.onProviderTypeChanged('gemini');
+    component.newProvider.name = 'Google Gemini';
+    component.newProvider.apiKey = 'AIza-1234567890';
+    component.saveProvider();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(api.providers.length).toBe(1);
+    expect(api.providers[0]).toMatchObject({
+      name: 'Google Gemini',
+      type: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: 'AIza-1234567890'
+    });
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Google Gemini');
+  });
+
   it('deletes a provider and its models after confirm', async () => {
     const provider = await settings.addProvider({
       name: 'Local',
@@ -221,6 +321,50 @@ describe('ProvidersComponent', () => {
       ok: true,
       message: 'Connection successful'
     });
+  });
+
+  it('tests the edited provider draft via the proxy using unsaved form values', async () => {
+    const provider = await settings.addProvider({
+      name: 'OR',
+      type: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'sk-old',
+      enabled: true
+    });
+    fixture.detectChanges();
+
+    component.openEditProvider(provider);
+    component.newProvider.baseUrl = 'http://localhost:9999/v1';
+    component.newProvider.apiKey = 'sk-draft';
+    expect(settings.providers()[0].apiKey).toBe('sk-old'); // still persisted
+
+    const pending = component.testDraftProvider();
+    const req = http.expectOne(r => r.url.includes('/proxy/models'));
+    expect(req.request.headers.get('Authorization')).toBe('Bearer sk-draft');
+    expect(req.request.headers.get('x-target-base')).toBe('http://localhost:9999/v1');
+    req.flush({ data: [] });
+
+    await pending;
+    fixture.detectChanges();
+
+    expect(component.testingDraft()).toBe(false);
+    expect(component.draftTestResult()).toEqual({
+      ok: true,
+      message: 'Connection successful'
+    });
+    // The draft test must not persist anything.
+    expect(settings.providers()[0].apiKey).toBe('sk-old');
+  });
+
+  it('refuses to test a draft without an API key', async () => {
+    component.openAddProvider();
+    component.newProvider.apiKey = '   ';
+    await component.testDraftProvider();
+
+    expect(window.alert).toHaveBeenCalled();
+    expect(component.testingDraft()).toBe(false);
+    expect(component.draftTestResult()).toBeNull();
+    http.expectNone(() => true);
   });
 
   it('validates a preset test without calling a real model', async () => {

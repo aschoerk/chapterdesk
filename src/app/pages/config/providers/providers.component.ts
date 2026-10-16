@@ -26,6 +26,7 @@ export class ProvidersComponent {
 
   // UI state
   readonly showAddProvider = signal(false);
+  readonly editingProviderId = signal<string | null>(null);
   readonly showAddPreset = signal(false);
   readonly editingPresetId = signal<string | null>(null);
   readonly showFetchedParams = signal(false);
@@ -36,11 +37,48 @@ export class ProvidersComponent {
   readonly testingId = signal<string | null>(null);
   readonly testResult = signal<{ id: string; ok: boolean; message: string } | null>(null);
   readonly fetchingId = signal<string | null>(null);
+  readonly testingDraft = signal(false);
+  readonly draftTestResult = signal<{ ok: boolean; message: string } | null>(null);
+
+  /** Provider kinds offered in the add/edit dialog. */
+  readonly providerTypeOptions: { value: ProviderConfig['type']; labelKey: string }[] = [
+    { value: 'openrouter', labelKey: 'config.providers.typeOpenrouter' },
+    { value: 'openai', labelKey: 'config.providers.typeOpenai' },
+    { value: 'gemini', labelKey: 'config.providers.typeGemini' },
+    { value: 'anthropic', labelKey: 'config.providers.typeAnthropic' },
+    { value: 'custom', labelKey: 'config.providers.typeCustom' }
+  ];
+
+  /** Known default base URLs, used to auto-fill the field when switching type. */
+  private static readonly DEFAULT_BASE_URLS: Record<ProviderConfig['type'], string> = {
+    openrouter: 'https://openrouter.ai/api/v1',
+    openai: 'https://api.openai.com/v1',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta',
+    anthropic: 'https://api.anthropic.com/v1',
+    custom: ''
+  };
+
+  /** Called when the type <select> changes: prefill the base URL unless the
+   *  user already typed a custom one. */
+  onProviderTypeChanged(type: ProviderConfig['type']) {
+    const defaults = Object.values(ProvidersComponent.DEFAULT_BASE_URLS).filter(Boolean);
+    const current = this.newProvider.baseUrl.trim();
+    this.newProvider.type = type;
+    if (!current || defaults.includes(current)) {
+      this.newProvider.baseUrl = ProvidersComponent.DEFAULT_BASE_URLS[type];
+    }
+  }
 
   // Form models
-  newProvider = {
+  newProvider: {
+    name: string;
+    type: ProviderConfig['type'];
+    baseUrl: string;
+    apiKey: string;
+    enabled: boolean;
+  } = {
     name: 'OpenRouter',
-    type: 'openrouter' as const,
+    type: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKey: '',
     enabled: true
@@ -131,6 +169,8 @@ export class ProvidersComponent {
 
   // ---------- Provider actions ----------
   openAddProvider() {
+    this.editingProviderId.set(null);
+    this.draftTestResult.set(null);
     this.newProvider = {
       name: 'OpenRouter',
       type: 'openrouter',
@@ -141,13 +181,39 @@ export class ProvidersComponent {
     this.showAddProvider.set(true);
   }
 
+  openEditProvider(provider: ProviderConfig) {
+    this.editingProviderId.set(provider.id);
+    this.draftTestResult.set(null);
+    this.newProvider = {
+      name: provider.name,
+      type: provider.type,
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+      enabled: provider.enabled
+    };
+    this.showAddProvider.set(true);
+  }
+
+  cancelProviderEdit() {
+    this.showAddProvider.set(false);
+    this.editingProviderId.set(null);
+    this.testingDraft.set(false);
+    this.draftTestResult.set(null);
+  }
+
   saveProvider() {
     if (!this.newProvider.apiKey.trim()) {
       alert(this.i18n.t('config.providers.apiKeyRequired'));
       return;
     }
-    this.settings.addProvider({ ...this.newProvider });
+    const editingId = this.editingProviderId();
+    if (editingId) {
+      this.settings.updateProvider(editingId, { ...this.newProvider });
+    } else {
+      this.settings.addProvider({ ...this.newProvider });
+    }
     this.showAddProvider.set(false);
+    this.editingProviderId.set(null);
   }
 
   async testProvider(provider: ProviderConfig) {
@@ -161,6 +227,26 @@ export class ProvidersComponent {
       message: result.ok ? this.i18n.t('config.providers.testOk') : (result.message || this.i18n.t('config.providers.testFail'))
     });
     this.testingId.set(null);
+  }
+
+  /** Test the currently-edited provider draft (unsaved form values) via the proxy. */
+  async testDraftProvider() {
+    if (!this.newProvider.apiKey.trim()) {
+      alert(this.i18n.t('config.providers.apiKeyRequired'));
+      return;
+    }
+    this.testingDraft.set(true);
+    this.draftTestResult.set(null);
+    const draft: ProviderConfig = {
+      id: this.editingProviderId() || 'draft',
+      ...this.newProvider
+    };
+    const result = await this.settings.testProvider(draft);
+    this.draftTestResult.set({
+      ok: result.ok,
+      message: result.ok ? this.i18n.t('config.providers.testOk') : (result.message || this.i18n.t('config.providers.testFail'))
+    });
+    this.testingDraft.set(false);
   }
 
   async fetchModels(provider: ProviderConfig) {
@@ -333,7 +419,7 @@ export class ProvidersComponent {
     if (ev.key !== 'Escape') return;
     if (this.showAddProvider()) {
       ev.preventDefault();
-      this.showAddProvider.set(false);
+      this.cancelProviderEdit();
     } else if (this.showAddPreset()) {
       ev.preventDefault();
       this.showAddPreset.set(false);
