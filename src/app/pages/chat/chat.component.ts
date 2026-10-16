@@ -672,6 +672,53 @@ export class ChatComponent implements OnInit {
    *  recent assistant answer; can be overridden in the dialog. */
   readonly elaborateModelId = signal<string>('');
 
+  /**
+   * Live preview of the FIRST elaboration prompt that confirmElaborate() will
+   * send — mirrors its template/vars selection (topic-scoped), so the user
+   * sees the actual prompt before confirming. Reactive to every dialog input.
+   */
+  readonly elaboratePreview = computed<{
+    text: string;
+    templateLabel: string;
+    count: number;
+  } | null>(() => {
+    const chatId = this.currentChatId();
+    if (!chatId) return null;
+    const topicId = this.elaborateTopicId(chatId);
+    const prefix = this.elaboratePrefix().trim();
+    const hints = this.elaborateHintsText();
+    const names = this.elaborateNames()
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    // Chapter actually used for the FIRST prompt ("stick to last" resolves to
+    // the stored last chapter of this chat, like confirmElaborate() does).
+    let first = Math.max(this.elaborateFirst(), 1);
+    let last = this.elaborateLast();
+    if (this.elaborateStickLast()) {
+      const state = this.loadElaborateState(chatId);
+      const stick = state.lastChapter > 0 ? state.lastChapter : Math.max(last, 1);
+      first = stick;
+      last = stick;
+    }
+
+    const template = names.length > 0 ? 'structure.elaborate-view' : 'structure.elaborate';
+    const vars = {
+      chapter: `${prefix}${first}`,
+      hints,
+      ...(names.length > 0 ? { name: names[0], isFirst: !this.elaborateStickLast() } : {})
+    };
+    const text = this.promptDefaults.render(template, vars, topicId);
+    const chapters = Math.max(last - first + 1, 1);
+    const count = names.length > 0 ? names.length * chapters : chapters;
+    return {
+      text,
+      templateLabel: this.promptDefaults.def(template)?.label ?? template,
+      count
+    };
+  });
+
   private resizeStartX = 0;
   private resizeStartWidth = 0;
 
@@ -1644,6 +1691,16 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  /** Topic-scoped prompt versions apply to the chat's environment topic. */
+  private elaborateTopicId(chatId: string | null): string | null {
+    const chat = chatId ? this.chatService.chats().find(c => c.id === chatId) ?? null : null;
+    const project = chat?.projectId
+      ? this.projectService.getProject(chat.projectId) ?? null
+      : null;
+    return this.projectService
+      .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
+  }
+
   /** Confirm the dialog and run the sequential elaborations. */
   async confirmElaborate(): Promise<void> {
     const chatId = this.currentChatId();
@@ -1696,13 +1753,7 @@ export class ChatComponent implements OnInit {
     // One Stop press cancels the whole chain (all chapters / views).
     this.chatService.beginOperation('elaborate');
     try {
-      // Topic-scoped prompt versions apply to the chat's environment topic.
-      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-      const project = chat?.projectId
-        ? this.projectService.getProject(chat.projectId) ?? null
-        : null;
-      const topicId = this.projectService
-        .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
+      const topicId = this.elaborateTopicId(chatId);
       let parentId: string | null = anchor.id;
       for (let chapter = first; chapter <= last; chapter++) {
         if (this.chatService.isOperationCancelled()) break;

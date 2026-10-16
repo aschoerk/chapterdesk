@@ -115,6 +115,8 @@ export const DE = {
       'Übersieht Erstes/Letztes und arbeitet das letzte Kapitel im Kontext des bereits erzeugten Textes erneut aus.',
     elaborateModel: 'Modell',
     elaborateModelTitle: 'Modell für die Ausarbeitungen (anfangs das der letzten Antwort)',
+    elaboratePreviewLabel: 'Prompt-Vorschau',
+    elaboratePreviewCount: 'wird {{count}}-mal ausgearbeitet',
     elaborateConfirm: 'Ausarbeiten',
     elaborateNoAnchor: 'Es gibt noch keine Antwort zum Ausarbeiten',
     elaborateNoModel: 'Kein Modell für die Ausarbeitung verfügbar',

@@ -253,6 +253,23 @@
                   </select>
                 </label>
 
+                @if (elaboratePreview(); as preview) {
+                  <div class="elaborate-preview">
+                    <span class="elaborate-preview-label">
+                      {{ i18n.t('chat.elaboratePreviewLabel') }}
+                    </span>
+                    <div class="elaborate-preview-meta">
+                      <span class="elaborate-preview-template">{{ preview.templateLabel }}</span>
+                      @if (preview.count > 1) {
+                        <span class="elaborate-preview-count">
+                          {{ i18n.t('chat.elaboratePreviewCount', { count: preview.count }) }}
+                        </span>
+                      }
+                    </div>
+                    <pre>{{ preview.text }}</pre>
+                  </div>
+                }
+
                 <div class="elaborate-actions">
                   <button class="btn" type="button" (click)="cancelElaborate()">{{ i18n.t('common.cancel') }}</button>
                   <button class="btn primary" type="button" (click)="confirmElaborate()">{{ i18n.t('chat.elaborateConfirm') }}</button>

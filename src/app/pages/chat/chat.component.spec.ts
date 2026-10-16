@@ -612,6 +612,73 @@ describe('Chat', () => {
     expect(component.elaborateNames()).toBe('');
   });
 
+  it('shows a live generic-prompt preview that tracks the dialog inputs', async () => {
+    await openElaborateStory();
+    component.openElaborateDialog();
+
+    component.elaborateFirst.set(2);
+    component.elaborateLast.set(4);
+    component.elaborateNames.set('');
+    component.elaborateHints.set(' dark tone ');
+
+    const preview = component.elaboratePreview();
+    expect(preview).not.toBeNull();
+    expect(preview!.templateLabel).toBe('Elaborate chapter (no characters)');
+    // The FIRST prompt of the range, with the prefix + formatted hints applied.
+    expect(preview!.text.startsWith('elaborate on chapter 2')).toBe(true);
+    expect(preview!.text).toContain('Follow these hints from the user: dark tone');
+    // 3 chapters → 3 elaborations.
+    expect(preview!.count).toBe(3);
+  });
+
+  it('shows a per-character preview with the first name and isFirst true', async () => {
+    await openElaborateStory();
+    component.openElaborateDialog();
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set(' Anna,Ben ');
+    component.elaboratePrefix.set('ARC-');
+
+    const preview = component.elaboratePreview();
+    expect(preview).not.toBeNull();
+    expect(preview!.templateLabel).toBe('Elaborate chapter (from a character)');
+    expect(preview!.text.startsWith('Expand chapter ARC-1 in detail.')).toBe(true);
+    expect(preview!.text).toContain('out of the view of Anna in first person.');
+    expect(preview!.text).toContain('first view of this chapter'); // {{#if isFirst}} true
+    // 2 chapters × 2 names → 4 elaborations.
+    expect(preview!.count).toBe(4);
+  });
+
+  it('stick-to-last preview resolves to the stored last chapter (generic template, names cleared)', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // First use: elaborate chapter 3 → stored last chapter = 3.
+    component.elaborateFirst.set(3);
+    component.elaborateLast.set(3);
+    component.elaborateNames.set('Anna');
+    await component.confirmElaborate();
+
+    component.openElaborateDialog();
+    // Reopening restores the last characters -> the per-character template
+    // for the default continuation (last elaborated + 1 = 4).
+    expect(component.elaborateNames()).toBe('Anna');
+    const sticky = component.elaboratePreview();
+    expect(sticky?.text.startsWith('Expand chapter 4 in detail.')).toBe(true);
+    expect(sticky?.count).toBe(1);
+
+    component.onStickLastToggle(true);
+
+    const preview = component.elaboratePreview();
+    expect(preview).not.toBeNull();
+    // Stick-to-last CLEARS names/hints (fresh-chapter-only), so the generic
+    // template is previewed against the stuck chapter (3).
+    expect(preview!.templateLabel).toBe('Elaborate chapter (no characters)');
+    expect(preview!.text.startsWith('elaborate on chapter 3')).toBe(true);
+    expect(preview!.count).toBe(1);
+  });
+
   it('reopens elaborate on the same chat at previous last chapter + 1 with the last characters', async () => {
     await openElaborateStory();
     orch.completion.mockClear();

@@ -777,6 +777,58 @@ body.nav-resizing * {
   font-size: 0.875rem;
 }
 
+/* Live prompt preview inside the elaborate dialog (same look as the
+   Settings → Prompt defaults live preview). */
+.elaborate-preview {
+  margin-bottom: 0.75rem;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  background: var(--panel, #fafafa);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.elaborate-preview-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted, #888);
+  margin-bottom: 0.3rem;
+}
+
+.elaborate-preview-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.78rem;
+}
+
+.elaborate-preview-template {
+  font-weight: 600;
+  color: var(--color-primary, #2563eb);
+}
+
+.elaborate-preview-count {
+  color: var(--muted, #888);
+  font-style: italic;
+}
+
+.elaborate-preview pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text, #222);
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
 .elaborate-actions {
   display: flex;
   justify-content: flex-end;
