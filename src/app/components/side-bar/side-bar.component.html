@@ -91,11 +91,55 @@
     </div>
   </div>
 
+  <!-- Marked stories toolbar: copy / cut / delete / clear + staged clipboard -->
+  @if (hasSelection() || clipboard.hasContent()) {
+    <div class="story-tools">
+      @if (hasSelection()) {
+        <span class="story-selection-info">
+          {{ i18n.t('sidebar.selectedCount', { count: selectedCount() }) }}
+        </span>
+        <button class="btn small" type="button" (click)="copySelectedStories()"
+                [title]="i18n.t('sidebar.copySelectedTitle')">
+          {{ i18n.t('sidebar.copySelected') }}
+        </button>
+        <button class="btn small" type="button" (click)="cutSelectedStories()"
+                [title]="i18n.t('sidebar.cutSelectedTitle')">
+          {{ i18n.t('sidebar.cutSelected') }}
+        </button>
+        <button class="btn small danger" type="button" (click)="deleteSelectedStories()"
+                [title]="i18n.t('sidebar.deleteSelectedTitle')">
+          {{ i18n.t('common.delete') }}
+        </button>
+        <button class="btn small" type="button" (click)="clearSelection()"
+                [title]="i18n.t('sidebar.clearSelectionTitle')">
+          {{ i18n.t('sidebar.clearSelection') }}
+        </button>
+      }
+      @if (clipboard.hasContent()) {
+        <span class="clipbd-info" [title]="clipboardInfoTitle()">
+          {{ clipboardInfoLabel() }}
+        </span>
+        <button class="btn small" type="button" (click)="cancelClipboard()"
+                [title]="i18n.t('sidebar.cancelClipboardTitle')">
+          {{ i18n.t('sidebar.cancelClipboard') }}
+        </button>
+      }
+    </div>
+  }
+
 
   <div class="project-list">
     @for (project of filteredProjects(); track project.id) {
       <div class="project-block" [class.expanded]="isExpanded(project.id)">
-        <div class="project-header" [class.current]="isCurrentProject(project.id)" [title]="projectTooltip(project)" (click)="toggleExpanded(project.id)">
+        <div class="project-header"
+             [class.current]="isCurrentProject(project.id)"
+             [class.drop-target]="isDropTarget(project.id)"
+             [title]="projectTooltip(project)"
+             (click)="toggleExpanded(project.id)"
+             (dragenter)="onDragEnter(project.id)"
+             (dragleave)="onDragLeave(project.id)"
+             (dragover)="onDragOver($event)"
+             (drop)="onDropEnvironment(project.id, $event)">
           <button class="btn-icon expand-btn" (click)="toggleExpanded(project.id, $event)">
             <svg class="chevron" [class.open]="isExpanded(project.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="9 18 15 12 9 6"/>
@@ -116,6 +160,20 @@
 
 
           <div class="project-actions">
+            @if (clipboard.hasContent()) {
+              <button
+                class="btn-icon paste-btn"
+                type="button"
+                (click)="pasteIntoEnv(project.id, $event)"
+                [title]="pasteHereTitle(project.id)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="5" y="4" width="14" height="17" rx="2"/>
+                  <path d="M9 4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/>
+                  <polyline points="12 11 12 17"/>
+                  <polyline points="9 14 12 17 15 14"/>
+                </svg>
+              </button>
+            }
             <button class="btn-icon" type="button" (click)="editProject(project, $event)" [title]="i18n.t('sidebar.editEnvironment')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -151,8 +209,16 @@
             @for (chat of getChatsForProject(project.id); track chat.id) {
               <div class="chat-item"
                    [class.active]="chat.id === currentChatId()"
+                   [class.selected]="isChatSelected(chat.id)"
+                   [class.cut]="isCutChat(chat.id)"
+                   [draggable]="editingChatId() !== chat.id"
                    [title]="chatTooltip(chat)"
-                   (click)="selectChat(chat)">
+                   (click)="onChatItemClick($event, chat)"
+                   (dragstart)="onChatDragStart($event, chat)"
+                   (dragend)="onChatDragEnd()">
+                @if (isCutChat(chat.id)) {
+                  <span class="cut-badge" [title]="i18n.t('sidebar.cutStagedHint')">✂</span>
+                }
                 @if (editingChatId() === chat.id) {
                   <input
                     class="chat-title-input"
@@ -263,7 +329,14 @@
     <!-- Unassigned chats (legacy / chats without project) -->
     @if (getChatsForProject(null).length > 0) {
       <div class="project-block unassigned">
-        <div class="project-header" [class.current]="isCurrentProject(null)">
+        <div class="project-header"
+             [class.current]="isCurrentProject(null)"
+             [class.drop-target]="isDropTarget('__unassigned__')"
+             (click)="toggleExpanded('__unassigned__')"
+             (dragenter)="onDragEnter('__unassigned__')"
+             (dragleave)="onDragLeave('__unassigned__')"
+             (dragover)="onDragOver($event)"
+             (drop)="onDropEnvironment('__unassigned__', $event)">
           <button
             class="btn-icon expand-btn"
             (click)="toggleExpanded('__unassigned__', $event)"
@@ -271,6 +344,20 @@
             {{ isExpanded('__unassigned__') ? '▼' : '▶' }}
           </button>
           <span class="project-name">{{ i18n.t('sidebar.unfiled') }}</span>
+          @if (clipboard.hasContent()) {
+            <button
+              class="btn-icon paste-btn"
+              type="button"
+              (click)="pasteIntoEnv(null, $event)"
+              [title]="pasteHereTitle(null)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="4" width="14" height="17" rx="2"/>
+                <path d="M9 4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/>
+                <polyline points="12 11 12 17"/>
+                <polyline points="9 14 12 17 15 14"/>
+              </svg>
+            </button>
+          }
         </div>
 
         @if (isExpanded('__unassigned__')) {
@@ -279,9 +366,17 @@
               <div
                 class="chat-item"
                 [class.active]="chat.id === currentChatId()"
+                [class.selected]="isChatSelected(chat.id)"
+                [class.cut]="isCutChat(chat.id)"
+                [draggable]="editingChatId() !== chat.id"
                 [title]="chatTooltip(chat)"
-                (click)="selectChat(chat)">
+                (click)="onChatItemClick($event, chat)"
+                (dragstart)="onChatDragStart($event, chat)"
+                (dragend)="onChatDragEnd()">
 
+                @if (isCutChat(chat.id)) {
+                  <span class="cut-badge" [title]="i18n.t('sidebar.cutStagedHint')">✂</span>
+                }
                 @if (editingChatId() === chat.id) {
                   <input
                     class="chat-title-input"

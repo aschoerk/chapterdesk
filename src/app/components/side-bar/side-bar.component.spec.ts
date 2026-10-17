@@ -1046,4 +1046,276 @@ describe('SideBarComponent', () => {
       expect(router.navigate).toHaveBeenCalledWith(['/personas']);
     });
   });
+
+  // ------------------------------------------------------------------
+  // Story multi-selection & move (Ctrl+click, cut&paste, drag&drop)
+  // ------------------------------------------------------------------
+
+  describe('story multi-selection & move', () => {
+    async function seedTwoEnvs(): Promise<void> {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.projects.push(project({ id: 'p-2', name: 'Env B' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1' }));
+        a.chats.push(chat({ id: 'c2', title: 'Story 2', projectId: 'p-1' }));
+        // An unassigned chat so the "Unfiled stories" block is present.
+        a.chats.push(chat({ id: 'c3', title: 'Loose', projectId: null }));
+      });
+      expandProject('Env A');
+      expandProject('Env B');
+    }
+
+    /** Drain the full microtask chain (deep async handlers) via a macrotask. */
+    const flush = () => new Promise<void>((res) => setTimeout(res, 0));
+
+    /** flush() + settle(): wait for async handlers AND refresh the DOM. */
+    async function settleDeep(): Promise<void> {
+      await flush();
+      await settle();
+    }
+
+    function ctrlClickStory(projectName: string, title: string): HTMLElement {
+      const item = chatItem(projectName, title)!;
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+      fixture.detectChanges();
+      return item;
+    }
+
+    function storyTools(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.story-tools') as HTMLElement | null;
+    }
+
+    function clickTool(i18nKey: string): void {
+      (storyTools()!.querySelector(`button[title="${i18n.t(i18nKey)}"]`) as HTMLButtonElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      fixture.detectChanges();
+    }
+
+    /** jsdom has no DragEvent/DataTransfer — an event-shaped stand-in. */
+    function dragEvent(extra: Record<string, unknown> = {}): DragEvent {
+      const transferOverride = extra['dataTransfer'] ?? {};
+      return {
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        dataTransfer: {
+          effectAllowed: '',
+          dropEffect: '',
+          setData: vi.fn(),
+          getData: () => '',
+          ...(transferOverride as object)
+        },
+        ...extra
+      } as unknown as DragEvent;
+    }
+
+    it('Ctrl+click marks a story without opening it', async () => {
+      await seedTwoEnvs();
+      const item = ctrlClickStory('Env A', 'Story 1');
+      expect(item.classList.contains('selected')).toBe(true);
+      expect(chatService.currentChatId()).toBeNull();
+      expect(component.selectedChatIds()).toEqual(['c1']);
+    });
+
+    it('Ctrl+click toggles the mark off on a second click', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      const item = ctrlClickStory('Env A', 'Story 1');
+      expect(item.classList.contains('selected')).toBe(false);
+      expect(component.selectedChatIds()).toEqual([]);
+    });
+
+    it('marks multiple stories via Ctrl+click', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      expect(component.selectedChatIds()).toEqual(['c1', 'c2']);
+      expect(chatItem('Env A', 'Story 2')?.classList.contains('selected')).toBe(true);
+    });
+
+    it('plain click opens the story and keeps the mark', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      chatItem('Env A', 'Story 2')!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true })
+      );
+      await settle();
+      expect(chatService.currentChatId()).toBe('c2');
+      expect(component.selectedChatIds()).toEqual(['c1']);
+    });
+
+    it('shows a toolbar with the selection count', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      expect(storyTools()).not.toBeNull();
+      expect(storyTools()!.textContent)
+        .toContain(i18n.t('sidebar.selectedCount', { count: 2 }));
+    });
+
+    it('Clear empties the selection and hides the toolbar', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.clearSelectionTitle');
+      expect(component.selectedChatIds()).toEqual([]);
+      expect(storyTools()).toBeNull();
+    });
+
+    it('Cut stages the stories without removing them', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      clickTool('sidebar.cutSelectedTitle');
+
+      // staged: nothing moved or deleted yet
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-1');
+      expect(chatService.chats().find(c => c.id === 'c2')?.projectId).toBe('p-1');
+      expect(component.isCutChat('c1')).toBe(true);
+      expect(component.isCutChat('c2')).toBe(true);
+      expect(chatItem('Env A', 'Story 1')?.classList.contains('cut')).toBe(true);
+      expect(chatItem('Env A', 'Story 1')?.querySelector('.cut-badge')).not.toBeNull();
+      expect(storyTools()!.textContent)
+        .toContain(i18n.t('sidebar.cutStaged', { count: 2 }));
+    });
+
+    it('Cancel leaves the stories untouched', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.cutSelectedTitle');
+      clickTool('sidebar.cancelClipboardTitle');
+      expect(component.isCutChat('c1')).toBe(false);
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-1');
+    });
+
+    it('pasting a staged cut moves the stories into the target environment', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      clickTool('sidebar.cutSelectedTitle');
+
+      expect(projectBlock('Env B')!.querySelector('.paste-btn')).not.toBeNull();
+      (projectBlock('Env B')!.querySelector('.paste-btn') as HTMLButtonElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settleDeep();
+
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-2');
+      expect(chatService.chats().find(c => c.id === 'c2')?.projectId).toBe('p-2');
+      expect(component.clipboard.hasContent()).toBe(false);
+      expect(component.selectedChatIds()).toEqual([]);
+      expect(chatItem('Env A', 'Story 1')).toBeNull();
+    });
+
+    it('pasting after copy clones the stories into the target environment', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.copySelectedTitle');
+
+      (projectBlock('Env B')!.querySelector('.paste-btn') as HTMLButtonElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settleDeep();
+
+      // original stays in Env A, a clone appears in Env B
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-1');
+      const clones = chatService.chats().filter(c => c.projectId === 'p-2');
+      expect(clones.length).toBe(1);
+      expect(clones[0].id).not.toBe('c1');
+      expect(component.clipboard.hasContent()).toBe(false);
+    });
+
+    it('cut&paste to the unassigned block moves the stories there', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.cutSelectedTitle');
+      const unassigned = projectBlock(i18n.t('sidebar.unfiled'))!;
+      expect(unassigned.querySelector('.paste-btn')).not.toBeNull();
+      (unassigned.querySelector('.paste-btn') as HTMLButtonElement)
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settleDeep();
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBeNull();
+    });
+
+    it('dragging a story onto another environment moves it', async () => {
+      await seedTwoEnvs();
+      component.onChatDragStart(
+        dragEvent({ dataTransfer: { setData: vi.fn(), effectAllowed: '' } }),
+        chatService.chats().find(c => c.id === 'c1')!
+      );
+      await component.onDropEnvironment('p-2', dragEvent({ dataTransfer: { getData: () => '' } }));
+      await settleDeep();
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-2');
+      expect(component.dropTargetKey()).toBeNull();
+    });
+
+    it('dragging a marked group moves all marked stories', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      component.onChatDragStart(
+        dragEvent({ dataTransfer: { setData: vi.fn() } }),
+        chatService.chats().find(c => c.id === 'c1')!
+      );
+      await component.onDropEnvironment('p-2', dragEvent({ dataTransfer: { getData: () => '' } }));
+      await settleDeep();
+      expect(chatService.chats().find(c => c.id === 'c1')?.projectId).toBe('p-2');
+      expect(chatService.chats().find(c => c.id === 'c2')?.projectId).toBe('p-2');
+    });
+
+    it('dropping onto a collapsed environment expands it', async () => {
+      await seedTwoEnvs();
+      component.toggleExpanded('p-2');
+      fixture.detectChanges();
+      expect(component.isExpanded('p-2')).toBe(false);
+
+      component.onChatDragStart(
+        dragEvent({ dataTransfer: { setData: vi.fn() } }),
+        chatService.chats().find(c => c.id === 'c2')!
+      );
+      await component.onDropEnvironment('p-2', dragEvent({ dataTransfer: { getData: () => '' } }));
+      await settleDeep();
+
+      expect(chatService.chats().find(c => c.id === 'c2')?.projectId).toBe('p-2');
+      expect(component.isExpanded('p-2')).toBe(true);
+    });
+
+    it('marks the hovered environment as a drop target', async () => {
+      await seedTwoEnvs();
+      component.onDragEnter('p-2');
+      fixture.detectChanges();
+      expect(component.isDropTarget('p-2')).toBe(true);
+      expect(projectBlock('Env B')!.querySelector('.project-header')?.classList.contains('drop-target'))
+        .toBe(true);
+      component.onDragLeave('p-2');
+      fixture.detectChanges();
+      expect(projectBlock('Env B')!.querySelector('.project-header')?.classList.contains('drop-target'))
+        .toBe(false);
+      component.onDragEnter('p-2');
+      component.onDragEnter('p-2');
+      component.onDragLeave('p-2');
+      fixture.detectChanges();
+      // nested enter/leave keep the target highlighted until the last leave
+      expect(component.isDropTarget('p-2')).toBe(true);
+      component.onDragLeave('p-2');
+      fixture.detectChanges();
+      expect(component.isDropTarget('p-2')).toBe(false);
+    });
+
+    it('delete-selected removes the marked stories after confirmation', async () => {
+      await seedTwoEnvs();
+      vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.deleteSelectedTitle');
+      await settleDeep();
+      expect(chatService.chats().find(c => c.id === 'c1')).toBeUndefined();
+      expect(component.selectedChatIds()).toEqual([]);
+    });
+
+    it('delete-selected keeps the stories when confirmation is dismissed', async () => {
+      await seedTwoEnvs();
+      vi.spyOn(confirm, 'ask').mockResolvedValue(false);
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.deleteSelectedTitle');
+      await settleDeep();
+      expect(chatService.chats().find(c => c.id === 'c1')).toBeDefined();
+      expect(component.selectedChatIds()).toEqual(['c1']);
+    });
+  });
 });

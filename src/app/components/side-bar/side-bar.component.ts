@@ -1,4 +1,4 @@
-import {Component, inject, signal, OnInit, computed} from '@angular/core';
+import {Component, inject, signal, OnInit, computed, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat.service';
@@ -16,6 +16,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/topic-selection.service';
 import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
 import { ChatUsageService } from '../../core/chat-usage.service';
+import { StoryClipboardService } from '../../core/story-clipboard.service';
 import type { ParsedUsage } from '../../core/llm/usage';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
@@ -43,6 +44,10 @@ export class SideBarComponent implements OnInit {
   private readonly topicSelection = inject(TopicSelectionService);
   private readonly sortPrefs = inject(SortPreferencesService);
   private readonly usage = inject(ChatUsageService);
+  private readonly storyClipboard = inject(StoryClipboardService);
+
+  /** Reactive alias so the template can use `clipboard.hasContent()` etc. */
+  readonly clipboard = this.storyClipboard;
 
   readonly projects = this.projectService.projects;
   readonly currentChatId = this.chatService.currentChatId;
@@ -81,6 +86,269 @@ export class SideBarComponent implements OnInit {
   /** Persisted per-chat cost totals (updated by the "Σ" button in each chat row). */
   private readonly chatCosts = signal<Record<string, ParsedUsage | null>>({});
   readonly selectedTopicId = this.topicSelection.selectedTopicId;
+
+  // ------------------------------------------------------------------
+  // Story multi-selection (Ctrl+click, like the navbar) + move/cut/paste
+  // ------------------------------------------------------------------
+
+  /** Ordered ids of the stories selected on the sidebar (Ctrl+click toggles). */
+  readonly selectedChatIds = signal<string[]>([]);
+  readonly hasSelection = computed(() => this.selectedChatIds().length > 0);
+  readonly selectedCount = computed(() => this.selectedChatIds().length);
+
+  /**
+   * Environment key currently hovered as a drag&drop target
+   * (`'__unassigned__'` for the unassigned block). Null = none.
+   */
+  readonly dropTargetKey = signal<string | null>(null);
+  /** Depth counter per environment key so nested dragenter/dragleave don't flicker. */
+  private readonly dropDepth = new Map<string, number>();
+  private draggingChatIds: string[] | null = null;
+  /** Guard: a click event that can follow a drop must not toggle expansion. */
+  private dropGuardUntil = 0;
+
+  isChatSelected(id: string): boolean {
+    return this.selectedChatIds().includes(id);
+  }
+
+  isCutChat(id: string): boolean {
+    return this.storyClipboard.isCutChat(id);
+  }
+
+  /**
+   * Plain click → open the story; Ctrl/Cmd+click → toggle multi-selection
+   * (mirrors the navbar behaviour).
+   */
+  onChatItemClick(event: MouseEvent, chat: Chat): void {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      this.toggleChatSelection(chat.id);
+      return;
+    }
+    void this.selectChat(chat);
+  }
+
+  toggleChatSelection(id: string): void {
+    this.selectedChatIds.update(cur =>
+      cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+    );
+  }
+
+  clearSelection(): void {
+    this.selectedChatIds.set([]);
+  }
+
+  /** Copy the selected stories (they can be pasted/duplicated elsewhere). */
+  copySelectedStories(): void {
+    const ids = this.selectedChatIds();
+    if (!ids.length) return;
+    try {
+      this.storyClipboard.copy(ids);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.copyFailed', { error: err?.message || err }));
+    }
+  }
+
+  /**
+   * Cut (stage a move). The stories are NOT removed here — they only move to
+   * the target environment when the user pastes them there. If no paste
+   * happens the stories stay untouched, and "Cancel" drops the staging.
+   */
+  cutSelectedStories(): void {
+    const ids = this.selectedChatIds();
+    if (!ids.length) return;
+    try {
+      this.storyClipboard.cut(ids);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.cutFailed', { error: err?.message || err }));
+    }
+  }
+
+  /** Cancel a staged cut/copy: nothing is moved or deleted. */
+  cancelClipboard(): void {
+    this.storyClipboard.clear();
+  }
+
+  async deleteSelectedStories(): Promise<void> {
+    const ids = this.selectedChatIds();
+    if (!ids.length) return;
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('sidebar.deleteSelectedTitle'),
+      message: this.i18n.t('sidebar.deleteSelectedMsg', { count: ids.length }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
+    try {
+      for (const id of ids) {
+        await this.chatService.deleteChat(id);
+        this.usage.clearStored(id);
+      }
+      this.clearSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.deleteSelectedFailed', { error: err?.message || err }));
+    }
+  }
+
+  /** Paste the clipboard (cut → move, copy → clone) into an environment. */
+  async pasteIntoEnv(projectId: string | null, event?: Event): Promise<void> {
+    event?.stopPropagation();
+    const key = this.envKey(projectId);
+    try {
+      const pasted = await this.storyClipboard.pasteInto(projectId);
+      if (pasted && !this.isExpanded(key)) {
+        this.toggleExpanded(key);
+      }
+      this.clearSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.pasteFailed', { error: err?.message || err }));
+    }
+  }
+
+  pasteHereTitle(projectId: string | null): string {
+    const n = this.storyClipboard.count();
+    if (n <= 0) return this.i18n.t('sidebar.pasteHere');
+    const stories = this.i18n.t(n === 1 ? 'sidebar.storyWord' : 'sidebar.storiesWord');
+    const where = projectId
+      ? this.projects().find(p => p.id === projectId)?.name
+      : this.i18n.t('sidebar.unfiled');
+    return this.i18n.t('sidebar.pasteHereTitle', { count: n, stories, where: where ?? '' });
+  }
+
+  clipboardInfoLabel(): string {
+    const n = this.storyClipboard.count();
+    return this.storyClipboard.action() === 'cut'
+      ? this.i18n.t('sidebar.cutStaged', { count: n })
+      : this.i18n.t('sidebar.copyStaged', { count: n });
+  }
+
+  clipboardInfoTitle(): string {
+    const n = this.storyClipboard.count();
+    return this.storyClipboard.action() === 'cut'
+      ? this.i18n.t('sidebar.cutStagedHint', { count: n })
+      : this.i18n.t('sidebar.copyStagedHint', { count: n });
+  }
+
+  // --- drag & drop: real move of the marked stories onto an environment -----
+
+  private envKey(projectId: string | null): string {
+    return projectId ?? '__unassigned__';
+  }
+
+  private projectIdForKey(key: string): string | null {
+    return key === '__unassigned__' ? null : key;
+  }
+
+  isDropTarget(key: string): boolean {
+    return this.dropTargetKey() === key;
+  }
+
+  onChatDragStart(event: DragEvent, chat: Chat): void {
+    if (this.editingChatId() === chat.id) return;
+    const ids = this.selectedChatIds().includes(chat.id)
+      ? this.selectedChatIds()
+      : [chat.id];
+    this.draggingChatIds = [...ids];
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', JSON.stringify(this.draggingChatIds));
+  }
+
+  onChatDragEnd(): void {
+    this.resetDragState();
+  }
+
+  onDragEnter(key: string): void {
+    const depth = (this.dropDepth.get(key) ?? 0) + 1;
+    this.dropDepth.set(key, depth);
+    this.dropTargetKey.set(key);
+  }
+
+  onDragLeave(key: string): void {
+    const depth = (this.dropDepth.get(key) ?? 1) - 1;
+    if (depth <= 0) {
+      this.dropDepth.delete(key);
+      if (this.dropTargetKey() === key) this.dropTargetKey.set(null);
+    } else {
+      this.dropDepth.set(key, depth);
+    }
+  }
+
+  onDragOver(event: DragEvent): void {
+    event.preventDefault(); // allow the drop
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  async onDropEnvironment(key: string, event: DragEvent): Promise<void> {
+    event.preventDefault();
+    // Read the ids from the dataTransfer FIRST (it survives the drag), falling
+    // back to the ids captured at dragstart, before the drag state is cleared.
+    const ids = this.readDragIds(event) ?? this.draggingChatIds;
+    this.resetDragState();
+
+    if (!ids?.length) return;
+    const targetProjectId = this.projectIdForKey(key);
+    try {
+      await this.moveChats(ids, targetProjectId);
+      this.clearSelection();
+      if (!this.isExpanded(key)) {
+        this.toggleExpanded(key);
+      }
+      // Suppress the click that a browser can synthesize right after a drop,
+      // so the (collapsed) target header doesn't collapse again immediately.
+      this.dropGuardUntil = Date.now() + 350;
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.moveFailed', { error: err?.message || err }));
+    }
+  }
+
+  private readDragIds(event: DragEvent): string[] | null {
+    try {
+      const raw = event.dataTransfer?.getData('text/plain');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed) && parsed.every(x => typeof x === 'string')) {
+        return parsed as string[];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Reassign the given stories to `targetProjectId` — the actual move. */
+  private async moveChats(chatIds: string[], targetProjectId: string | null): Promise<void> {
+    for (const chatId of chatIds) {
+      const chat = this.chatService.chats().find(c => c.id === chatId);
+      if (chat && chat.projectId !== targetProjectId) {
+        await this.chatService.reassignChat(chatId, targetProjectId);
+      }
+    }
+  }
+
+  private resetDragState(): void {
+    this.draggingChatIds = null;
+    this.dropDepth.clear();
+    this.dropTargetKey.set(null);
+  }
+
+  /** Prevent the browser from navigating / dropping anywhere else. */
+  @HostListener('document:dragover', ['$event'])
+  onDocDragOver(event: DragEvent): void {
+    event.preventDefault();
+  }
+
+  @HostListener('document:drop', ['$event'])
+  onDocDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.resetDragState();
+  }
 
   selectTopicFilter(id: string) {
     this.topicSelection.selectTopic(id || 'all');
@@ -203,6 +471,8 @@ export class SideBarComponent implements OnInit {
   }
 
   toggleExpanded(projectId: string, event?: Event) {
+    // A click that can follow a HTML5 drag&drop must not toggle expansion.
+    if (Date.now() < this.dropGuardUntil) return;
     event?.stopPropagation();
     this.expanded.update(m => ({
       ...m,
