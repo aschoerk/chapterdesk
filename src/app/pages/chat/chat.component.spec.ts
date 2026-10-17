@@ -139,6 +139,51 @@ describe('Chat', () => {
     expect(units).toEqual([{ key: a1.id, text: 'X' + (a1.content ?? '') }]);
   });
 
+  it('reveals a search match in the edited node by scrolling the textarea AND the tree', async () => {
+    await openStory();
+    fixture.detectChanges();
+    const tree = (component as any).tree()?.nativeElement as HTMLElement;
+    expect(tree).not.toBeUndefined();
+    const ta = document.createElement('textarea');
+    ta.className = 'editor-textarea';
+    ta.value = 'x'.repeat(2000);
+    tree.appendChild(ta);
+
+    // jsdom clamps real scrollTop on sized elements, so capture the tree's
+    // scroll mutation via an intercepting property.
+    let capturedScrollTop = 0;
+    Object.defineProperty(tree, 'scrollTop', {
+      get: () => capturedScrollTop,
+      set: (v: number) => {
+        capturedScrollTop = v;
+      },
+      configurable: true,
+    });
+    // visible band [0..400]; textarea sits below the fold (top 500).
+    vi.spyOn(tree, 'getBoundingClientRect').mockReturnValue({
+      top: 0, bottom: 400, left: 0, right: 300, width: 300, height: 400, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    vi.spyOn(ta, 'getBoundingClientRect').mockReturnValue({
+      top: 500, bottom: 760, left: 0, right: 300, width: 300, height: 260, x: 0, y: 500, toJSON: () => ({}),
+    } as DOMRect);
+    // The mirror measurement finds the caret at contentTop 500 (wrapped deep in
+    // the paragraph) — the kind of position the old row-count math missed.
+    const metricsSpy = vi.spyOn(component as any, 'measureSearchCaret')
+      .mockReturnValue({ contentTop: 500, paddingTop: 12, lineHeight: 16 });
+
+    (component as any).revealSearchMatchInEditor(ta, 123);
+
+    // Inner reveal: caret line placed one line-height from the textarea top.
+    expect(ta.scrollTop).toBe(500 - 16);
+    // Outer reveal: caretY = ta.top(500) + padTop(12) + (500 - 484 = 16) = 528;
+    // lower bound 400-40=360 → the tree scrolls down by 528-360 = 168 so the
+    // match line is visible in the conversation viewport.
+    expect(capturedScrollTop).toBe(168);
+
+    tree.removeChild(ta);
+    metricsSpy.mockRestore();
+  });
+
   it('marks the node being edited with a dot in the node navbar', async () => {
     await openStory();
     fixture.detectChanges();

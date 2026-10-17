@@ -74,8 +74,8 @@ export const DE_WORK = {
     inserting: 'Wird eingefügt…',
     insertTitle:
       'Diese Frage oberhalb der aktuellen einfügen. Die vorherige Version und ihre Folgetexte hängen unter der neuen Antwort.',
-    hintDraft: 'Strg+Enter sendet · Esc bricht ab',
-    hintEdit: 'Strg+Enter speichert eine Version · Esc bricht ab',
+    hintDraft: 'Strg+Enter sendet · Strg+S speichert · Esc bricht ab',
+    hintEdit: 'Strg+Enter oder Strg+S speichert eine Version · Esc bricht ab',
     thinking: 'Denkt nach…',
     waiting: 'Warten auf das Modell…',
     thought: 'Gedanke',

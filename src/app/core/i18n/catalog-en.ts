@@ -269,8 +269,8 @@ export const EN = {
     inserting: 'Inserting…',
     insertTitle:
       'Insert this question above the current one. The previous version and its following text hang under the new answer.',
-    hintDraft: 'Ctrl+Enter sends · Esc cancels',
-    hintEdit: 'Ctrl+Enter saves a version · Esc cancels',
+    hintDraft: 'Ctrl+Enter sends · Ctrl+S saves · Esc cancels',
+    hintEdit: 'Ctrl+Enter or Ctrl+S saves a version · Esc cancels',
     thinking: 'Thinking…',
     waiting: 'Waiting for the model…',
     thought: 'Thought',

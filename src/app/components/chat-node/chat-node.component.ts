@@ -44,6 +44,7 @@ import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { ChatUsageService } from '../../core/chat-usage.service';
+import { nearestScrollParent, textareaCharMetrics } from '../../core/dom-metrics';
 
 /**
  * Fallback when a rewrite's original range cannot be mapped back to the
@@ -130,6 +131,13 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
   private readonly readContent = viewChild<ElementRef<HTMLElement>>('readContent');
   private readonly ctxMenuEl = viewChild<ElementRef<HTMLElement>>('ctxMenu');
+
+  /**
+   * Source offset captured from the read-only view just before entering the
+   * editor: the character whose line must become the FIRST visible line of the
+   * textarea (scroll continuity ro → editor). null = no restore needed.
+   */
+  private pendingScrollOffset: number | null = null;
 
   /** Viewport coordinates of the open right-click menu, or null when closed. */
   readonly ctxMenu = signal<{ x: number; y: number } | null>(null);
@@ -250,15 +258,149 @@ export class ChatNodeComponent implements OnDestroy {
     textarea.style.height = 'auto';
     const maxHeight = window.innerHeight * 0.55;
     textarea.style.height = `${Math.min(textarea.scrollHeight + 4, maxHeight)}px`;
+    // Scroll continuity: once the editor has rendered, restore the ro view's
+    // top-visible sentence as the FIRST visible line of the textarea.
+    if (this.pendingScrollOffset != null) {
+      this.scrollTextareaToSourceOffset(textarea, this.pendingScrollOffset);
+      this.pendingScrollOffset = null;
+    }
+  }
+
+  /**
+   * The source offset of the text that is currently the FIRST visible one in
+   * the read-only view (the sentence sitting at the top of the visible area).
+   * Returns null when there is nothing to restore (no rendered content, nothing
+   * visible) — the editor then simply starts at the top.
+   */
+  private captureRoScrollOffset(): number | null {
+    const el = this.readContent()?.nativeElement;
+    if (!el) return null;
+    const source = this.node().content ?? '';
+    if (!source.trim()) return null;
+    const clip = this.roVisibleClip(el);
+    if (!clip) return null;
+    const fragment = firstVisibleRoText(el, clip);
+    if (!fragment) return null;
+    const loc = markFragmentInSource(source, fragment);
+    return loc ? loc.index : null;
+  }
+
+  /** The vertical band that counts as "visible" (scroll container, else viewport). */
+  private roVisibleClip(el: HTMLElement): { top: number; bottom: number } | null {
+    const scroller = this.scrollParentOf(el);
+    if (scroller) {
+      const r = scroller.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    }
+    return { top: 0, bottom: window.innerHeight };
+  }
+
+  /**
+   * The nearest scrollable ancestor of `el`. A delegate over the shared module
+   * helper so specs can stub the lookup (module functions aren't spyable).
+   */
+  private scrollParentOf(el: HTMLElement): HTMLElement | null {
+    return nearestScrollParent(el);
+  }
+
+  /**
+   * Scroll the editor textarea so the character at `offset` in the draft is
+   * its first visible line (mirroring the ro view's top sentence). A hidden
+   * mirror div reproduces the textarea's box + font metrics to measure the
+   * vertical position of that character; the browser clamps the scrollTop.
+   */
+  private scrollTextareaToSourceOffset(textarea: HTMLTextAreaElement, offset: number): void {
+    const st = this.scrollTopForOffset(textarea, offset);
+    if (st != null) textarea.scrollTop = st;
+  }
+
+  /**
+   * The scrollTop that would place the character at `offset` (of the current
+   * draft) at the FIRST visible line of the editor, or null when not measurable
+   * (empty draft / no layout). A hidden mirror div that duplicates the
+   * textarea's box + font metrics measures the vertical position of that
+   * character; the textarea's scrollTop is relative to its CONTENT box, so the
+   * top padding is subtracted to land the line at the very top.
+   */
+  private scrollTopForOffset(textarea: HTMLTextAreaElement, offset: number): number | null {
+    const text = this.contentDraft();
+    if (!text) return null;
+    const clamped = Math.max(0, Math.min(offset, text.length));
+    if (clamped === 0) return 0;
+    const metrics = textareaCharMetrics(textarea, clamped);
+    return metrics ? Math.max(0, metrics.contentTop) : null;
   }
 
   private scheduleResize(): void {
+    // Capture the scroll-restore target BEFORE the resize consumes it: the
+    // read-only view's top-visible sentence must stay the editor's first
+    // visible line AND the caret must sit there.
+    const savedOffset = this.pendingScrollOffset;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         this.resizeTextarea();
-        this.editArea()?.nativeElement?.focus();
+        this.applyEditorScrollAndCaret(savedOffset);
       });
     });
+  }
+
+  /**
+   * After the editor has rendered, focus it and position it where the
+   * read-only view was scrolled: the target sentence becomes the first visible
+   * line AND the caret sits at its start. Plain focus() would put the caret at
+   * the END of the content and auto-scroll the textarea to the bottom
+   * (observed in Chromium) — the "editor shows the last part of the node" bug.
+   * Order matters: focus first, then re-apply the target scrollTop (overriding
+   * the focus auto-scroll), then place the caret — its line is already the
+   * first visible one, so no further scrolling happens.
+   */
+  private applyEditorScrollAndCaret(savedOffset: number | null): void {
+    const textarea = this.editArea()?.nativeElement;
+    if (!textarea) return;
+    const clamped = Math.max(0, Math.min(savedOffset ?? 0, this.contentDraft().length));
+    const scrollTop = this.scrollTopForOffset(textarea, clamped);
+    textarea.focus();
+    textarea.scrollTop = scrollTop ?? 0;
+    textarea.setSelectionRange(clamped, clamped);
+    // Focus may have auto-scrolled the OUTER container to reveal the textarea
+    // (often to its bottom) — make sure the UPPER part of the textarea is on
+    // screen, otherwise the restored first line would be hidden above the fold.
+    this.ensureEditorTopVisible();
+    // The restore is done — a later resize (input/attach) must not re-apply it.
+    this.pendingScrollOffset = null;
+  }
+
+  /**
+   * Make sure the TOP of the editor textarea is visible in the outer scroll
+   * container — at least the upper part must be on screen, even when the node
+   * sits deep in the conversation or the textarea is taller than the visible
+   * band. Only scrolls the OUTER container (the textarea's own scrollTop is
+   * the scroll-continuity restore and is left untouched). A tiny top margin
+   * keeps the first line from being flush with the very edge. Never scrolls
+   * when the top is already visible and on screen.
+   */
+  private ensureEditorTopVisible(): void {
+    const textarea = this.editArea()?.nativeElement;
+    if (!textarea) return;
+    const scroller = this.scrollParentOf(textarea);
+    if (!scroller) return;
+    const sRect = scroller.getBoundingClientRect();
+    // No real layout (jsdom/tests): nothing measurable, leave the container alone.
+    if (!sRect.width && !sRect.height) return;
+    const tRect = textarea.getBoundingClientRect();
+    if (!tRect.width && !tRect.height) return;
+    const TOP_MARGIN = 8;
+    const topTarget = sRect.top + TOP_MARGIN;
+    // Bring the top into view when it is above the visible band (scrolled past)
+    // OR the whole textarea is below it. Both collapse to one delta: a textarea
+    // at viewport Y `tRect.top` lands at `topTarget` after changing the scrollTop
+    // by `tRect.top - topTarget` (increasing scrollTop moves content UP, so a
+    // textarea hidden ABOVE the fold needs a NEGATIVE delta to pull it back down
+    // into view; one scrolled below the fold needs a positive delta). The browser
+    // clamps to the container's scroll range.
+    if (tRect.top < topTarget || tRect.top >= sRect.bottom) {
+      scroller.scrollTop += tRect.top - topTarget;
+    }
   }
 
   onContentClick(event: MouseEvent): void {
@@ -279,6 +421,10 @@ export class ChatNodeComponent implements OnDestroy {
   async startEdit(source: 'user' | 'auto' = 'user'): Promise<void> {
     if (this.isEditing()) return;
     const n = this.node();
+    // Remember where the read-only view was scrolled so the editor can open on
+    // the SAME first visible sentence. Captured BEFORE the session flips into
+    // edit mode — the ro content is replaced by the textarea as soon as it does.
+    this.pendingScrollOffset = this.captureRoScrollOffset();
     const ok = await this.editSession.begin({
       chatId: n.chatId,
       nodeId: n.id,
@@ -286,7 +432,10 @@ export class ChatNodeComponent implements OnDestroy {
       attachments: n.attachments || []
     }, source);
 
-    if (!ok) return;
+    if (!ok) {
+      this.pendingScrollOffset = null;
+      return;
+    }
 
     this.editDismissed.set(false);
     this.contentDraft.set(n.content || '');
@@ -364,6 +513,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.showPreview.set(false);
     this.contentDraft.set('');
     this.editAttachments.set([]);
+    this.pendingScrollOffset = null;
     this.editSession.abandon(this.node().id);
   }
 
@@ -373,6 +523,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.showPreview.set(false);
     this.contentDraft.set('');
     this.editAttachments.set([]);
+    this.pendingScrollOffset = null;
     this.editSession.commit(id);
   }
 
@@ -2150,6 +2301,19 @@ export class ChatNodeComponent implements OnDestroy {
     this.closeCtxMenu();
   }
 
+  /**
+   * Ctrl+S while an inline editor is open saves the node (as a new version)
+   * and closes the editor — repurposed from the browser's "Save page" default.
+   * Bound on the document so it also works while focus is in the toolbar /
+   * model select, but only acts while THIS node owns the open editor.
+   */
+  @HostListener('document:keydown.control.s', ['$event'])
+  onEditorSaveShortcut(event: Event): void {
+    if (!this.isEditing() || this.isLoading()) return;
+    event.preventDefault();
+    void this.saveAsVersion();
+  }
+
   @HostListener('window:resize')
   onCtxResize(): void {
     this.closeCtxMenu();
@@ -2370,7 +2534,7 @@ export class ChatNodeComponent implements OnDestroy {
   private followLive(): void {
     const anchor = this.streamEnd()?.nativeElement;
     if (!anchor) return;
-    const scroller = this.nearestScrollParent(anchor);
+    const scroller = this.scrollParentOf(anchor);
     if (!scroller) {
       anchor.scrollIntoView({ block: 'end', inline: 'nearest' });
       return;
@@ -2381,19 +2545,6 @@ export class ChatNodeComponent implements OnDestroy {
       const nextTop = scroller.scrollTop + (a.bottom - s.bottom) + 16;
       scroller.scrollTop = Math.max(0, nextTop);
     }
-  }
-
-  private nearestScrollParent(el: HTMLElement): HTMLElement | null {
-    let cur: HTMLElement | null = el.parentElement;
-    while (cur) {
-      const style = getComputedStyle(cur);
-      const oy = style.overflowY;
-      if ((oy === 'auto' || oy === 'scroll') && cur.scrollHeight > cur.clientHeight + 1) {
-        return cur;
-      }
-      cur = cur.parentElement;
-    }
-    return document.scrollingElement as HTMLElement | null;
   }
 
   updateRendered(content: string): void {
@@ -2594,4 +2745,47 @@ export class ChatNodeComponent implements OnDestroy {
     }
     return parts.join('\n\n');
   }
+}
+
+/**
+ * The text sitting at the top of `root`'s visible band, extended forward so it
+ * is long enough to locate uniquely in the markdown source (see
+ * `markFragmentInSource`). Returns null when no text node is visible.
+ */
+function firstVisibleRoText(root: HTMLElement, clip: { top: number; bottom: number }): string | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let anchor: Node | null = null;
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    if (!(n.textContent ?? '').trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    // jsdom exposes no layout metrics — getBoundingClientRect may be missing
+    // there; a missing/empty rect just means "not measurable → skip".
+    const rect = range.getBoundingClientRect?.();
+    if (!rect || (!rect.height && !rect.width)) continue;
+    if (rect.bottom <= clip.top) continue; // fully above the visible band
+    if (rect.top >= clip.bottom) break; // below the band — nothing visible
+    anchor = n;
+    break;
+  }
+  if (!anchor) return null;
+
+  // Extend the fragment from the anchor forward (~120 chars) so it maps back
+  // to the source unambiguously.
+  const parts: string[] = [];
+  let len = 0;
+  const collect = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let collecting = false;
+  let m: Node | null;
+  while ((m = collect.nextNode())) {
+    if (m === anchor) collecting = true;
+    if (!collecting) continue;
+    const t = (m.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    parts.push(t);
+    len += t.length + 1;
+    if (len >= 120) break;
+  }
+  return parts.join(' ');
 }

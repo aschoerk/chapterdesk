@@ -703,6 +703,292 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
       expect(component.isEditing()).toBe(false);
     });
+
+    it('Ctrl+S saves the node and closes the editor', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Edited via Ctrl+S');
+
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }),
+      );
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(
+        chatService.nodes().some((n) => n.role === 'user' && n.content === 'Edited via Ctrl+S'),
+      ).toBe(true);
+      expect(component.isEditing()).toBe(false);
+    });
+
+    it('Ctrl+S is ignored while the editor is closed', async () => {
+      createFixture(node({ content: 'Hello' }));
+      const save = vi.spyOn(component, 'saveAsVersion').mockResolvedValue(undefined);
+
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }),
+      );
+      await fixture.whenStable();
+
+      expect(save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Editing: scroll continuity (read-only view → editor textarea)
+  // ------------------------------------------------------------------
+
+  describe('editing: scroll continuity (ro → editor)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** Fake DOMRect standing in for jsdom's all-zero layout metrics. */
+    function fakeRect(top: number, bottom: number): DOMRect {
+      return {
+        top,
+        bottom,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect;
+    }
+
+    it('captures the source offset of the first visible sentence in the ro view', async () => {
+      const q1 = node({
+        id: 'q1',
+        role: 'user',
+        content: 'First sentence one.\n\nSecond sentence two.\n\nThird sentence three.',
+      });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      // jsdom has no layout: report the whole viewport as the visible band and
+      // fake per-paragraph rects so only the SECOND paragraph is visible (the
+      // first sits above the band, the third below it). jsdom's Range has no
+      // getBoundingClientRect, so a fake range supplies the metrics.
+      vi.spyOn(component as any, 'scrollParentOf').mockReturnValue(null);
+      vi.spyOn(document, 'createRange').mockImplementation(() => {
+        let startNode: Node | null = null;
+        return {
+          selectNodeContents(n: Node) {
+            startNode = n;
+          },
+          get startContainer(): Node | null {
+            return startNode;
+          },
+          getBoundingClientRect(): DOMRect {
+            const text = (startNode?.textContent ?? '').replace(/\s+/g, ' ').trim();
+            if (text.startsWith('First sentence one.')) return fakeRect(-500, -480); // above
+            if (text.startsWith('Second sentence two.')) return fakeRect(400, 430); // visible
+            return fakeRect(900, 930); // below
+          },
+        } as unknown as Range;
+      });
+
+      const offset = (component as any).captureRoScrollOffset();
+      // "Second sentence two." starts at index 21 in the markdown source.
+      expect(offset).toBe(21);
+    });
+
+    it('applies the captured offset to the textarea when the editor opens', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello world' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+
+      vi.spyOn(component as any, 'captureRoScrollOffset').mockReturnValue(6);
+      const apply = vi
+        .spyOn(component as any, 'scrollTextareaToSourceOffset')
+        .mockImplementation(() => {});
+
+      await startEditing(q1);
+      // The synchronous rAF polyfill runs before the editor is rendered, so the
+      // first resize found no textarea yet — re-run it now that it exists.
+      fixture.detectChanges();
+      component.resizeTextarea();
+
+      expect(apply).toHaveBeenCalledWith(expect.anything(), 6);
+      expect((component as any).pendingScrollOffset).toBeNull();
+    });
+
+    it('positions the caret + scroll at the captured offset after focus (not at the end)', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello world' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+
+      vi.spyOn(component as any, 'captureRoScrollOffset').mockReturnValue(6);
+      // jsdom has no layout — stub the mirror measurement so the restored
+      // scrollTop is deterministic.
+      vi.spyOn(component as any, 'scrollTopForOffset').mockReturnValue(42);
+
+      await component.startEdit();
+      fixture.detectChanges();
+      // ngModel pushes the value to the DOM in a microtask — wait for it.
+      await fixture.whenStable();
+      // The rAF scheduled during startEdit is async (jsdom), so run the
+      // focus/scroll/caret sequence directly now that the textarea exists.
+      (component as any).applyEditorScrollAndCaret(6);
+
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      expect(ta).not.toBeNull();
+      // Without the explicit caret, focus() would put it at the END (position
+      // 11 for 'Hello world') and auto-scroll to the bottom — the reported bug.
+      expect(ta.value).toBe('Hello world');
+      expect(ta.selectionStart).toBe(6);
+      expect(ta.scrollTop).toBe(42);
+      expect((component as any).pendingScrollOffset).toBeNull();
+    });
+
+    it('scrolls the outer container so the textarea top is on screen', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello world' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await component.startEdit();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      expect(ta).not.toBeNull();
+
+      // Realistic scenario: after focus() the container is scrolled PAST the
+      // textarea, so its top (viewport y = -50) sits ABOVE the visible band
+      // [100..400] — the top must be pulled back down into view, which means
+      // scrolling the container UP by `tRect.top - topTarget`.
+      const fakeScroller = document.createElement('div');
+      document.body.appendChild(fakeScroller);
+      let capturedScrollTop = 1000; // container currently scrolled far down
+      Object.defineProperty(fakeScroller, 'scrollTop', {
+        get: () => capturedScrollTop,
+        set: (v: number) => {
+          capturedScrollTop = v;
+        },
+        configurable: true,
+      });
+      vi.spyOn(component as any, 'scrollParentOf').mockReturnValue(fakeScroller);
+      vi.spyOn(fakeScroller, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 400));
+      vi.spyOn(ta, 'getBoundingClientRect').mockReturnValue(fakeRect(-50, 200));
+
+      (component as any).ensureEditorTopVisible();
+
+      // topTarget = 100 + 8 = 108; delta = tRect.top - topTarget = -50 - 108 = -158.
+      expect(capturedScrollTop).toBe(1000 - 158);
+      document.body.removeChild(fakeScroller);
+    });
+
+    it('scrolls the outer container down when the textarea sits below the fold', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello world' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await component.startEdit();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      const fakeScroller = document.createElement('div');
+      document.body.appendChild(fakeScroller);
+      let capturedScrollTop = 20;
+      Object.defineProperty(fakeScroller, 'scrollTop', {
+        get: () => capturedScrollTop,
+        set: (v: number) => {
+          capturedScrollTop = v;
+        },
+        configurable: true,
+      });
+      vi.spyOn(component as any, 'scrollParentOf').mockReturnValue(fakeScroller);
+      vi.spyOn(fakeScroller, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 400));
+      // Textarea entirely BELOW the visible band [100..400].
+      vi.spyOn(ta, 'getBoundingClientRect').mockReturnValue(fakeRect(500, 760));
+
+      (component as any).ensureEditorTopVisible();
+
+      // delta = tRect.top - topTarget = 500 - 108 = 392.
+      expect(capturedScrollTop).toBe(20 + 392);
+      document.body.removeChild(fakeScroller);
+    });
+
+    it('does not scroll the outer container when the textarea top is already visible', async () => {
+      const q1 = node({ id: 'q1', content: 'Hello world' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await component.startEdit();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      const fakeScroller = document.createElement('div');
+      document.body.appendChild(fakeScroller);
+      let capturedScrollTop = 0;
+      Object.defineProperty(fakeScroller, 'scrollTop', {
+        get: () => capturedScrollTop,
+        set: (v: number) => {
+          capturedScrollTop = v;
+        },
+        configurable: true,
+      });
+      vi.spyOn(component as any, 'scrollParentOf').mockReturnValue(fakeScroller);
+      vi.spyOn(fakeScroller, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 400));
+      // Textarea already within the visible band — no scroll expected.
+      vi.spyOn(ta, 'getBoundingClientRect').mockReturnValue(fakeRect(150, 380));
+
+      (component as any).ensureEditorTopVisible();
+
+      expect(capturedScrollTop).toBe(0);
+      document.body.removeChild(fakeScroller);
+    });
   });
 
   // ------------------------------------------------------------------

@@ -25,6 +25,7 @@ import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
+import { textareaCharMetrics, TextareaCharMetrics } from '../../core/dom-metrics';
 
 /** One row of the navbar-node right-click context menu. */
 interface NavMenuEntry {
@@ -999,12 +1000,16 @@ export class ChatComponent implements OnInit {
     // computed against the live draft). Otherwise highlight the rendered markdown.
     const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
     if (ta) {
-      // Bring the editor into view WITHOUT centering the whole (tall) card,
-      // then reveal the caret inside the textarea's own scroll region.
+      // Bring the editor into view WITHOUT centering the whole (tall) card.
       (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      ta.focus();
+      // Select BEFORE focusing: the browser then anchors the caret at the
+      // match instead of dumping it at the end of the content.
       ta.setSelectionRange(occ.match.start, occ.match.start + occ.match.length);
-      this.revealCaretInTextarea(ta, occ.match.start);
+      ta.focus();
+      // Reveal the found position BOTH inside the textarea's own scroll region
+      // (accurate even when lines wrap) AND in the outer conversation scroller
+      // — the match may sit deep in a tall, wrapped node.
+      this.revealSearchMatchInEditor(ta, occ.match.start);
       return;
     }
     // Not being edited → highlight the rendered markdown.
@@ -1016,16 +1021,49 @@ export class ChatComponent implements OnInit {
     }
   }
 
-  /** Vertically reveal the caret line inside the textarea's own scroll area. */
-  private revealCaretInTextarea(ta: HTMLTextAreaElement, caretOffset: number): void {
-    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 16;
-    const padTop = parseFloat(getComputedStyle(ta).paddingTop) || 0;
-    const rowsBefore = ta.value.slice(0, caretOffset).split('\n').length - 1;
-    const caretTop = padTop + rowsBefore * lh;
-    const above = ta.scrollTop;
-    const below = ta.scrollTop + ta.clientHeight;
-    if (caretTop < above) ta.scrollTop = Math.max(0, caretTop - lh);
-    else if (caretTop + lh > below) ta.scrollTop = Math.max(0, caretTop + lh - ta.clientHeight);
+  /**
+   * Reveal the caret (the found search match) so it is actually visible: first
+   * inside the textarea's own scroll region — using a mirror measurement that
+   * accounts for word-wrapping (`rowsBefore * lineHeight` is wrong for wrapped
+   * lines and left matches invisible) — then in the outer conversation
+   * scroller, so the match's line is on screen even when the textarea top was
+   * already past the fold.
+   */
+  private revealSearchMatchInEditor(ta: HTMLTextAreaElement, caretOffset: number): void {
+    const metrics = this.measureSearchCaret(ta, caretOffset);
+    if (!metrics) return; // nothing measurable (empty / no layout)
+    const { contentTop, paddingTop, lineHeight } = metrics;
+    // 1) Reveal inside the textarea: place the caret line one line-height from
+    //    the top so a little preceding text stays visible.
+    ta.scrollTop = Math.max(0, contentTop - lineHeight);
+    // 2) Reveal in the conversation scroller: the caret's absolute line must be
+    //    on screen (within a comfortable margin), otherwise a tall node hides
+    //    the found position below the fold.
+    const scroller = this.tree()?.nativeElement;
+    if (!scroller) return;
+    const sRect = scroller.getBoundingClientRect();
+    if (!sRect.width && !sRect.height) return; // no layout (jsdom)
+    const tRect = ta.getBoundingClientRect();
+    if (!tRect.width && !tRect.height) return;
+    const MARGIN = 40;
+    const caretY = tRect.top + paddingTop + (contentTop - ta.scrollTop);
+    if (caretY < sRect.top + MARGIN) {
+      scroller.scrollTop += caretY - (sRect.top + MARGIN);
+    } else if (caretY > sRect.bottom - MARGIN) {
+      scroller.scrollTop += caretY - (sRect.bottom - MARGIN);
+    }
+  }
+
+  /**
+   * The caret's vertical position inside the editor textarea (accounts for
+   * word-wrapping). Delegates over the shared mirror helper so specs can stub
+   * the measurement (module functions aren't spyable).
+   */
+  private measureSearchCaret(
+    ta: HTMLTextAreaElement,
+    offset: number
+  ): TextareaCharMetrics | null {
+    return textareaCharMetrics(ta, offset);
   }
 
   private async searchApply(updates: { key: string; text: string }[]): Promise<void> {
