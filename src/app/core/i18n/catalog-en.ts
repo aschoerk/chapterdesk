@@ -402,6 +402,7 @@ export const EN = {
     ctxRewriteSelection: 'Rewrite selection…',
     ctxPriorVersions: 'Prior versions',
     ctxContinue: 'Continue',
+    ctxSwitchCharacters: 'Switch characters',
     ctxHeading: 'Add heading',
     ctxRegenerate: 'Regenerate',
     ctxRegenerateInPlace: 'Rewrite in place',

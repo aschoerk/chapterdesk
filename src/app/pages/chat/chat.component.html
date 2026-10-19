@@ -133,12 +133,18 @@
               {{ i18n.t('chat.trash') }}@if (trashCount() > 0) { ({{ trashCount() }}) }
             </button>
 
-            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId() || chatService.isIllustrating()) {
+            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId() || chatService.isIllustrating() || chatService.batchProgress() !== null) {
               <button class="btn small danger" type="button"
                       (click)="stopGeneration()"
                       [title]="i18n.t('node.stopTitle')">
                 <span>{{ i18n.t('node.stop') }}</span>
               </button>
+              @if (chatService.batchProgress(); as bp) {
+                <span class="batch-progress-toolbar" [title]="i18n.t('node.batchProgressTitle')">
+                  <span class="spinner"></span>
+                  <span>{{ i18n.t('node.batchProgress', { current: bp.current, total: bp.total }) }}</span>
+                </span>
+              }
             }
           </div>
           @if (showChatParams()) {

@@ -404,6 +404,7 @@ export const DE = {
     ctxRewriteSelection: 'Auswahl umschreiben…',
     ctxPriorVersions: 'Frühere Versionen',
     ctxContinue: 'Weiter',
+    ctxSwitchCharacters: 'Charakter wechseln',
     ctxHeading: 'Überschrift hinzufügen',
     ctxRegenerate: 'Neu erzeugen',
     ctxRegenerateInPlace: 'Vor Ort neu schreiben',

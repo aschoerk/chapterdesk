@@ -110,7 +110,10 @@ export class ChatNodeComponent implements OnDestroy {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'structure' | 'prepend' | 'image' | 'chapterDescriptions' | null>(null);
+  /** How many Continue / Switch characters sends to chain in one batch. */
+  readonly repeatCount = signal(1);
+  private static readonly REPEAT_MAX = 20;
+  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'switchCharacters' | 'structure' | 'prepend' | 'image' | 'chapterDescriptions' | null>(null);
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
@@ -607,12 +610,145 @@ export class ChatNodeComponent implements OnDestroy {
    */
   async continueDraft(): Promise<void> {
     if (!this.isUnsentQuestion() || this.isLoading()) return;
+    if (this.repeatCount() > 1) {
+      await this.runDirectionBatch('continue', this.repeatCount());
+      return;
+    }
     this.contentDraft.set('continue');
     this.editAttachments.set([]);
     this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
     this.pendingAction.set('continue');
     await this.sendDraft();
     await this.cancelEdit();
+  }
+
+  /**
+   * Empty leaf question: fill the draft with the "Switch characters"
+   * template, pin the default LLM, and send. Same path as Continue.
+   */
+  async switchCharactersDraft(): Promise<void> {
+    if (!this.isUnsentQuestion() || this.isLoading()) return;
+    if (this.repeatCount() > 1) {
+      await this.runDirectionBatch('switchCharacters', this.repeatCount());
+      return;
+    }
+    this.contentDraft.set(
+      this.promptDefaults.effective('structure.switchCharacters') || 'switch characters'
+    );
+    this.editAttachments.set([]);
+    this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
+    this.pendingAction.set('switchCharacters');
+    await this.sendDraft();
+    await this.cancelEdit();
+  }
+
+  decRepeat(): void {
+    this.repeatCount.update(n => Math.max(1, n - 1));
+  }
+
+  incRepeat(): void {
+    this.repeatCount.update(n => Math.min(ChatNodeComponent.REPEAT_MAX, n + 1));
+  }
+
+  /**
+   * Chain `count` Continue / Switch characters sends across successive empty
+   * leaf questions. Each send fills the current draft leaf, streams the
+   * answer, and the chat-page draft housekeeping appends the next empty leaf,
+   * so the loop simply targets the newest leaf every iteration. One Stop
+   * press aborts the WHOLE batch (beginOperation → operationAbort). The
+   * current repetition number is published via chatService.batchProgress so
+   * the answer node's spinner can render it below the spinner.
+   */
+  private async runDirectionBatch(
+    direction: 'continue' | 'switchCharacters',
+    count: number
+  ): Promise<void> {
+    if (!this.isUnsentQuestion() || this.isLoading()) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const modelId = this.node().modelId || this.resolvePreferredModelId(this.node());
+    const model = this.enabledModels().find(
+      m => m.modelId === modelId || m.id === modelId
+    );
+    if (!model) {
+      alert(this.i18n.t('node.modelMissing'));
+      return;
+    }
+    const provider = this.settings.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      alert(this.i18n.t('node.providerMissing'));
+      return;
+    }
+
+    const content = direction === 'continue'
+      ? 'continue'
+      : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
+
+    // One Stop press cancels the whole batch.
+    this.chatService.beginOperation(direction === 'continue' ? 'continue' : 'switchCharacters');
+    this.pendingAction.set(direction);
+    this.isLoading.set(true);
+    this.chatService.batchProgress.set({ current: 1, total: count });
+    try {
+      for (let i = 1; i <= count; i++) {
+        if (this.chatService.isOperationCancelled()) break;
+        this.chatService.batchProgress.set({ current: i, total: count });
+
+        // Make sure the active path ends on an empty draft question to send on.
+        await this.chatService.ensureDraftAtLeaf(chatId);
+        const leaf = this.chatService.getActivePath().at(-1) ?? null;
+        if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
+
+        await this.sendDirectionOnce(chatId, leaf, content, model, provider);
+      }
+    } catch (err: any) {
+      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
+      console.error(err);
+      alert(this.i18n.t('node.failed', { error: err?.message || err }));
+    } finally {
+      this.chatService.batchProgress.set(null);
+      this.chatService.endOperation();
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
+  }
+
+  /** Persist + stream ONE direction onto a specific leaf question. */
+  private async sendDirectionOnce(
+    chatId: string,
+    leaf: ChatNode,
+    content: string,
+    model: ModelEntry,
+    provider: { baseUrl: string; apiKey: string }
+  ): Promise<void> {
+    // Only the FIRST iteration targets this component's own node, where the
+    // parent's (activate) binding is valid. Foreign leaves (iterations 2+)
+    // are activated directly through ChatService instead.
+    const isOwn = leaf.id === this.node().id;
+    const saved = await this.chatService.persistQuestion(
+      chatId, leaf.id, content, [], model.modelId, model.providerId
+    );
+    if (isOwn) {
+      this.activate.emit(saved.id);
+    } else {
+      this.chatService.setActiveChild(leaf.parentId ?? null, saved.id);
+    }
+
+    // Auto-generated meta directions (Continue, Switch characters) are sent
+    // while they are the current question, but excluded from history after.
+    await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
+
+    if (!leaf.parentId) {
+      const firstLine = content.split('\n')[0].trim().slice(0, 80);
+      if (firstLine && this.chatService.chats().find(c => c.id === chatId)?.title === 'New Chat') {
+        await this.chatService.updateChatTitle(chatId, firstLine);
+      }
+    }
+
+    await this.streamAppendOrchestrated(chatId, saved, content, model, provider, {
+      emitActivate: isOwn
+    });
   }
 
   onDraftText(text: string): void {
@@ -674,7 +810,7 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   private async runSend(
-    pending: 'send' | 'branch' | 'insert' | 'continue',
+    pending: 'send' | 'branch' | 'insert' | 'continue' | 'switchCharacters',
     work: () => Promise<void>
   ): Promise<void> {
     if (pending !== 'continue' || this.pendingAction() !== 'continue') {
@@ -1243,7 +1379,8 @@ export class ChatNodeComponent implements OnDestroy {
     if (!target) return;
     const { node, content, attachments, chatId, model, provider } = target;
 
-    await this.runSend(this.pendingAction() === 'continue' ? 'continue' : 'send', async () => {
+    const pending = this.pendingAction();
+    await this.runSend(pending === 'continue' || pending === 'switchCharacters' ? pending : 'send', async () => {
       const saved = await this.chatService.persistQuestion(
         chatId,
         node.id,
@@ -1254,13 +1391,15 @@ export class ChatNodeComponent implements OnDestroy {
       );
       this.activate.emit(saved.id);
 
-      // Auto-generated meta directions (Continue) and directions in a chat
-      // with the "auto-exclude directions" mode are sent while they are the
-      // current question, but excluded from history afterwards (the stream
-      // builder skips excluded history nodes and always sends the final one).
-      const isContinue = this.pendingAction() === 'continue';
+      // Auto-generated meta directions (Continue, Switch characters) and
+      // directions in a chat with the "auto-exclude directions" mode are
+      // sent while they are the current question, but excluded from history
+      // afterwards (the stream builder skips excluded history nodes and
+      // always sends the final one).
+      const isMetaDirection =
+        this.pendingAction() === 'continue' || this.pendingAction() === 'switchCharacters';
       const chat = this.chatService.chats().find(c => c.id === chatId);
-      if (isContinue || chat?.autoExcludeDirections) {
+      if (isMetaDirection || chat?.autoExcludeDirections) {
         await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
       }
 
@@ -1302,7 +1441,7 @@ export class ChatNodeComponent implements OnDestroy {
     content: string,
     model: ModelEntry,
     provider: { baseUrl: string; apiKey: string },
-    opts: { usecase?: 'append' | 'append-with-images'; attachments?: NodeAttachment[] } = {}
+    opts: { usecase?: 'append' | 'append-with-images'; attachments?: NodeAttachment[]; emitActivate?: boolean } = {}
   ): Promise<void> {
     // Close the inline editor NOW (commit the session + clear the draft),
     // mirroring the legacy streamForQuestion timing — the editor does not
@@ -1389,7 +1528,12 @@ export class ChatNodeComponent implements OnDestroy {
           chatId, answerNode.id, finalContent, attachments, finalThinking
         );
         this.chatService.setActiveChild(question.id, versioned.id);
-        this.activate.emit(versioned.id);
+        // For batch iterations on foreign leaves the component's (activate)
+        // output is bound to THIS node's parent — activating the answer under
+        // the foreign question directly via ChatService is the correct move.
+        if (opts.emitActivate !== false) {
+          this.activate.emit(versioned.id);
+        }
         // The call was logged under the placeholder id — the versioned answer
         // node that is kept must carry the usage/cost instead.
         if (slots.logEntry && versioned.id !== answerNode.id) {
@@ -2231,6 +2375,11 @@ export class ChatNodeComponent implements OnDestroy {
         roleItems.push({
           label: this.i18n.t('node.ctxContinue'),
           action: () => void this.continueDraft(),
+          disabled: this.isLoading()
+        });
+        roleItems.push({
+          label: this.i18n.t('node.ctxSwitchCharacters'),
+          action: () => void this.switchCharactersDraft(),
           disabled: this.isLoading()
         });
       }

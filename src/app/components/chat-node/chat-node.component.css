@@ -415,6 +415,19 @@
   font-family: inherit;
 }
 
+.repeat-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.repeat-value {
+  min-width: 1.6rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, #64748b);
+}
+
 .spinner {
   width: 16px;
   height: 16px;

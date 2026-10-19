@@ -270,7 +270,18 @@
             }
           </button>
 
-          @if (isDraftEmpty() || pendingAction() === 'continue') {
+          @if (isDraftEmpty() || pendingAction() === 'continue' || pendingAction() === 'switchCharacters') {
+            <div class="repeat-counter" [title]="i18n.t('node.repeatTitle')">
+              <button class="btn small" type="button"
+                      [disabled]="isLoading()"
+                      (click)="decRepeat()"
+                      [title]="i18n.t('node.repeatDec')">−</button>
+              <span class="repeat-value">{{ repeatCount() }}</span>
+              <button class="btn small" type="button"
+                      [disabled]="isLoading()"
+                      (click)="incRepeat()"
+                      [title]="i18n.t('node.repeatInc')">+</button>
+            </div>
             <button class="btn small" type="button"
                     [disabled]="isLoading()"
                     (click)="continueDraft()"
@@ -279,6 +290,16 @@
                 {{ i18n.t('node.continuing') }}
               } @else {
                 {{ i18n.t('node.continue') }}
+              }
+            </button>
+            <button class="btn small" type="button"
+                    [disabled]="isLoading()"
+                    (click)="switchCharactersDraft()"
+                    [title]="i18n.t('node.switchCharactersTitle')">
+              @if (isLoading() && pendingAction() === 'switchCharacters') {
+                {{ i18n.t('node.switchingCharacters') }}
+              } @else {
+                {{ i18n.t('node.switchCharacters') }}
               }
             </button>
           }
@@ -371,30 +392,6 @@
            [title]="i18n.t('node.clickToWrite')"
            (click)="onContentClick($event)">
         <em>{{ i18n.t('node.writeNext') }}</em>
-        @if (showClosedContinue()) {
-          <button class="btn small continue-closed"
-                  type="button"
-                  [disabled]="isLoading()"
-                  (click)="continueDraft(); $event.stopPropagation()"
-                  [title]="i18n.t('node.continueTitle')">
-            @if (isLoading() && pendingAction() === 'continue') {
-              {{ i18n.t('node.continuing') }}
-            } @else {
-              {{ i18n.t('node.continue') }}
-            }
-          </button>
-          <button class="btn small continue-closed"
-                  type="button"
-                  [disabled]="isLoading()"
-                  (click)="openChapterDescriptionsDialog(); $event.stopPropagation()"
-                  [title]="i18n.t('node.chapterDescriptionsTitle')">
-            @if (isLoading() && pendingAction() === 'chapterDescriptions') {
-              {{ i18n.t('node.generatingStructure') }}
-            } @else {
-              {{ i18n.t('node.chapterDescriptions') }}
-            }
-          </button>
-        }
       </div>
     } @else {
       <div class="node-content empty-answer"
@@ -626,11 +623,28 @@
       }
 
       @if (showClosedContinue()) {
+        <div class="repeat-counter" [title]="i18n.t('node.repeatTitle')">
+          <button class="btn-icon" type="button"
+                  [disabled]="isLoading()"
+                  (click)="decRepeat(); $event.stopPropagation()"
+                  [title]="i18n.t('node.repeatDec')">−</button>
+          <span class="repeat-value">{{ repeatCount() }}</span>
+          <button class="btn-icon" type="button"
+                  [disabled]="isLoading()"
+                  (click)="incRepeat(); $event.stopPropagation()"
+                  [title]="i18n.t('node.repeatInc')">+</button>
+        </div>
         <button class="btn-icon" type="button"
                 [disabled]="isLoading()"
                 (click)="continueDraft(); $event.stopPropagation()"
                 [title]="i18n.t('node.continueTitle')">
           <span>{{ isLoading() && pendingAction() === 'continue' ? i18n.t('node.continuing') : i18n.t('node.continue') }}</span>
+        </button>
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading()"
+                (click)="switchCharactersDraft(); $event.stopPropagation()"
+                [title]="i18n.t('node.switchCharactersTitle')">
+          <span>{{ isLoading() && pendingAction() === 'switchCharacters' ? i18n.t('node.switchingCharacters') : i18n.t('node.switchCharacters') }}</span>
         </button>
       }
 

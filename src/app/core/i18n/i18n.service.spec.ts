@@ -22,6 +22,28 @@ describe('I18nService', () => {
     expect(i18n.t('config.providers.missing.key')).toBe('config.providers.missing.key');
   });
 
+  it('keeps keys that only live in the WORK catalogs (deep merge of namespaces)', () => {
+    // The sidebar clipboard labels were added to catalog-work-*.ts, which shares
+    // the `sidebar` namespace with the main catalog. A shallow spread used to
+    // shadow them, so these returned the raw key ('sidebar.copySelected').
+    i18n.setLocale('en');
+    expect(i18n.t('sidebar.selectedCount', { count: 2 })).toBe('2 selected');
+    expect(i18n.t('sidebar.copySelected')).toBe('Copy');
+    expect(i18n.t('sidebar.cutStaged', { count: 1 })).toBe('Cut: 1 ready to move');
+    expect(i18n.t('sidebar.pasteHereTitle', { count: 2, stories: 'stories', where: 'Env A' }))
+      .toBe('Paste 2 stories into “Env A”');
+
+    i18n.setLocale('de');
+    expect(i18n.t('sidebar.selectedCount', { count: 2 })).toBe('2 ausgewählt');
+    expect(i18n.t('sidebar.copySelected')).toBe('Kopieren');
+    expect(i18n.t('sidebar.cutStaged', { count: 1 })).toBe('Ausschneiden: 1 zum Verschieben bereit');
+    expect(i18n.t('sidebar.pasteHereTitle', { count: 2, stories: 'Geschichten', where: 'Envi A' }))
+      .toBe('2 Geschichten in „Envi A“ einfügen');
+
+    // Keys defined only in the MAIN catalog survive the merge unchanged.
+    expect(i18n.t('sidebar.searchInContent')).toBe('im Text');
+  });
+
   it('interpolates parameters', () => {
     i18n.setLocale('de');
     expect(i18n.t('config.models.modelWorks', { modelId: 'gpt-4o' }))

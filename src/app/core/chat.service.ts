@@ -590,6 +590,10 @@ export class ChatService {
    *  button in the chat toolbar, mirroring the elaborate flow. */
   readonly isIllustrating = signal(false);
 
+  /** Progress of a batched Continue / Switch characters run, or null. The
+   *  current repetition index is shown below the answer node's spinner. */
+  readonly batchProgress = signal<{ current: number; total: number } | null>(null);
+
   private currentAbortController: AbortController | null = null;
   private operationAbort: AbortController | null = null;
 

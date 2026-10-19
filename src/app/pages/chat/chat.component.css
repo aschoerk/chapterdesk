@@ -225,6 +225,15 @@ body.sidebar-resizing * {
   min-width: 28px;
 }
 
+.batch-progress-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-muted, #64748b);
+}
+
 
 
 /* ==========================================================================

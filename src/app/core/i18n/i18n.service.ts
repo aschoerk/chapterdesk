@@ -11,9 +11,36 @@ import { DE_PAGES } from './catalog-pages-de';
 export type AppLocale = 'en' | 'de';
 
 const LS_LOCALE = 'chat.view.locale';
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Deep-merges the catalogs so nested namespaces (e.g. `sidebar`, `node`,
+ * `params`) are combined instead of one whole object replacing the other.
+ * A shallow `{...a, ...b}` spread would silently drop keys that only live in
+ * an earlier catalog (the work catalogs add clipboard / selection labels to
+ * namespaces the main catalog also defines). Leaf values from later catalogs
+ * win, so the main catalog keeps precedence for keys it redefines.
+ */
+function deepMerge(...catalogs: Record<string, unknown>[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const catalog of catalogs) {
+    for (const [key, value] of Object.entries(catalog)) {
+      if (isObject(value) && isObject(out[key])) {
+        out[key] = deepMerge(out[key], value);
+      } else {
+        out[key] = value;
+      }
+    }
+  }
+  return out;
+}
+
 const CATALOGS: Record<AppLocale, Record<string, unknown>> = {
-  en: { ...EN_SHELL, ...EN_WORK, ...EN_PAGES, ...EN },
-  de: { ...DE_SHELL, ...DE_WORK, ...DE_PAGES, ...DE }
+  en: deepMerge(EN_SHELL, EN_WORK, EN_PAGES, EN),
+  de: deepMerge(DE_SHELL, DE_WORK, DE_PAGES, DE)
 };
 
 function detectLocale(): AppLocale {

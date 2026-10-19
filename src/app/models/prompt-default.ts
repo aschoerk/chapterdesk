@@ -157,6 +157,13 @@ Base the chapters on the story content above and make them lead toward what the 
 Every description must say in a few sentences what happens in that chapter, written in the voice of an outline, not of the finished prose.
 Return only the chapter heading and description list, numbered starting at the given first chapter number, in the format: "<number>. <heading> — <description>".`
   },
+  {
+    id: 'structure.switchCharacters',
+    category: 'structure',
+    label: 'Switch characters',
+    description: 'Fills an empty draft with the "Switch characters" direction and sends it to the default model. The default text is a plain direction; edit this template to change what the button sends.',
+    default: 'switch characters'
+  },
 
   // ------------------------------------------------------------------- image
   {

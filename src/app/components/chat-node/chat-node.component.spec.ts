@@ -1576,11 +1576,27 @@ describe('ChatNodeComponent', () => {
       expect(component.showClosedContinue()).toBe(true);
     });
 
-    it('shows the closed continue button for an empty question', async () => {
+    it('shows Continue, Switch characters and Chapter descriptions in the bottom action row for a closed empty question', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
-      expect(fixture.nativeElement.querySelector('.continue-closed')).not.toBeNull();
+      fixture.detectChanges();
+      const labels = Array.from(
+        fixture.nativeElement.querySelectorAll('.node-actions .btn-icon')
+      ).map((b) => (b as HTMLElement).textContent?.trim());
+      expect(labels).toContain('Continue');
+      expect(labels).toContain('Switch characters');
+      expect(labels).toContain('Chapter descriptions');
+    });
+
+    it('shows Continue, Switch characters and Chapter descriptions in the editor bottom bar for an empty draft', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+      await startEditing(q1);
+      expect(findButton('Continue')).not.toBeNull();
+      expect(findButton('Switch characters')).not.toBeNull();
+      expect(findButton('Chapter descriptions')).not.toBeNull();
     });
 
     it('sends the draft: persists the question and streams an answer', async () => {
@@ -1709,6 +1725,77 @@ describe('ChatNodeComponent', () => {
       expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('continue');
       expect(emitted).toContain('q1');
       expect(component.isEditing()).toBe(false);
+    });
+
+    it('switchCharactersDraft fills the "switch characters" template, sends it, and closes the editor', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      await component.switchCharactersDraft();
+      fixture.detectChanges();
+
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('switch characters');
+      expect(emitted).toContain('q1');
+      expect(component.isEditing()).toBe(false);
+    });
+
+    it('the repeat counter clamps to the [1, 20] range', () => {
+      const q1 = node({ id: 'q1', content: '' });
+      openChat([q1]);
+      createFixture(q1);
+
+      expect(component.repeatCount()).toBe(1);
+      component.decRepeat();
+      expect(component.repeatCount()).toBe(1); // clamped at the minimum
+
+      component.incRepeat();
+      component.incRepeat();
+      expect(component.repeatCount()).toBe(3);
+
+      for (let i = 0; i < 30; i++) component.incRepeat();
+      expect(component.repeatCount()).toBe(20); // clamped at the maximum
+    });
+
+    it('continueDraft with repeatCount>1 chains one "continue" send per leaf', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      component.repeatCount.set(3);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      // 3 directions + 3 answers, each 'continue' on a successive leaf.
+      const continues = chatService.nodes().filter(
+        (n) => n.role === 'user' && n.content === 'continue'
+      );
+      expect(continues).toHaveLength(3);
+      // One final placeholder per send is later versioned — count the settled
+      // answers with actual generated content.
+      const answers = chatService.nodes().filter(
+        (n) => n.role === 'assistant' && n.content === 'Generated' && n.isCurrent
+      );
+      expect(answers).toHaveLength(3);
+      // Batch progress published and cleared again.
+      expect(chatService.batchProgress()).toBeNull();
+      expect(component.isLoading()).toBe(false);
+      expect(component.pendingAction()).toBeNull();
+    });
+
+    it('continueDraft batch stops early when the operation is cancelled', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      component.repeatCount.set(5);
+      // Cancel before the first send: the loop must not run.
+      vi.spyOn(chatService, 'isOperationCancelled').mockReturnValue(true);
+      await component.continueDraft();
+
+      expect(chatService.nodes().some((n) => n.content === 'continue')).toBe(false);
+      expect(chatService.batchProgress()).toBeNull();
+      expect(component.isLoading()).toBe(false);
     });
 
     it('the closed continue button triggers continueDraft without opening the editor', async () => {
@@ -3889,13 +3976,14 @@ describe('ChatNodeComponent', () => {
       expect(items.find((i) => i.label === 'Regenerate')?.disabled).toBe(false);
     });
 
-    it('gives an unsent question the Continue item and no Prepend', async () => {
+    it('gives an unsent question the Continue and Switch characters items and no Prepend', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
 
       const labels = component.ctxMenuItems().filter((i) => !i.divider).map((i) => i.label);
       expect(labels).toContain('Continue');
+      expect(labels).toContain('Switch characters');
       expect(labels).not.toContain('Prepend director');
     });
 
