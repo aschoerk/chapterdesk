@@ -496,12 +496,13 @@ export const DE = {
     modelLabel: 'Modell',
     modelTitle: 'Bildmodell, das die Bilder erzeugt',
     modelHint: 'Nur Modelle, die Bilder erzeugen können, sind gelistet. Die Auswahl wird für die nächste Illustration gemerkt.',
-    contextModeLabel: 'Kontext für das Bildmodell',
+    contextModeLabel: 'Kontext für das Modell',
     contextModeSingle: 'Nur den aktuellen Text',
     contextModeSingleHint: 'Sende nur den Text dieses Abschnitts als einzelne Nachricht an das Modell.',
-    contextModeFull: 'Kompletter Chat bis hierher',
-    contextModeFullHint: 'Sende den vollständigen Text des Chats bis zu diesem Abschnitt als normale Benutzer-/Assistenten-Nachrichten (mehr Kontext, mehr Tokens).',
-    contextModeFullDisabled: 'Im reinen Bildmodus erreichen nur Beschreibungen das Modell – der rohe Chat-Text wird nie gesendet.',
+    contextModeWindow: 'Letzte Abschnitte bis hierher',
+    contextNodesLabel: 'Anzahl der letzten Abschnitte als Kontext',
+    contextModeWindowHint:
+      'Sende den Inhalt der letzten {{nodes}} Abschnitte (bis einschließlich dieses) als normale Benutzer-/Assistenten-Nachrichten – ein begrenztes Fenster statt des kompletten Chats.',
     countLabel: 'Anzahl Szenen',
     countHint:
       '1 erzeugt die aktuelle Szene. Bei mehr als 1 werden so viele verschiedene Szenen aus der bisherigen Geschichte erzeugt (Storyboard).',

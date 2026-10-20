@@ -494,12 +494,13 @@ export const EN = {
     modelLabel: 'Model',
     modelTitle: 'Image model used to render the picture(s)',
     modelHint: 'Only models that can generate images are listed. The choice is remembered for the next illustration.',
-    contextModeLabel: 'Context sent to the image model',
+    contextModeLabel: 'Context sent to the model',
     contextModeSingle: 'Current text only',
     contextModeSingleHint: 'Send just this beat\'s text to the model as a single message.',
-    contextModeFull: 'Full chat up to this point',
-    contextModeFullHint: 'Send the complete text of the chat up to this beat as normal user/assistant messages (more context, more tokens).',
-    contextModeFullDisabled: 'Pure picture mode sends descriptions only — the raw chat text never reaches the model.',
+    contextModeWindow: 'Last beats up to this point',
+    contextNodesLabel: 'Number of recent beats to include as context',
+    contextModeWindowHint:
+      'Send the content of the last {{nodes}} story beats (up to and including this one) as normal user/assistant messages — a bounded window instead of the complete chat.',
     countLabel: 'Number of scenes',
     countHint:
       '1 renders the current scene. A number greater than 1 renders that many distinct scenes from the story so far (storyboard).',

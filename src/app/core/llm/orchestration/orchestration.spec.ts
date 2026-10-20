@@ -181,8 +181,10 @@ describe('LLM orchestration — dispatch (plain if-chain)', () => {
     expect(pickUsecase(v({ count: 3, planDescriptions: false }))).toBe('storyboard-direct');
     expect(pickUsecase(v({ count: 3, planDescriptions: true, singleCall: true }))).toBe('planned-enblock');
     expect(pickUsecase(v({ count: 3, purePictures: true }))).toBe('planned-enblock');
+    expect(pickUsecase(v({ count: 1, purePictures: true }))).toBe('planned-enblock');
     expect(pickUsecase(v({ count: 3, planDescriptions: true }))).toBe('planned-scenes');
     expect(pickUsecase(v({ count: 1, historyMode: 'full' }))).toBe('render-full');
+    expect(pickUsecase(v({ count: 1, historyMode: 'window' }))).toBe('render-window');
     expect(pickUsecase(v({ count: 1 }))).toBe('render-node');
   });
 });
@@ -496,6 +498,58 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(user).toContain('CONCRETE SCENES');
     expect(user).toMatch(/feel ALIVE/);
     expect(user).not.toContain('frozen instant');
+    // The planner is told the story scope: depict the current beat, with the
+    // full story text up to it as the established context ('single' mode).
+    expect(user).toContain('The full story text up to this beat is the established context');
+  });
+
+  it('tells the planning model the WINDOW scope (last N beats) when window mode is chosen', async () => {
+    // 1 planning + 1 scene one-shot render.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'planned-scenes',
+      vars: { count: 2, historyMode: 'window', historyNodes: 4 }
+    });
+
+    // First fetch = the planning call: the prompt now names the window scope —
+    // the last 4 beats up to and including the current one (NOT the full text).
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    const user = [...body.messages].reverse().find(m => m.role === 'user')!.content;
+    expect(user).toContain('last 4 story beats up to and including the current one');
+    expect(user).not.toContain('The full story text up to this beat is the established context');
   });
 
   it('does NOT forward reference attachments to the image model after planning', async () => {
@@ -1154,6 +1208,79 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(serialized).not.toContain('image_url');
     expect(serialized).not.toContain('REFIMAGE');
     expect(serialized).not.toContain('HANDIMAGE');
+  });
+
+  it('render-window sends only the last N context nodes plus the anchor', async () => {
+    // A window of 3 beats INCLUDING the current chapter → the image model
+    // sees the last 2 context nodes (a1 + u2) plus the anchor — never the
+    // earlier history (u0/a0/u1).
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      }),
+      makeModel({ id: 'txt', displayName: 'Texter', modelId: 'vendor/text' })
+    ];
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // the single render
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 6, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'First direction.' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'First chapter.' }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'Second direction.' }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'Second chapter.' }),
+      makeNode({ id: 'u2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Third direction.' }),
+      makeNode({ id: 'a2', chatId: 'chat-1', parentId: 'u2', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'u0');
+    chatService.setActiveChild('u0', 'a0');
+    chatService.setActiveChild('a0', 'u1');
+    chatService.setActiveChild('u1', 'a1');
+    chatService.setActiveChild('a1', 'u2');
+    chatService.setActiveChild('u2', 'a2');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 6, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a2', chatId: 'chat-1', parentId: 'u2', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'render-window',
+      vars: { count: 1, historyMode: 'window', historyNodes: 3 }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    for (const m of body.messages) {
+      expect(typeof m.content).toBe('string');
+    }
+    // The window (a1 + u2) and the anchor survive…
+    expect(serialized).toContain('Second chapter.');
+    expect(serialized).toContain('Third direction.');
+    expect(serialized).toContain('A chapter.');
+    // …but the earlier history is NOT sent.
+    expect(serialized).not.toContain('First direction.');
+    expect(serialized).not.toContain('First chapter.');
+    expect(serialized).not.toContain('Second direction.');
   });
 
   it('render-node does NOT send attachments to the image model either', async () => {

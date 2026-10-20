@@ -17,7 +17,7 @@
  *  - `buildDocxBlob` produces a Word .docx (OpenXML in a stored-entry ZIP).
  */
 import { marked, type Token } from 'marked';
-import { ChatNode } from '../models/chat';
+import { ChatNode, NodeAttachment } from '../models/chat';
 import {
   enumerateStoryDocuments,
   isUsableNode,
@@ -299,7 +299,249 @@ function markdownParagraphs(markdown: string, bodyStyle = 'BodyText'): string[] 
 
 const PAGE_BREAK = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 
-function buildDocumentXml(doc: DocStructure): string {
+// ---------------------------------------------------------------------------
+// Image embedding (attached pictures, no text)
+// ---------------------------------------------------------------------------
+
+/** Decode a `data:…;base64,…` / `data:…,…` URL into raw bytes, or null. */
+export function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+  const comma = dataUrl.indexOf(',');
+  if (!dataUrl.startsWith('data:') || comma < 0) return null;
+  const header = dataUrl.slice(5, comma);
+  const payload = dataUrl.slice(comma + 1);
+  try {
+    if (/;base64/i.test(header)) {
+      const binary = atob(payload);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+    return new TextEncoder().encode(decodeURIComponent(payload));
+  } catch {
+    return null;
+  }
+}
+
+/** The image attachments of an assistant chapter (pictures only, no text). */
+export function chapterImages(ch: DocChapter): NodeAttachment[] {
+  return (ch.content?.attachments ?? []).filter(
+    a => a.mimeType.startsWith('image/') && a.dataUrl?.startsWith('data:'),
+  );
+}
+
+interface ImageMedia {
+  relId: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+}
+
+const IMAGE_MIME_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+  'image/tiff': 'tiff',
+};
+
+function imageExt(mime: string): string {
+  return IMAGE_MIME_EXT[mime] ?? 'png';
+}
+
+// ---------------------------------------------------------------------------
+// Image dimensions (parsed from the container headers, so the embedded picture
+// keeps its ORIGINAL aspect ratio; unknown dimensions fall back to a default).
+// ---------------------------------------------------------------------------
+
+function u16be(bytes: Uint8Array, o: number): number {
+  return ((bytes[o] << 8) | bytes[o + 1]) >>> 0;
+}
+
+function u32be(bytes: Uint8Array, o: number): number {
+  return (
+    ((bytes[o] << 24) |
+      (bytes[o + 1] << 16) |
+      (bytes[o + 2] << 8) |
+      bytes[o + 3]) >>>
+    0
+  );
+}
+
+function u16le(bytes: Uint8Array, o: number): number {
+  return (bytes[o] | (bytes[o + 1] << 8)) >>> 0;
+}
+
+function u32le(bytes: Uint8Array, o: number): number {
+  return (
+    (bytes[o] |
+      (bytes[o + 1] << 8) |
+      (bytes[o + 2] << 16) |
+      (bytes[o + 3] << 24)) >>>
+    0
+  );
+}
+
+/**
+ * Parse the pixel dimensions of an image from its container header.
+ * Supported: PNG, JPEG, GIF, WebP, BMP. Returns null when unknown.
+ */
+export function imageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  try {
+    // PNG: 8-byte signature, then IHDR chunk — width/height at 16/20 (BE).
+    if (bytes.length >= 24 &&
+        bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+        bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) {
+      const w = u32be(bytes, 16);
+      const h = u32be(bytes, 20);
+      if (w > 0 && h > 0) return { width: w, height: h };
+    }
+
+    // GIF: "GIF8[7/9]a" then screen width/height as u16 LE at 6/8.
+    if (bytes.length >= 10 &&
+        bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38 &&
+        (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) {
+      const w = u16le(bytes, 6);
+      const h = u16le(bytes, 8);
+      if (w > 0 && h > 0) return { width: w, height: h };
+    }
+
+    // BMP: "BM" then file-size u32le at 2, pixel array offset at 10,
+    // DIB header width/height as s32le at 18/22 (height sign = orientation).
+    if (bytes.length >= 26 && bytes[0] === 0x42 && bytes[1] === 0x4d) {
+      const w = u32le(bytes, 18);
+      let h = u32le(bytes, 22);
+      h = h & 0x80000000 ? -h : h; // top-down rows are stored as a negative int
+      if (w > 0 && h > 0) return { width: w, height: h };
+    }
+
+    // WebP: "RIFF" … "WEBP". VP8X (animated/alpha) has canvas size at 24/26
+    // as u24 LE (1-based); VP8 (lossy) has dims at 26/28 as u16 LE; VP8L
+    // (lossless) stores dims-1 as u14+u14 LE bitfields at 21.
+    if (bytes.length >= 30 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+      const chunk = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15]);
+      if (chunk === 'VP8X' && bytes.length >= 30) {
+        const w = (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)) + 1;
+        const h = (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16)) + 1;
+        if (w > 0 && h > 0) return { width: w, height: h };
+      } else if (chunk === 'VP8 ' && bytes.length >= 30) {
+        const w = u16le(bytes, 26) & 0x3fff;
+        const h = u16le(bytes, 28) & 0x3fff;
+        if (w > 0 && h > 0) return { width: w, height: h };
+      } else if (chunk === 'VP8L' && bytes.length >= 25) {
+        const bits = u32le(bytes, 21);
+        const w = ((bits & 0x3fff) | ((bits >> 14) & 0x3)) + 1;
+        const h = (((bits >> 14) & 0x3fff) | ((bits >> 28) & 0x3)) + 1;
+        if (w > 0 && h > 0) return { width: w, height: h };
+      }
+    }
+
+    // JPEG: scan the marker segments for a SOF0..SOF15 (except DHT C4,
+    // JPGn C8) which carries height/width as u16 BE right after the marker.
+    if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+      let o = 2;
+      while (o + 9 < bytes.length) {
+        if (bytes[o] !== 0xff) { o++; continue; }
+        const marker = bytes[o + 1];
+        // Standalone markers (no length) are skipped.
+        if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+          o += 2;
+          continue;
+        }
+        const len = u16be(bytes, o + 2);
+        if (len < 2) break;
+        const sof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8;
+        if (sof) {
+          const h = u16be(bytes, o + 5);
+          const w = u16be(bytes, o + 7);
+          if (w > 0 && h > 0) return { width: w, height: h };
+        }
+        o += 2 + len;
+      }
+    }
+  } catch {
+    /* malformed header — fall through to null */
+  }
+  return null;
+}
+
+/** EMU per inch (1 inch = 914400 EMU). */
+const EMU_PER_INCH = 914400;
+/** Usable page width (A4/Letter with the default 1in margins) — caps width. */
+const MAX_IMAGE_WIDTH_EMU = Math.round(6.5 * EMU_PER_INCH);
+/** Max image height, so an extremely tall picture never overflows a page. */
+const MAX_IMAGE_HEIGHT_EMU = Math.round(9 * EMU_PER_INCH);
+
+/**
+ * Fit an image's pixel dimensions into the page, preserving the ORIGINAL
+ * aspect ratio, and return the drawing size in EMU. Falls back to the
+ * previous fixed 5:3.33 box when the dimensions are unknown.
+ */
+export function imageSizeEmu(
+  width: number | undefined,
+  height: number | undefined,
+): { cx: number; cy: number } {
+  const fallback = { cx: 4572000, cy: 3048000 };
+  if (!width || !height || width <= 0 || height <= 0) return fallback;
+
+  // Scale to pixels per inch (96 px/inch is a sensible default for Word
+  // rendering) so a 1024px image lands at ~10.7in wide — then clamp to the
+  // page width and scale the height proportionally.
+  const pxPerInch = 96;
+  let cx = Math.round((width / pxPerInch) * EMU_PER_INCH);
+  let cy = Math.round((height / pxPerInch) * EMU_PER_INCH);
+
+  const scale = Math.min(1, MAX_IMAGE_WIDTH_EMU / cx, MAX_IMAGE_HEIGHT_EMU / cy);
+  if (scale < 1) {
+    cx = Math.round(cx * scale);
+    cy = Math.round(cy * scale);
+  }
+  return { cx, cy };
+}
+
+/** An inline `<w:drawing>` that embeds `media` (sized to its original
+ *  aspect ratio, capped to the page width). */
+function imageDrawing(media: ImageMedia, index: number): string {
+  const descr = `Image ${index + 1}`;
+  const { cx, cy } = imageSizeEmu(media.width, media.height);
+  return (
+    '<w:r>' +
+    '<w:drawing>' +
+    '<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ' +
+    'distT="0" distB="0" distL="0" distR="0">' +
+    `<wp:extent cx="${cx}" cy="${cy}"/>` +
+    '<wp:effectExtent l="0" t="0" r="0" b="0"/>' +
+    '<wp:docPr id="1" name="' + esc(descr) + '"/>' +
+    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+    '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+    '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+    '<pic:nvPicPr>' +
+    `<pic:cNvPr id="${index + 1}" name="${esc(descr)}"/>` +
+    '<pic:cNvPicPr/>' +
+    '</pic:nvPicPr>' +
+    '<pic:blipFill>' +
+    `<a:blip r:embed="${media.relId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>` +
+    '<a:stretch><a:fillRect/></a:stretch>' +
+    '</pic:blipFill>' +
+    '<pic:spPr>' +
+    '<a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
+    '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' +
+    '</pic:spPr>' +
+    '</pic:pic>' +
+    '</a:graphicData>' +
+    '</a:graphic>' +
+    '</wp:inline>' +
+    '</w:drawing>' +
+    '</w:r>'
+  );
+}
+
+function buildDocumentXml(doc: DocStructure, media: ImageMedia[]): string {
   const body: string[] = [];
 
   if (doc.title) {
@@ -320,6 +562,22 @@ function buildDocumentXml(doc: DocStructure): string {
     if (ch.content) {
       body.push(...markdownParagraphs(ch.content.content || '', 'BodyText'));
     }
+    // Attached pictures only — the chapter text is handled above; prompt
+    // records and other non-image files are intentionally skipped.
+    for (const img of chapterImages(ch)) {
+      const bytes = dataUrlToBytes(img.dataUrl);
+      if (!bytes || bytes.length === 0) continue;
+      const mediaEntry: ImageMedia = {
+        relId: `rIdImg${media.length + 1}`,
+        fileName: `image-${media.length + 1}.${imageExt(img.mimeType)}`,
+        mimeType: img.mimeType || 'image/png',
+        bytes,
+        width: imageDimensions(bytes)?.width ?? 0,
+        height: imageDimensions(bytes)?.height ?? 0,
+      };
+      media.push(mediaEntry);
+      body.push(paragraph(imageDrawing(mediaEntry, media.length - 1)));
+    }
   });
 
   const sectPr =
@@ -333,6 +591,39 @@ function buildDocumentXml(doc: DocStructure): string {
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
     `<w:body>${body.join('')}${sectPr}</w:body>` +
     '</w:document>'
+  );
+}
+
+function documentRelsXml(media: ImageMedia[]): string {
+  let rels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>';
+  for (const m of media) {
+    rels +=
+      `<Relationship Id="${m.relId}" ` +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ' +
+      `Target="media/${m.fileName}"/>`;
+  }
+  rels += '</Relationships>';
+  return rels;
+}
+
+function contentTypesXml(imageExts: string[]): string {
+  const defaults = [...new Set(imageExts)]
+    .map(ext => `<Default Extension="${ext}" ContentType="image/${ext === 'jpg' ? 'jpeg' : ext}"/>`)
+    .join('');
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    defaults +
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+    '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+    '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
+    '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' +
+    '</Types>'
   );
 }
 
@@ -374,29 +665,12 @@ const STYLES_XML =
   '<w:pPr><w:shd w:val="clear" w:fill="F2F2F2"/><w:ind w:left="360"/></w:pPr></w:style>' +
   '</w:styles>';
 
-const CONTENT_TYPES_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
-  '<Default Extension="xml" ContentType="application/xml"/>' +
-  '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
-  '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
-  '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
-  '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' +
-  '</Types>';
-
 const RELS_XML =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
   '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' +
   '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>' +
-  '</Relationships>';
-
-const DOCUMENT_RELS_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
   '</Relationships>';
 
 function coreXml(title: string, created: string): string {
@@ -545,6 +819,10 @@ export function resolveDocStructure(
  * Build a .docx Blob for the chosen document of a chat's assistant + structure
  * nodes. Without an explicit choice, the document containing the MOST RECENT
  * node is used.
+ *
+ * Attached PICTURES of every included chapter are embedded in the document
+ * (inline drawings after the chapter text). Other attachments — prompt
+ * records, PDFs, etc. — are intentionally NOT embedded ("pictures only").
  */
 export function buildDocxBlob(
   chatTitle: string,
@@ -554,15 +832,26 @@ export function buildDocxBlob(
   const { doc } = resolveDocStructure(chatTitle, allNodes, options);
   const now = new Date().toISOString();
 
+  // Collect the media parts (attached pictures across all included chapters)
+  // while building document.xml — buildDocumentXml fills this array, so the
+  // relIds used in the drawings always match the ZIP entries below.
+  const media: ImageMedia[] = [];
+  // Build document.xml FIRST: it populates `media` with the image parts, so
+  // the content-types / relationships below see the real extensions.
+  const documentXml = strBytes(buildDocumentXml(doc, media));
+
   const entries: ZipEntry[] = [
-    { name: '[Content_Types].xml', data: strBytes(CONTENT_TYPES_XML) },
+    { name: '[Content_Types].xml', data: strBytes(contentTypesXml(media.map(m => imageExt(m.mimeType)))) },
     { name: '_rels/.rels', data: strBytes(RELS_XML) },
-    { name: 'word/document.xml', data: strBytes(buildDocumentXml(doc)) },
-    { name: 'word/_rels/document.xml.rels', data: strBytes(DOCUMENT_RELS_XML) },
+    { name: 'word/document.xml', data: documentXml },
+    { name: 'word/_rels/document.xml.rels', data: strBytes(documentRelsXml(media)) },
     { name: 'word/styles.xml', data: strBytes(STYLES_XML) },
     { name: 'docProps/core.xml', data: strBytes(coreXml(doc.title || chatTitle, now)) },
     { name: 'docProps/app.xml', data: strBytes(APP_XML) },
   ];
+  for (const m of media) {
+    entries.push({ name: `word/media/${m.fileName}`, data: m.bytes });
+  }
 
   const zip = buildZip(entries);
   return new Blob([zip as BlobPart], { type: DOCX_MIME });

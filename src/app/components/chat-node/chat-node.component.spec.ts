@@ -86,7 +86,7 @@ describe('ChatNodeComponent', () => {
           provide: IllustrateDialogService,
           useValue: {
             // Default: a simple single-scene, no-style run.
-            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false, historyMode: 'single', planDescriptions: true })),
+            open: vi.fn(async () => ({ count: 1, style: '', storyboardPrompt: '', purePictures: false, historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true })),
             current: vi.fn(() => null)
           }
         },
@@ -2915,14 +2915,16 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      // Pure picture mode + count 1 → render-node, but the purePictures flag
-      // is carried into the orchestration vars (planning is chosen by the
-      // use case selection downstream).
+      // Pure picture mode + count 1 → planned-enblock: the image model may
+      // only ever see the derived descriptions, so the planning pass runs even
+      // for a single picture (purePictures flag carried into the vars).
       expect(runner.run).toHaveBeenCalledTimes(1);
       const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
         vars?: { purePictures?: boolean; content?: string };
       };
       expect(build.vars?.purePictures).toBe(true);
+      expect(build.usecase).toBe('planned-enblock');
     });
 
     it('seeds the illustrate dialog with the default rendering model', async () => {
@@ -3021,6 +3023,79 @@ describe('ChatNodeComponent', () => {
       expect(runner.run).toHaveBeenCalledTimes(1);
       const build = runner.run.mock.calls[0][0] as { usecase?: string };
       expect(build.usecase).toBe('render-full');
+    });
+
+    it('forwards a window historyMode as the render-window use case with the chosen node count', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      // User chose "Last beats up to this point" (6 beats) in the dialog.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'window',
+        historyNodes: 6
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      // historyMode 'window' + count 1 → render-window (current node + window).
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { historyNodes?: number };
+      };
+      expect(build.usecase).toBe('render-window');
+      expect(build.vars?.historyNodes).toBe(6);
+    });
+
+    it('forwards the STORYBOARD window width for a storyboard use case', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A chapter.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      // Storyboard (count 4) with the window mode: the storyboard-specific
+      // width (10) wins over the single-picture width (6).
+      illustrateDialog.open.mockResolvedValue({
+        count: 4,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'window',
+        historyNodes: 6,
+        storyboardHistoryNodes: 10
+      });
+
+      createFixture(q1, 'a1');
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(runner.run).toHaveBeenCalledTimes(1);
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { historyNodes?: number };
+      };
+      expect(build.usecase).toBe('planned-scenes'); // storyboard use case
+      expect(build.vars?.historyNodes).toBe(10);
     });
 
     it('does not use render-full for a storyboard even when full chat was chosen', async () => {
@@ -3169,14 +3244,16 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      // Pure mode + count 1 → render-node, with purePictures carried through.
+      // Pure mode + count 1 → planned-enblock (the planning pass derives the
+      // descriptions — raw prose never reaches the image model), with
+      // purePictures carried through.
       expect(runner.run).toHaveBeenCalledTimes(1);
       const build = runner.run.mock.calls[0][0] as {
         usecase?: string;
         vars?: { purePictures?: boolean; content?: string };
       };
       expect(build.vars?.purePictures).toBe(true);
-      expect(build.usecase).toBe('render-node');
+      expect(build.usecase).toBe('planned-enblock');
     });
 
     it('shows an alert and does not call the LLM when no image model is enabled', async () => {

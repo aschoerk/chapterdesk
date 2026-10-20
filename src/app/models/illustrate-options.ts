@@ -31,16 +31,33 @@ export interface IllustrateOptions {
   /** Provider of the chosen model (`ModelEntry.providerId`). */
   providerId: string;
   /**
-   * How the story context is delivered to the image model for a SINGLE
-   * picture (count === 1):
+   * How much story context is delivered to the model:
    * - 'single' (default): only the current node's text is sent as a single
    *   final message.
-   * - 'full': the complete text of the chat up to the current node is sent to
-   *   the image model in normal form as user/assistant messages, with the
-   *   current node's text as the final message.
-   * Ignored for storyboards (count > 1).
+   * - 'window': the content of the last `historyNodes` chat nodes up to (and
+   *   including) the current node is sent in normal form as user/assistant
+   *   messages, with the current node's text as the final message — a bounded
+   *   slice of the story instead of the complete chat.
+   * For a single picture this bounds what the image model sees; for a
+   * storyboard (count > 1) it bounds what the planning text model sees.
    */
-  historyMode: 'single' | 'full';
+  historyMode: 'single' | 'window';
+  /**
+   * Window width for 'window' mode when rendering a SINGLE picture
+   * (count === 1): number of recent chat nodes (beats) used as context,
+   * INCLUDING the current node (2 = current + the one before it). Remembered
+   * separately from the storyboard width, because the two use cases usually
+   * want a different amount of context. Ignored in 'single' mode.
+   */
+  historyNodes: number;
+  /**
+   * Window width for 'window' mode when rendering a STORYBOARD (count > 1):
+   * number of recent chat nodes (beats) used as context, INCLUDING the current
+   * node. This bounds what the planning (text) model sees before it derives
+   * the picture descriptions. Remembered separately from the single-picture
+   * width. Ignored in 'single' mode.
+   */
+  storyboardHistoryNodes: number;
   /**
    * Picture-description planning: run a TEXT model first to turn the story
    * into concrete picture descriptions, then let the image model render from
@@ -59,9 +76,14 @@ export type IllustrateHistoryMode = IllustrateOptions['historyMode'];
 
 export const ILLUSTRATE_COUNT_MIN = 1;
 export const ILLUSTRATE_COUNT_MAX = 64;
+/** Window width in 'window' mode: at least 2 (current + one more), at most 64. */
+export const ILLUSTRATE_HISTORY_NODES_MIN = 2;
+export const ILLUSTRATE_HISTORY_NODES_MAX = 64;
+/** Default window width: the current beat + the 3 preceding beats. */
+export const ILLUSTRATE_HISTORY_NODES_DEFAULT = 4;
 
 export function isIllustrateHistoryMode(v: unknown): v is IllustrateHistoryMode {
-  return v === 'single' || v === 'full';
+  return v === 'single' || v === 'window';
 }
 
 export function defaultIllustrateOptions(): IllustrateOptions {
@@ -73,6 +95,8 @@ export function defaultIllustrateOptions(): IllustrateOptions {
     modelId: '',
     providerId: '',
     historyMode: 'single',
+    historyNodes: ILLUSTRATE_HISTORY_NODES_DEFAULT,
+    storyboardHistoryNodes: ILLUSTRATE_HISTORY_NODES_DEFAULT,
     planDescriptions: true
   };
 }
@@ -80,4 +104,9 @@ export function defaultIllustrateOptions(): IllustrateOptions {
 export function clampIllustrateCount(count: number): number {
   if (!Number.isFinite(count)) return 1;
   return Math.max(ILLUSTRATE_COUNT_MIN, Math.min(ILLUSTRATE_COUNT_MAX, Math.floor(count)));
+}
+
+export function clampHistoryNodes(n: number): number {
+  if (!Number.isFinite(n)) return ILLUSTRATE_HISTORY_NODES_DEFAULT;
+  return Math.max(ILLUSTRATE_HISTORY_NODES_MIN, Math.min(ILLUSTRATE_HISTORY_NODES_MAX, Math.floor(n)));
 }

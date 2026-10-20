@@ -31,12 +31,15 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                          (image.planning-scenes / image.one-shot-scenes).
  *  4. render-full        — no storyboard: render the current node while
  *                          knowing the COMPLETE chat up to now.
- *  5. render-node        — no storyboard: render the CURRENT NODE only.
- *  6. image-generation   — no storyboard: render ONE explicit picture prompt
+ *  5. render-window      — no storyboard: render the current node while
+ *                          knowing a bounded WINDOW of the last `historyNodes`
+ *                          story beats up to the current node.
+ *  6. render-node        — no storyboard: render the CURRENT NODE only.
+ *  7. image-generation   — no storyboard: render ONE explicit picture prompt
  *                          (from `vars.promptText`); no planning — the prompt
  *                          IS the concrete scene. Used by the "adapt prompt
  *                          & re-render" flow.
- *  7. image-send         — no storyboard: create ONE image from marked text +
+ *  8. image-send         — no storyboard: create ONE image from marked text +
  *                          a chat-specific constant (combined in
  *                          `vars.promptText`) sent AS-IS to the image model,
  *                          plus optional reference images (`vars.attachments`)
@@ -107,6 +110,7 @@ export type UsecaseKind =
   | 'planned-enblock'
   | 'planned-scenes'
   | 'render-full'
+  | 'render-window'
   | 'render-node'
   | 'image-generation'
   | 'image-send'
@@ -297,8 +301,21 @@ export interface UsecaseVars {
   purePictures?: boolean;
   /** Render the whole storyboard en-block (single call, count > 1). */
   singleCall?: boolean;
-  /** Full chat context vs current node only (count === 1). */
-  historyMode?: 'single' | 'full';
+  /**
+   * Story context delivered to the model:
+   * - 'single': the current node's text only.
+   * - 'window': a bounded window of the last `historyNodes` beats up to (and
+   *   including) the current node.
+   * - 'full': the COMPLETE chat up to the current node (the legacy option,
+   *   no longer selectable in the Illustrate dialog but still supported for
+   *   `render-full`).
+   * For a single picture this bounds what the image model sees; for a
+   * storyboard (count > 1) it bounds what the planning text model sees.
+   */
+  historyMode?: 'single' | 'window' | 'full';
+  /** Window width for `historyMode === 'window'` (beats INCLUDING the current
+   *  node; 2 = current + the one before it). Ignored otherwise. */
+  historyNodes?: number;
   /** Render the current chat as-is for storyboard-direct (raw). */
   useChatAsIs?: boolean;
   /** Prompt text provided directly (e.g. from a text template). */

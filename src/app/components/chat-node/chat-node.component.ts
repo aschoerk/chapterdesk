@@ -1228,19 +1228,25 @@ export class ChatNodeComponent implements OnDestroy {
       providerId: defaultModel.providerId
     });
     if (!options) return; // cancelled
-    const { count, style, storyboardPrompt, purePictures, historyMode, planDescriptions } = options;
+    const { count, style, storyboardPrompt, purePictures, historyMode, historyNodes, storyboardHistoryNodes, planDescriptions } = options;
 
     // The dialog's options CHOOSE the orchestration use case:
     //   count > 1 || assistant chapter || pure mode → planning-based
-    //   storyboards; single direction → render-node (current) / render-full
-    //   (± full chat). `content` overrides the node text so an edited draft
-    //   (promptOverride) is used as the scene.
+    //   storyboards; single direction → render-node (current) / render-window
+    //   (last N beats) / render-full (complete chat). `content` overrides the
+    //   node text so an edited draft (promptOverride) is used as the scene.
+    // The window width is remembered PER USE CASE: storyboards (count > 1)
+    // use `storyboardHistoryNodes`, single pictures use `historyNodes`.
+    const activeHistoryNodes = count > 1
+      ? (storyboardHistoryNodes ?? historyNodes)
+      : historyNodes;
     const vars = {
       count,
       style,
       storyboardPrompt,
       purePictures,
       historyMode,
+      historyNodes: activeHistoryNodes,
       planDescriptions,
       content: anchorText,
       modelId: options.modelId || defaultModel.modelId,

@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import {
+  clampHistoryNodes,
   clampIllustrateCount,
   defaultIllustrateOptions,
   IllustrateOptions,
@@ -28,6 +29,8 @@ function readLast(): IllustrateOptions {
       modelId: typeof parsed.modelId === 'string' ? parsed.modelId : '',
       providerId: typeof parsed.providerId === 'string' ? parsed.providerId : '',
       historyMode: isIllustrateHistoryMode(parsed.historyMode) ? parsed.historyMode : 'single',
+      historyNodes: clampHistoryNodes(typeof parsed.historyNodes === 'number' ? parsed.historyNodes : undefined),
+      storyboardHistoryNodes: clampHistoryNodes(typeof parsed.storyboardHistoryNodes === 'number' ? parsed.storyboardHistoryNodes : undefined),
       // Pure picture mode requires the derived descriptions, so planning is
       // always on there — even for legacy/corrupt stored entries.
       planDescriptions: purePictures ? true : (typeof parsed.planDescriptions === 'boolean' ? parsed.planDescriptions : true)
@@ -76,6 +79,8 @@ export class IllustrateDialogService {
         modelId: last.modelId,
         providerId: last.providerId,
         historyMode: last.historyMode,
+        historyNodes: last.historyNodes,
+        storyboardHistoryNodes: last.storyboardHistoryNodes,
         planDescriptions: last.planDescriptions,
         ...seed,
         resolve
@@ -93,6 +98,8 @@ export class IllustrateDialogService {
       modelId: (options.modelId || '').trim(),
       providerId: (options.providerId || '').trim(),
       historyMode: isIllustrateHistoryMode(options.historyMode) ? options.historyMode : 'single',
+      historyNodes: clampHistoryNodes(options.historyNodes),
+      storyboardHistoryNodes: clampHistoryNodes(options.storyboardHistoryNodes),
       // Pure picture mode REQUIRES the derived descriptions (raw story prose
       // must never reach the image model), so planning is forced back on.
       planDescriptions: options.purePictures ? true : (options.planDescriptions !== false)

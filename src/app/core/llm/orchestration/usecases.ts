@@ -312,8 +312,10 @@ function plannedScenePrompt(
 
 /** The prompt templates that distinguish the two planned storyboard use cases. */
 interface PlannedStoryboardTemplates {
-  /** Build the planning instruction (the prompt prefix for the planning pass). */
-  planning: (count: number) => string;
+  /** Build the planning instruction (the prompt prefix for the planning pass).
+   *  `scope` is the story-scope line computed from `historyMode`/`historyNodes`
+   *  — tells the planning (text) model how many beats to generate pictures for. */
+  planning: (count: number, scope?: string) => string;
   /** Build the DEFAULT en-block render prompt — used for the initial batch AND
    *  the reprise (enblock: image.pure / image.one-shot; scenes: image.one-shot-scenes). */
   render: (descs: string[], total: number) => string;
@@ -328,7 +330,13 @@ interface PlannedStoryboardTemplates {
  */
 async function plannedStoryboard(env: UsecaseEnv, tpl: PlannedStoryboardTemplates): Promise<EvalSlots> {
   const count = env.cx.vars.count ?? 1;
-  const planSlots = await runPlanning(env, tpl.planning);
+  // Tell the planning (text) model which story scope it is planning pictures
+  // for: the last `historyNodes` beats (window mode) or the current beat with
+  // the full text up to it as context. In pure picture mode the derived
+  // descriptions ARE what reaches the image model, so the planner must know
+  // exactly which beats to cover.
+  const scopeText = env.factory.illustrationScopeText(env.cx.vars.historyMode, env.cx.vars.historyNodes);
+  const planSlots = await runPlanning(env, c => tpl.planning(c, scopeText));
   const descriptions = planSlots.descriptions?.value ?? [];
 
   // The DEFAULT render prompt builder — the SAME one that renders all
@@ -374,8 +382,8 @@ async function plannedStoryboard(env: UsecaseEnv, tpl: PlannedStoryboardTemplate
 // ---------------------------------------------------------------------------
 async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
   return plannedStoryboard(env, {
-    planning: (count) =>
-      env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt),
+    planning: (count, scope) =>
+      env.factory.picturePlanningInstruction(count, env.cx.vars.storyboardPrompt, scope),
     render: (descs, total) =>
       env.cx.vars.purePictures
         ? env.factory.purePicturesPrompt(
@@ -393,8 +401,8 @@ async function plannedEnblock(env: UsecaseEnv): Promise<EvalSlots> {
 // ---------------------------------------------------------------------------
 async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
   return plannedStoryboard(env, {
-    planning: (count) =>
-      env.factory.pictureScenePlanningInstruction(count, env.cx.vars.storyboardPrompt),
+    planning: (count, scope) =>
+      env.factory.pictureScenePlanningInstruction(count, env.cx.vars.storyboardPrompt, scope),
     render: (descs, total) =>
       env.factory.oneShotScenesPrompt(
         env.instruction, descs, total, env.cx.vars.storyboardPrompt)
@@ -403,12 +411,14 @@ async function plannedScenes(env: UsecaseEnv): Promise<EvalSlots> {
 
 // ---------------------------------------------------------------------------
 // 4. render-full — no storyboard, current node + FULL chat context (text only)
+// 5. render-window — no storyboard, current node + a bounded WINDOW of the
+//    last `historyNodes` beats (text only). Both deliver the same shape: the
+//    pre-computed context messages (full or windowed — chosen by the runner)
+//    plus the anchor (current node text) as the scene to render. The image
+//    model only ever receives TEXT: the context is stripped to text and no
+//    reference/attachment images are forwarded.
 // ---------------------------------------------------------------------------
-async function renderFull(env: UsecaseEnv): Promise<EvalSlots> {
-  // contextMessages = full chat up to (not including) the current node;
-  // the anchor (current node text) is appended as the scene to render. The
-  // image model only ever receives TEXT: the context is stripped to text and
-  // no reference/attachment images are forwarded.
+async function renderWithContext(env: UsecaseEnv): Promise<EvalSlots> {
   const contextText = env.factory.textOnlyMessages(env.contextMessages);
   const messages = [...contextText, ...renderMessages(env, env.anchor)];
   const slots = await env.orch.completeImage(env.cx, {
@@ -420,8 +430,16 @@ async function renderFull(env: UsecaseEnv): Promise<EvalSlots> {
   return wrapImagesAsStoryboard(slots, env.anchor, 1);
 }
 
+async function renderFull(env: UsecaseEnv): Promise<EvalSlots> {
+  return renderWithContext(env);
+}
+
+async function renderWindow(env: UsecaseEnv): Promise<EvalSlots> {
+  return renderWithContext(env);
+}
+
 // ---------------------------------------------------------------------------
-// 5. render-node — no storyboard, CURRENT NODE ONLY (text only)
+// 6. render-node — no storyboard, CURRENT NODE ONLY (text only)
 // ---------------------------------------------------------------------------
 async function renderNode(env: UsecaseEnv): Promise<EvalSlots> {
   const slots = await env.orch.completeImage(env.cx, {
@@ -576,10 +594,16 @@ async function appendWithImages(env: UsecaseEnv): Promise<EvalSlots> {
 // ---------------------------------------------------------------------------
 export function pickUsecase(vars: UsecaseVars): UsecaseKind {
   const count = vars.count ?? 1;
+  // Pure picture mode ALWAYS plans (regardless of count): the image model may
+  // only ever see the derived picture descriptions, never the raw story text.
+  // The planning pass is where the story scope (current beat vs last N beats,
+  // i.e. historyMode / historyNodes) reaches a model at all.
+  if (vars.purePictures) return 'planned-enblock';
   if (count > 1 && vars.planDescriptions === false) return 'storyboard-direct';
-  if (count > 1 && (vars.singleCall || vars.purePictures)) return 'planned-enblock';
+  if (count > 1 && vars.singleCall) return 'planned-enblock';
   if (count > 1) return 'planned-scenes';
   if (vars.historyMode === 'full') return 'render-full';
+  if (vars.historyMode === 'window') return 'render-window';
   return 'render-node';
 }
 
@@ -588,6 +612,7 @@ const CONTROLLERS: Partial<Record<UsecaseKind, UsecaseController>> = {
   'planned-enblock': plannedEnblock,
   'planned-scenes': plannedScenes,
   'render-full': renderFull,
+  'render-window': renderWindow,
   'render-node': renderNode,
   'image-generation': imageGeneration,
   'image-send': imageSend,
@@ -671,9 +696,19 @@ export class LlmUseCaseRunner {
     // `vars.promptText` when given (explicit picture prompt — the
     // `image-generation` "adapt prompt & re-render" flow), else `vars.content`
     // (illustrate-from-draft / storyboard override), else the node's content.
+    // With `historyMode === 'window'` the context is bounded to the last
+    // `historyNodes` beats (INCLUDING the current node, so `historyNodes - 1`
+    // nodes precede the anchor). The same windowed context feeds the
+    // storyboard planning pass, so both illustration and storyboarding can be
+    // grounded in a bounded slice of the story instead of the complete chat.
     const cParentId = cx.node.parentId;
+    const historyNodes = build.vars.historyMode === 'window'
+      ? Math.max(1, (build.vars.historyNodes ?? 0) - 1)
+      : 0;
     const contextMessages = cParentId
-      ? this.factory.buildContextMessagesUpTo(cx.chat.id, cParentId)
+      ? (historyNodes > 0
+          ? this.factory.buildContextMessagesWindow(cx.chat.id, cParentId, historyNodes)
+          : this.factory.buildContextMessagesUpTo(cx.chat.id, cParentId))
       : [];
     const sceneText = build.vars.promptText ?? build.vars.content ?? cx.node.content ?? '';
     const nodeText = sceneText.trim() || '(no text)';

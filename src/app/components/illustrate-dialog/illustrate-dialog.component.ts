@@ -6,7 +6,11 @@ import { SettingsService } from '../../core/settings.service';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { canGenerateImages, ModelEntry } from '../../models/chat-config';
 import {
+  clampHistoryNodes,
   ILLUSTRATE_COUNT_MIN,
+  ILLUSTRATE_HISTORY_NODES_DEFAULT,
+  ILLUSTRATE_HISTORY_NODES_MIN,
+  ILLUSTRATE_HISTORY_NODES_MAX,
   IllustrateHistoryMode
 } from '../../models/illustrate-options';
 
@@ -30,15 +34,17 @@ export class IllustrateDialogComponent {
   readonly modelId = signal('');
   readonly providerId = signal('');
   readonly historyMode = signal<IllustrateHistoryMode>('single');
+  readonly historyNodes = signal(ILLUSTRATE_HISTORY_NODES_DEFAULT);
+  readonly storyboardHistoryNodes = signal(ILLUSTRATE_HISTORY_NODES_DEFAULT);
   readonly planDescriptions = signal(true);
-  readonly showStoryboard = computed(() => this.count() > 1);
   /**
-   * Full-chat context is only meaningful for a SINGLE picture (count 1) and
-   * never in pure picture mode (which by design sends descriptions only, not
-   * the raw story text). The "Full chat" radio is disabled then.
+   * The window width currently being edited — the storyboard width when
+   * count > 1, else the single-picture width. Remembered separately so each
+   * use case (single picture vs storyboard) can span a different number of
+   * beats.
    */
-  readonly showContextMode = computed(() => !this.showStoryboard());
-  readonly fullContextDisabled = computed(() => this.purePictures());
+  readonly activeHistoryNodes = computed(() =>
+    this.count() > 1 ? this.storyboardHistoryNodes() : this.historyNodes());
   /**
    * Picture-description planning can be turned off — except in pure picture
    * mode, where the derived descriptions ARE what reaches the image model
@@ -72,6 +78,8 @@ export class IllustrateDialogComponent {
       this.modelId.set(s.modelId);
       this.providerId.set(s.providerId);
       this.historyMode.set(s.historyMode);
+      this.historyNodes.set(s.historyNodes);
+      this.storyboardHistoryNodes.set(s.storyboardHistoryNodes);
       this.planDescriptions.set(s.planDescriptions);
     });
   }
@@ -92,9 +100,23 @@ export class IllustrateDialogComponent {
     this.providerId.set(match?.providerId ?? '');
   }
 
-  /** Only 'single' is a valid full-context choice in pure picture mode. */
+  /** Window width input for the "last N beats" context choice — edits the
+   *  width of the CURRENT use case (single picture vs storyboard). */
+  onHistoryNodesInput(value: string): void {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= ILLUSTRATE_HISTORY_NODES_MIN) {
+      const clamped = clampHistoryNodes(n);
+      if (this.count() > 1) {
+        this.storyboardHistoryNodes.set(clamped);
+      } else {
+        this.historyNodes.set(clamped);
+      }
+    }
+  }
+
+  /** The context mode: current text only, or the last N beats (window). */
   onHistoryMode(value: string): void {
-    this.historyMode.set(value === 'full' && !this.purePictures() ? 'full' : 'single');
+    this.historyMode.set(value === 'window' ? 'window' : 'single');
   }
 
   onPureChange(checked: boolean): void {
@@ -118,9 +140,13 @@ export class IllustrateDialogComponent {
       purePictures: this.purePictures(),
       modelId: this.modelId(),
       providerId: this.providerId(),
-      // Pure picture mode never forwards the raw chat, so a remembered 'full'
-      // selection is clamped back to 'single'.
-      historyMode: this.purePictures() ? 'single' : this.historyMode(),
+      // Pure picture mode never forwards the raw chat itself — the planning
+      // (text) model derives the picture descriptions. The context mode still
+      // applies: it bounds what the planning model sees (current beat vs last
+      // N beats).
+      historyMode: this.historyMode(),
+      historyNodes: this.historyNodes(),
+      storyboardHistoryNodes: this.storyboardHistoryNodes(),
       // Pure picture mode REQUIRES the derived descriptions — raw story prose
       // must never reach the image model — so planning is forced back on.
       planDescriptions: this.purePictures() ? true : this.planDescriptions()

@@ -487,6 +487,33 @@ export class UsecaseContextFactory {
     return out;
   }
 
+  /**
+   * Context messages from the last `count` nodes of the active path up to
+   * (and including) `nodeId` — a bounded window instead of the complete chat.
+   * The same filtering as {@link buildContextMessagesUpTo} applies (excluded /
+   * empty-content nodes are skipped), but the window is measured in RAW story
+   * nodes: the caller passes how many recent beats the model should see.
+   * A `count` <= 0 falls back to the whole path.
+   */
+  buildContextMessagesWindow(chatId: string, nodeId: string | null, count: number): ChatMessage[] {
+    if (!nodeId) return [];
+    const path = this.chatService.getPathToNode(nodeId);
+    if (!count || count <= 0) return this.buildContextMessagesUpTo(chatId, nodeId);
+    const slice = path.slice(-count);
+    const out: ChatMessage[] = [];
+    for (const n of slice) {
+      if (n.chatId !== chatId) continue;
+      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      // The FINAL node of the window (the beat right before the anchor) is
+      // always included — it is the immediate context of the scene.
+      if (n.id !== nodeId && n.excludeFromContext) continue;
+      const content = nodeToMessageContent(n);
+      if (!content) continue;
+      out.push({ role: n.role, content });
+    }
+    return out;
+  }
+
   /** Strip media parts → text-only messages (for text planning/rendering). */
   textOnlyMessages(messages: ChatMessage[]): ChatMessage[] {
     return messages.map(m => {
@@ -496,9 +523,27 @@ export class UsecaseContextFactory {
     });
   }
 
+  /**
+   * The story scope the pictures should cover, as a short instruction for the
+   * PLANNING (text) model — so it knows exactly how many beats it derives
+   * pictures for. This matters most in pure picture mode, where the derived
+   * descriptions ARE everything the image model sees:
+   * - 'window': the last `historyNodes` beats up to and including the current
+   *   one (the model must cover exactly those beats, not the whole story).
+   * - otherwise ('single' / 'full'): the current beat, with the COMPLETE story
+   *   text up to it as the established context.
+   */
+  illustrationScopeText(historyMode?: UsecaseVars['historyMode'], historyNodes?: number): string {
+    if (historyMode === 'window' && historyNodes && historyNodes > 1) {
+      return `Generate the picture(s) for the last ${historyNodes} story beats up to and including the current one — cover only those ${historyNodes} beats, do not reach back into the story before them.`;
+    }
+    return 'Generate the picture for the current beat. The full story text up to this beat is the established context — use it as context, but depict the current beat.';
+  }
+
   /** The planner instruction (from the image.planning template). */
-  picturePlanningInstruction(total: number, extra?: string): string {
-    const base = this.promptDefaults.render('image.planning', { total }, this.promptTopic);
+  picturePlanningInstruction(total: number, extra?: string, scope?: string): string {
+    let base = this.promptDefaults.render('image.planning', { total }, this.promptTopic);
+    if (scope?.trim()) base += `\n\n${scope.trim()}`;
     return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 
@@ -507,8 +552,9 @@ export class UsecaseContextFactory {
    * template). Used by `planned-scenes` as its planning prefix: it derives
    * fewer static stills and more alive, action-bearing scenes.
    */
-  pictureScenePlanningInstruction(total: number, extra?: string): string {
-    const base = this.promptDefaults.render('image.planning-scenes', { total }, this.promptTopic);
+  pictureScenePlanningInstruction(total: number, extra?: string, scope?: string): string {
+    let base = this.promptDefaults.render('image.planning-scenes', { total }, this.promptTopic);
+    if (scope?.trim()) base += `\n\n${scope.trim()}`;
     return extra?.trim() ? `${base}\n\nRules that apply to every picture:\n${extra.trim()}` : base;
   }
 

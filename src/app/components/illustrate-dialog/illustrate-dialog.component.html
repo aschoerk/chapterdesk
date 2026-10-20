@@ -50,54 +50,56 @@
         />
       </label>
 
-      @if (showContextMode()) {
-        <fieldset class="ill-radio-group">
-          <legend>{{ i18n.t('illustrateDialog.contextModeLabel') }}</legend>
-          <label class="ill-radio">
-            <input
-              type="radio"
-              name="historyMode"
-              [checked]="historyMode() === 'single'"
-              (change)="onHistoryMode('single')"
-            />
-            <span>
-              {{ i18n.t('illustrateDialog.contextModeSingle') }}
-              <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeSingleHint') }}</small>
-            </span>
-          </label>
-          <label class="ill-radio">
-            <input
-              type="radio"
-              name="historyMode"
-              [checked]="historyMode() === 'full' && !fullContextDisabled()"
-              [disabled]="fullContextDisabled()"
-              (change)="onHistoryMode('full')"
-            />
-            <span>
-              {{ i18n.t('illustrateDialog.contextModeFull') }}
-              <small class="ill-hint">
-                @if (fullContextDisabled()) {
-                  {{ i18n.t('illustrateDialog.contextModeFullDisabled') }}
-                } @else {
-                  {{ i18n.t('illustrateDialog.contextModeFullHint') }}
-                }
-              </small>
-            </span>
-          </label>
-        </fieldset>
-      }
-
-      @if (showStoryboard()) {
-        <label class="ill-field">
-          <span>{{ i18n.t('illustrateDialog.storyPromptLabel') }}</span>
-          <textarea
-            rows="3"
-            [ngModel]="storyboardPrompt()"
-            (ngModelChange)="storyboardPrompt.set($event)"
-            [placeholder]="i18n.t('illustrateDialog.storyPromptPh')"
-          ></textarea>
+      <fieldset class="ill-radio-group">
+        <legend>{{ i18n.t('illustrateDialog.contextModeLabel') }}</legend>
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="historyMode"
+            [checked]="historyMode() === 'single'"
+            (change)="onHistoryMode('single')"
+          />
+          <span>
+            {{ i18n.t('illustrateDialog.contextModeSingle') }}
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeSingleHint') }}</small>
+          </span>
         </label>
-      }
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="historyMode"
+            [checked]="historyMode() === 'window'"
+            (change)="onHistoryMode('window')"
+          />
+          <span>
+            <span class="ill-window-line">
+              {{ i18n.t('illustrateDialog.contextModeWindow') }}
+              <input
+                class="ill-window-count"
+                type="number"
+                [min]="2"
+                [max]="64"
+                [disabled]="historyMode() !== 'window'"
+                [value]="activeHistoryNodes()"
+                (input)="onHistoryNodesInput($any($event.target).value)"
+                (click)="$event.stopPropagation()"
+                aria-label="{{ i18n.t('illustrateDialog.contextNodesLabel') }}"
+              />
+            </span>
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeWindowHint', { nodes: activeHistoryNodes() }) }}</small>
+          </span>
+        </label>
+      </fieldset>
+
+      <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.storyPromptLabel') }}</span>
+        <textarea
+          rows="3"
+          [ngModel]="storyboardPrompt()"
+          (ngModelChange)="storyboardPrompt.set($event)"
+          [placeholder]="i18n.t('illustrateDialog.storyPromptPh')"
+        ></textarea>
+      </label>
 
       <label class="ill-check">
         <input

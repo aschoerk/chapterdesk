@@ -57,26 +57,17 @@ describe('IllustrateDialogComponent', () => {
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
   });
 
-  it('shows count/style and hides storyboard rules for count 1', async () => {
+  it('shows the storyboard rules regardless of the scene count', async () => {
     const p = dialog.open();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).not.toBeNull();
 
-    // Storyboard rules are only shown for >1.
-    expect(fixture.nativeElement.textContent).not.toContain('Storyboard rules');
-
-    dialog.cancel();
-    await p;
-  });
-
-  it('reveals storyboard rules when the count is raised above 1', async () => {
-    const p = dialog.open();
-    fixture.detectChanges();
+    // The storyboard rules are ALWAYS shown — no special handling for count 1.
+    expect(fixture.nativeElement.textContent).toContain('Storyboard rules');
 
     component.count.set(12);
     fixture.detectChanges();
-    const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('Storyboard rules');
+    expect(fixture.nativeElement.textContent).toContain('Storyboard rules');
 
     dialog.cancel();
     await p;
@@ -100,6 +91,8 @@ describe('IllustrateDialogComponent', () => {
       modelId: '',
       providerId: '',
       historyMode: 'single',
+      historyNodes: 4,
+      storyboardHistoryNodes: 4,
       planDescriptions: true
     });
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
@@ -160,7 +153,7 @@ describe('IllustrateDialogComponent', () => {
   });
 
   it('seeds pure picture mode from the last-used options', async () => {
-    dialog.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: true, modelId: '', providerId: '', historyMode: 'single', planDescriptions: true });
+    dialog.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
     dialog.open();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -180,62 +173,135 @@ describe('IllustrateDialogComponent', () => {
     dialog.cancel();
   });
 
-  it('shows the count-1 context radios but hides them for a storyboard', async () => {
+  it('shows the context radios for a single picture AND for a storyboard', async () => {
     const p = dialog.open();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.ill-radio-group')).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Current text only');
-    expect(fixture.nativeElement.textContent).toContain('Full chat up to this point');
+    expect(fixture.nativeElement.textContent).toContain('Last beats up to this point');
 
-    component.count.set(3); // storyboard
+    component.count.set(3); // storyboard — the window still bounds the planning context
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.ill-radio-group')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.ill-radio-group')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Last beats up to this point');
 
     dialog.cancel();
     await p;
   });
 
-  it('selecting full chat submits historyMode full', async () => {
+  it('selecting the window context submits historyMode window + historyNodes', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    component.historyMode.set('full');
+    component.historyMode.set('window');
+    component.historyNodes.set(6);
     fixture.detectChanges();
     component.submit();
     fixture.detectChanges();
 
-    await expect(p).resolves.toMatchObject({ historyMode: 'full' });
+    await expect(p).resolves.toMatchObject({ historyMode: 'window', historyNodes: 6 });
   });
 
-  it('seeds the context radios from the opened options', async () => {
-    dialog.open({ historyMode: 'full' });
+  it('shows a window-width number input that is disabled until the window mode is chosen', async () => {
+    // Seed 'single' explicitly — the service singleton may remember a 'window'
+    // choice from an earlier test.
+    const p = dialog.open({ historyMode: 'single' });
+    fixture.detectChanges();
+
+    const countInput = fixture.nativeElement.querySelector('.ill-window-count') as HTMLInputElement;
+    expect(countInput).not.toBeNull();
+    // Not selected (single mode) → the width input is disabled.
+    expect(countInput.disabled).toBe(true);
+
+    component.historyMode.set('window');
+    component.historyNodes.set(5);
+    fixture.detectChanges();
+    expect(countInput.disabled).toBe(false);
+
+    component.onHistoryNodesInput('2');
+    fixture.detectChanges();
+    expect(component.historyNodes()).toBe(2);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('uses and remembers a separate window width for the storyboard use case', async () => {
+    const p = dialog.open({ historyMode: 'window', historyNodes: 6, storyboardHistoryNodes: 12 });
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(component.historyMode()).toBe('full');
+    // Single picture (count 1): the input shows the single-picture width.
+    expect(component.activeHistoryNodes()).toBe(6);
+    const countInput = fixture.nativeElement.querySelector('.ill-window-count') as HTMLInputElement;
+    expect(countInput.value).toBe('6');
+
+    // Switch to a storyboard → the input now shows the storyboard width.
+    component.count.set(3);
+    fixture.detectChanges();
+    expect(component.activeHistoryNodes()).toBe(12);
+    expect(countInput.value).toBe('12');
+
+    // Editing while in storyboard mode updates ONLY the storyboard width.
+    component.onHistoryNodesInput('8');
+    fixture.detectChanges();
+    expect(component.storyboardHistoryNodes()).toBe(8);
+    expect(component.historyNodes()).toBe(6);
+    expect(component.activeHistoryNodes()).toBe(8);
+
+    component.submit();
+    fixture.detectChanges();
+    await expect(p).resolves.toMatchObject({ historyNodes: 6, storyboardHistoryNodes: 8 });
+  });
+
+  it('edits the single-picture width when count is 1 and keeps the storyboard width', async () => {
+    const p = dialog.open({ historyMode: 'window', historyNodes: 6, storyboardHistoryNodes: 12 });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.onHistoryNodesInput('10');
+    fixture.detectChanges();
+    expect(component.historyNodes()).toBe(10);
+    expect(component.storyboardHistoryNodes()).toBe(12);
+
+    component.submit();
+    fixture.detectChanges();
+    await expect(p).resolves.toMatchObject({ historyNodes: 10, storyboardHistoryNodes: 12 });
+  });
+
+  it('seeds the context radios and window width from the opened options', async () => {
+    dialog.open({ historyMode: 'window', historyNodes: 8 });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.historyMode()).toBe('window');
+    expect(component.historyNodes()).toBe(8);
     const radios = fixture.nativeElement.querySelectorAll('.ill-radio input[type="radio"]');
     expect((radios[1] as HTMLInputElement).checked).toBe(true);
     dialog.cancel();
   });
 
-  it('disables the full-chat radio in pure picture mode', async () => {
+  it('keeps the window radio selectable in pure picture mode', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
     component.purePictures.set(true);
-    component.historyMode.set('full');
+    component.historyMode.set('window');
     fixture.detectChanges();
 
+    // Pure picture mode still lets the user bound the context with the window —
+    // the window limits what the PLANNING (text) model sees, not the image model.
     const radios = fixture.nativeElement.querySelectorAll('.ill-radio input[type="radio"]');
-    expect((radios[1] as HTMLInputElement).disabled).toBe(true);
-    // onSubmit the mode is clamped back to single.
+    expect((radios[1] as HTMLInputElement).disabled).toBe(false);
+    expect((radios[1] as HTMLInputElement).checked).toBe(true);
+
     component.submit();
     fixture.detectChanges();
-    await expect(p).resolves.toMatchObject({ historyMode: 'single', purePictures: true });
+    await expect(p).resolves.toMatchObject({ historyMode: 'window', purePictures: true });
   });
 
   it('clicking "Current text only" and submitting persists historyMode single', async () => {
-    const p = dialog.open({ historyMode: 'full' });
+    const p = dialog.open({ historyMode: 'window' });
     await fixture.whenStable();
     fixture.detectChanges();
 

@@ -31,7 +31,7 @@ describe('IllustrateDialogService', () => {
   it('starts with single-scene defaults', () => {
     expect(service.last()).toEqual({
       count: 1, style: '', storyboardPrompt: '', purePictures: false,
-      modelId: '', providerId: '', historyMode: 'single', planDescriptions: true
+      modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
     });
     expect(service.current()).toBeNull();
   });
@@ -44,7 +44,9 @@ describe('IllustrateDialogService', () => {
       purePictures: true,
       modelId: 'alpha/image',
       providerId: 'prov-1',
-      historyMode: 'full',
+      historyMode: 'window',
+      historyNodes: 6,
+      storyboardHistoryNodes: 10,
       planDescriptions: false // forced back on by pure mode
     });
 
@@ -54,6 +56,8 @@ describe('IllustrateDialogService', () => {
     expect(service.current()?.count).toBe(12);
     expect(service.current()?.style).toBe('comic style');
     expect(service.current()?.purePictures).toBe(true);
+    expect(service.current()?.historyNodes).toBe(6);
+    expect(service.current()?.storyboardHistoryNodes).toBe(10);
     expect(service.current()?.planDescriptions).toBe(true); // pure mode → planning on
 
     service.submit({
@@ -63,7 +67,9 @@ describe('IllustrateDialogService', () => {
       purePictures: false,
       modelId: 'beta/image',
       providerId: 'prov-1',
-      historyMode: 'full',
+      historyMode: 'window',
+      historyNodes: 8,
+      storyboardHistoryNodes: 12,
       planDescriptions: false
     });
 
@@ -74,13 +80,15 @@ describe('IllustrateDialogService', () => {
       purePictures: false,
       modelId: 'beta/image',
       providerId: 'prov-1',
-      historyMode: 'full',
+      historyMode: 'window',
+      historyNodes: 8,
+      storyboardHistoryNodes: 12,
       planDescriptions: false
     });
     expect(service.current()).toBeNull();
     expect(service.last()).toEqual({
       count: 3, style: 'ink', storyboardPrompt: 'hide behind shadows', purePictures: false,
-      modelId: 'beta/image', providerId: 'prov-1', historyMode: 'full', planDescriptions: false
+      modelId: 'beta/image', providerId: 'prov-1', historyMode: 'window', historyNodes: 8, storyboardHistoryNodes: 12, planDescriptions: false
     });
   });
 
@@ -93,6 +101,8 @@ describe('IllustrateDialogService', () => {
       modelId: 'old/image',
       providerId: 'prov-9',
       historyMode: 'single',
+      historyNodes: 4,
+      storyboardHistoryNodes: 4,
       planDescriptions: false
     });
 
@@ -109,7 +119,7 @@ describe('IllustrateDialogService', () => {
   });
 
   it('cancel() resolves null and leaves last() untouched', async () => {
-    service.submit({ count: 5, style: 'x', storyboardPrompt: 'y', purePictures: true, modelId: '', providerId: '', historyMode: 'single', planDescriptions: false });
+    service.submit({ count: 5, style: 'x', storyboardPrompt: 'y', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: false });
     const promise = service.open();
     service.cancel();
 
@@ -123,22 +133,22 @@ describe('IllustrateDialogService', () => {
 
   it('clamps count into 1..64', async () => {
     const promise = service.open();
-    service.submit({ count: 999, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'single', planDescriptions: true });
+    service.submit({ count: 999, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
     await expect(promise).resolves.toMatchObject({ count: 64 });
 
     const promise2 = service.open();
-    service.submit({ count: 0, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'single', planDescriptions: true });
+    service.submit({ count: 0, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
     await expect(promise2).resolves.toMatchObject({ count: 1 });
   });
 
   it('normalizes purePictures to a boolean', async () => {
     const promise = service.open();
-    service.submit({ count: 2, style: '', storyboardPrompt: '', purePictures: 'yes' as any, modelId: '', providerId: '', historyMode: 'single', planDescriptions: false });
+    service.submit({ count: 2, style: '', storyboardPrompt: '', purePictures: 'yes' as any, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: false });
     await expect(promise).resolves.toMatchObject({ purePictures: true, planDescriptions: true });
   });
 
   it('persists last-used options to localStorage', () => {
-    service.submit({ count: 7, style: 'a', storyboardPrompt: 'b', purePictures: true, modelId: 'alpha/image', providerId: 'prov-1', historyMode: 'full', planDescriptions: false });
+    service.submit({ count: 7, style: 'a', storyboardPrompt: 'b', purePictures: true, modelId: 'alpha/image', providerId: 'prov-1', historyMode: 'window', historyNodes: 5, storyboardHistoryNodes: 9, planDescriptions: false });
     expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '{}')).toEqual({
       count: 7,
       style: 'a',
@@ -146,7 +156,9 @@ describe('IllustrateDialogService', () => {
       purePictures: true,
       modelId: 'alpha/image',
       providerId: 'prov-1',
-      historyMode: 'full',
+      historyMode: 'window',
+      historyNodes: 5,
+      storyboardHistoryNodes: 9,
       planDescriptions: true // pure mode forced planning back on
     });
   });
@@ -166,8 +178,30 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true, modelId: '', providerId: '', historyMode: 'single', planDescriptions: true });
+    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
     expect(reloaded.current()).toBeNull();
+  });
+
+  it('remembers the storyboard window width separately from the single-picture width', () => {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        count: 1, style: '', storyboardPrompt: '', purePictures: false,
+        modelId: '', providerId: '', historyMode: 'window',
+        historyNodes: 6, storyboardHistoryNodes: 12, planDescriptions: true
+      })
+    );
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: new InMemoryChatApi() }
+      ]
+    });
+    const reloaded = TestBed.inject(IllustrateDialogService);
+    expect(reloaded.last().historyNodes).toBe(6);
+    expect(reloaded.last().storyboardHistoryNodes).toBe(12);
   });
 
   it('is backward compatible with stored options missing purePictures', () => {
@@ -181,7 +215,40 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false, modelId: '', providerId: '', historyMode: 'single', planDescriptions: true });
+    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
+  });
+
+  it('is backward compatible with a stored legacy full-chat historyMode (→ single)', () => {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'full' })
+    );
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: new InMemoryChatApi() }
+      ]
+    });
+    const reloaded = TestBed.inject(IllustrateDialogService);
+    // 'full' is gone — the dialog now offers a bounded window instead.
+    expect(reloaded.last().historyMode).toBe('single');
+    expect(reloaded.last().historyNodes).toBe(4);
+  });
+
+  it('clamps historyNodes into 2..64 and defaults to 4 when missing', async () => {
+    const promise = service.open();
+    service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: 1, storyboardHistoryNodes: 4, planDescriptions: true });
+    await expect(promise).resolves.toMatchObject({ historyNodes: 2 });
+
+    const promise2 = service.open();
+    service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: 999, storyboardHistoryNodes: 4, planDescriptions: true });
+    await expect(promise2).resolves.toMatchObject({ historyNodes: 64 });
+
+    const promise3 = service.open();
+    service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: undefined as any, storyboardHistoryNodes: undefined as any, planDescriptions: true });
+    await expect(promise3).resolves.toMatchObject({ historyNodes: 4 });
   });
 
   it('is backward compatible with stored options missing historyMode and planDescriptions', () => {
@@ -217,7 +284,7 @@ describe('IllustrateDialogService', () => {
     const reloaded = TestBed.inject(IllustrateDialogService);
     expect(reloaded.last()).toEqual({
       count: 1, style: '', storyboardPrompt: '', purePictures: false,
-      modelId: '', providerId: '', historyMode: 'single', planDescriptions: true
+      modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
     });
   });
 
