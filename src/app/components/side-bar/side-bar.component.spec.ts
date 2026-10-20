@@ -828,7 +828,11 @@ describe('SideBarComponent', () => {
       const copy = api.chats.find(c => c.id !== 'c1')!;
       expect(copy.title).toContain('(copy)');
       expect(copy.projectId).toBe('p-1');
-      expect(api.nodes.filter(n => n.chatId === copy.id).length).toBe(1);
+      // The cloned story keeps its original node; selecting the copy appends
+      // an empty composer leaf so the active path always ends on a draft.
+      const copyNodes = api.nodes.filter(n => n.chatId === copy.id);
+      expect(copyNodes.map(n => n.content).filter(Boolean)).toContain('hello');
+      expect(copyNodes.some(n => n.role === 'user' && !n.content?.trim())).toBe(true);
     });
 
     it('delete-chat removes the chat after confirmation', async () => {

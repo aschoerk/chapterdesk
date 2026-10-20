@@ -359,6 +359,7 @@ export class ChatService {
     await this.loadDeletedNodes(chatId);
     this.restoreMostRecentPath();
     await this.ensureDraftAtLeaf(chatId);
+    await this.ensureDraftUnderUserLeaf(chatId);
   }
 
   // ---------- Nodes ----------
@@ -774,6 +775,7 @@ export class ChatService {
   }
 
   private ensuringDraft = false;
+  private ensureDraftPromise: Promise<void> | null = null;
 
   isDraftQuestion(node: ChatNode): boolean {
     return node.role === 'user'
@@ -850,12 +852,29 @@ export class ChatService {
    * Guarantee the active path ends on an empty question the user can type into.
    * - empty chat → root draft question
    * - leaf answer with generated text and no child question → child draft
+   *
+   * Re-entrancy: the chat-page housekeeping effect AND the Continue / Switch
+   * characters batch loop both call this after every send. A single
+   * `ensuringDraft` boolean guard made a second caller return early while the
+   * first was mid-flight (its `addNode` is async), so a caller then read a
+   * stale leaf and the batch broke after one round (most visible when chat
+   * lore exists — `markSentOnceExcluded` adds real async gaps that let the
+   * effect grab the guard first). Concurrent callers now await the SAME
+   * in-flight promise, so nobody returns early with a half-created draft.
    */
   async ensureDraftAtLeaf(chatId: string): Promise<void> {
-    if (!chatId || this.ensuringDraft || this.generatingNodeId()) return;
+    if (!chatId || this.generatingNodeId()) return;
     if (this.elaborating) return;
     if (this._currentChatId() !== chatId) return;
+    if (!this.ensureDraftPromise) {
+      this.ensureDraftPromise = this.doEnsureDraftAtLeaf(chatId).finally(() => {
+        this.ensureDraftPromise = null;
+      });
+    }
+    return this.ensureDraftPromise;
+  }
 
+  private async doEnsureDraftAtLeaf(chatId: string): Promise<void> {
     this.ensuringDraft = true;
     try {
       if (this._nodes().every(n => n.chatId !== chatId)) {
@@ -883,6 +902,19 @@ export class ChatService {
         return;
       }
 
+      // If the leaf is already an empty draft question (the composer), the
+      // path is in the right shape — nothing to do.
+      if (this.isDraftQuestion(leaf)) return;
+
+      // Composer leaves are only ever created under ANSWERED ASSISTANT
+      // chapters. Deliberately NOT under a childless user/system node with
+      // content: the chat-page housekeeping effect runs this method on every
+      // node/path change, and during a send a question briefly has content
+      // but no answer yet (between persistQuestion and the answer node
+      // appearing) — creating a draft there would spawn a spurious extra leaf
+      // on every Continue/send. The "Delete Continuation" and "new chat"
+      // cases are handled explicitly by ensureDraftUnderUserLeaf from the
+      // stable entry points (chat-node delete / selectChat).
       if (leaf.role !== 'assistant') return;
       if (!leaf.content?.trim()) return;
 
@@ -904,6 +936,47 @@ export class ChatService {
     } finally {
       this.ensuringDraft = false;
     }
+  }
+
+  /**
+   * Create an empty composer leaf under the ACTIVE path's leaf when it is a
+   * childless user/system node with content — the "Delete Continuation" case
+   * (the answer was removed, so the remaining question needs a composer) and a
+   * newly created chat whose seeds end on a user node (no greeting).
+   *
+   * Deliberately NOT part of ensureDraftAtLeaf: that method is called by the
+   * chat-page housekeeping effect on every node/path change, and during a send
+   * a question briefly has content but no answer yet — creating a draft there
+   * would spawn a spurious sibling leaf on every send. This helper is called
+   * only from stable points (delete / selectChat) where no generation is in
+   * flight, so the extra composer is exactly the intended one.
+   */
+  async ensureDraftUnderUserLeaf(chatId: string): Promise<void> {
+    if (this.generatingNodeId()) return;
+    if (this.elaborating) return;
+    if (this._currentChatId() !== chatId) return;
+
+    const leaf = this.getActivePath().at(-1) ?? null;
+    if (!leaf) return;
+    if (leaf.role === 'assistant') return; // answered chapters: ensureDraftAtLeaf handles them
+    if (!leaf.content?.trim()) return;     // already an empty draft → nothing to do
+    if (this.isDraftQuestion(leaf)) return;
+
+    const existing = this.getChildren(leaf.id).filter(n => n.role === 'user');
+    if (existing.length > 0) {
+      const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
+      this.setActiveChild(leaf.id, draft.id);
+      return;
+    }
+
+    const draft = await this.addNode(chatId, {
+      parentId: leaf.id,
+      role: 'user',
+      content: '',
+      modelId: leaf.modelId || undefined,
+      providerId: leaf.providerId || undefined
+    });
+    this.setActiveChild(leaf.id, draft.id);
   }
   async fetchNodes(chatId: string): Promise<ChatNode[]> {
     return this.api.getNodes(chatId);

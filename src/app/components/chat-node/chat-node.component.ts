@@ -697,7 +697,13 @@ export class ChatNodeComponent implements OnDestroy {
 
         // Make sure the active path ends on an empty draft question to send on.
         await this.chatService.ensureDraftAtLeaf(chatId);
-        const leaf = this.chatService.getActivePath().at(-1) ?? null;
+        let leaf = this.chatService.getActivePath().at(-1) ?? null;
+        if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
+          // Draft housekeeping can still be settling (e.g. right after a lore
+          // send flips exclude flags async). Retry once before giving up.
+          await this.chatService.ensureDraftAtLeaf(chatId);
+          leaf = this.chatService.getActivePath().at(-1) ?? null;
+        }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
 
         await this.sendDirectionOnce(chatId, leaf, content, model, provider);
@@ -2216,10 +2222,11 @@ export class ChatNodeComponent implements OnDestroy {
         this.activate.emit(newest.id);
       }
 
-      const ensure = (this.chatService as any).ensureDraftAtLeaf;
-      if (typeof ensure === 'function') {
-        await ensure.call(this.chatService, chatId);
-      }
+      // After a subtree delete the active path may end on the remaining
+      // question (user) — ensure a fresh composer leaf under it so the user
+      // can continue ("Delete Continuation" must leave a leaf).
+      await this.chatService.ensureDraftAtLeaf(chatId);
+      await this.chatService.ensureDraftUnderUserLeaf(chatId);
     } catch (err: any) {
       console.error(err);
       alert(this.i18n.t('node.deleteFailed', { error: err?.message || err }));

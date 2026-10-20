@@ -266,6 +266,86 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       expect(kids).toHaveLength(1);
       expect(chat.isDraftQuestion(kids[0])).toBe(true);
     });
+
+    it('creates a draft leaf under the remaining question after deleting its answer (Delete Continuation)', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+      // Delete the last answer a2 → the active path ends on u2 (a user node).
+      await chat.deleteNode(chatId, t.a2.id);
+
+      // The generic ensureDraftAtLeaf does NOT hang a composer under a user
+      // node (that would spawn spurious leaves mid-send); the Delete
+      // Continuation entry point calls ensureDraftUnderUserLeaf for that.
+      const leaf = chat.getActivePath().at(-1)!;
+      expect(chat.isDraftQuestion(leaf)).toBe(false);
+      await chat.ensureDraftUnderUserLeaf(chatId);
+      const nowLeaf = chat.getActivePath().at(-1)!;
+      expect(chat.isDraftQuestion(nowLeaf)).toBe(true);
+      expect(nowLeaf.parentId).toBe(t.u2.id);
+    });
+
+    it('creates a draft leaf when a chat’s seeds end on a user node (no greeting)', async () => {
+      chat.stopGeneration();
+      const u0 = await add({ parentId: null, role: 'user', content: 'Env prompt' });
+      chat.setActiveChild(null, u0.id);
+      await chat.ensureDraftUnderUserLeaf(chatId);
+
+      const leaf = chat.getActivePath().at(-1)!;
+      expect(chat.isDraftQuestion(leaf)).toBe(true);
+      expect(leaf.parentId).toBe(u0.id);
+    });
+
+    it('does not spawn a composer under a question that is mid-send (regression: no spurious leaves)', async () => {
+      const u0 = await add({ parentId: null, role: 'user', content: 'Q0' });
+      const a0 = await add({ parentId: u0.id, role: 'assistant', content: 'A0' });
+      const u1 = await add({ parentId: a0.id, role: 'user', content: '' });
+      chat.setActiveChild(null, u0.id);
+      chat.setActiveChild(u0.id, a0.id);
+      chat.setActiveChild(a0.id, u1.id);
+      chat.stopGeneration();
+
+      // Simulate the persist→answer gap: the active draft just gained content
+      // but its answer node has not appeared yet. ensureDraftAtLeaf must NOT
+      // create a spurious draft under it (that happened on every send before
+      // this fix).
+      await chat.persistQuestion(chatId, u1.id, 'Q1', [], 'm-1', 'p-1');
+      await chat.ensureDraftAtLeaf(chatId);
+      expect(chat.getChildren(u1.id)).toHaveLength(0);
+    });
+
+    it('a second ensureDraftAtLeaf while one is in flight awaits the same operation (fixes batch stopping after lore sends)', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+
+      const realAdd = chat.addNode.bind(chat);
+      let release!: () => void;
+      const gate = new Promise<void>(r => { release = r; });
+      const addSpy = vi
+        .spyOn(chat, 'addNode')
+        .mockImplementationOnce(async (cid: string, data: CreateNodeRequest) => {
+          await gate;
+          return realAdd(cid, data);
+        });
+
+      // First caller reaches the (blocked) addNode inside the draft creation.
+      const first = chat.ensureDraftAtLeaf(chatId);
+      await Promise.resolve();
+
+      // Second caller (the batch loop / chat-page effect) must NOT early-return
+      // while the first is in flight — it awaits the SAME operation.
+      let secondSettled = false;
+      const second = chat.ensureDraftAtLeaf(chatId).then(() => { secondSettled = true; });
+      await Promise.resolve();
+      expect(secondSettled).toBe(false);
+
+      release();
+      await Promise.all([first, second]);
+      addSpy.mockRestore();
+
+      const leaf = chat.getActivePath().at(-1)!;
+      expect(chat.isDraftQuestion(leaf)).toBe(true);
+      expect(chat.getChildren(t.a2.id).filter(n => chat.isDraftQuestion(n))).toHaveLength(1);
+    });
   });
 
   describe('trash (soft delete / restore / purge)', () => {

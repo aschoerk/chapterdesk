@@ -717,6 +717,10 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
     fetchMock.mockResolvedValueOnce(sseResponse(['["short fix.",', '"clearer keep.",', '"scary restate."]']));
     const chatService = await openRewriteStory();
     const runner = TestBed.inject(LlmFlowRunner);
+    // selectChat() may append an empty composer leaf under the trailing q2
+    // (the active path must end on a draft), so snapshot the node count and
+    // assert the rewrite-selection FLOW itself does not mutate the chat.
+    const nodesBefore = chatService.nodes().length;
 
     const slots = await runner.run({
       chat: api.chats[0],
@@ -734,7 +738,7 @@ describe('LLM orchestration — rewrite-selection (marked text → variants)', (
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // No chat mutation — rewrite-selection returns raw text only.
     expect(slots.text?.value).toBe('["short fix.","clearer keep.","scary restate."]');
-    expect(chatService.nodes().length).toBe(3);
+    expect(chatService.nodes().length).toBe(nodesBefore);
     const content = firstCompletionUserContent();
     expect(content).toContain('User directions — the rewrite MUST follow these:');
     expect(content).toContain('make it scary and short');
