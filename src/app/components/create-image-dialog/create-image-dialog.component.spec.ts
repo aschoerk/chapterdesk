@@ -219,4 +219,43 @@ describe('CreateImageDialogComponent', () => {
       providerId: 'prov-1'
     });
   });
+
+  it('changing the select in the DOM and submitting returns the CHOSEN model', async () => {
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // Simulate the user picking 'beta/image' from the real <select>.
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.value = 'beta/image';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    expect(component.modelId()).toBe('beta/image');
+    component.script.set('the old tower');
+    component.submit();
+    const result = await p;
+    expect(result?.modelId).toBe('beta/image');
+    expect(result?.providerId).toBe('prov-1');
+  });
+
+  it('re-derives the provider from the model list when the remembered providerId is stale', async () => {
+    // The remembered model is still enabled, but its remembered providerId is
+    // stale/removed. Preselecting must derive the provider from the CURRENT
+    // model entry, so the chosen model is never dropped for a bad providerId.
+    localStorage.setItem('chat.createImage.model.v1', JSON.stringify({
+      modelId: 'beta/image', providerId: 'gone-provider'
+    }));
+
+    const p = openState(); // caller default alpha/image
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.modelId()).toBe('beta/image');
+    expect(component.providerId()).toBe('prov-1'); // derived fresh, not 'gone-provider'
+    dialog.cancel();
+    await p;
+  });
 });

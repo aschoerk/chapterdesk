@@ -54,21 +54,23 @@ export class CreateImageDialogComponent {
       this.constant.set(s.constant);
       this.script.set(s.script);
       this.images.set(s.images ?? []);
+      const available = this.imageModels();
+      const matchFor = (modelId: string | undefined) =>
+        available.find(m => m.modelId === modelId || m.id === modelId);
       // The remembered model (from the last dialog use) is pre-selected; when
       // it is no longer enabled, fall back to the caller-provided default
       // (settings task model) — also skipping it when that is unavailable.
-      const available = this.imageModels();
-      const remembered = s.modelId
-        && available.some(m => m.modelId === s.modelId || m.id === s.modelId);
-      if (remembered) {
-        this.modelId.set(s.modelId);
-        this.providerId.set(s.providerId);
+      // The provider is re-derived from the CURRENT model entry, so a stale
+      // remembered providerId can never silently drop the chosen model later.
+      const rememberedMatch = matchFor(s.modelId);
+      if (rememberedMatch) {
+        this.modelId.set(rememberedMatch.modelId);
+        this.providerId.set(rememberedMatch.providerId);
         return;
       }
-      const fallback = s.defaultModelId
-        && available.some(m => m.modelId === s.defaultModelId || m.id === s.defaultModelId);
-      this.modelId.set(fallback ? s.defaultModelId : '');
-      this.providerId.set(fallback ? s.defaultProviderId : '');
+      const fallbackMatch = matchFor(s.defaultModelId);
+      this.modelId.set(fallbackMatch ? fallbackMatch.modelId : '');
+      this.providerId.set(fallbackMatch ? fallbackMatch.providerId : '');
     });
   }
 

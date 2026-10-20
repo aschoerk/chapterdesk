@@ -136,6 +136,13 @@ export class UsecaseContextFactory {
    * Resolve the RENDERING (image) model: prefers an explicit dialog choice
    * (`modelId`/`providerId`, e.g. from the Illustrate dialog), falling back
    * to the configured image-create task / first enabled image-capable model.
+   *
+   * The explicitly chosen model ALWAYS wins once it is enabled — even when
+   * the accompanying `providerId` is stale/empty (a remembered dialog choice
+   * whose provider was renamed/removed): in that case the model's OWN
+   * provider is used. Silently dropping the chosen model for a stale provider
+   * id would swap it for the settings default, which users experience as
+   * "the model I selected is ignored".
    */
   resolveImageModel(modelId?: string | null, providerId?: string | null): ModelRef | null {
     if (modelId) {
@@ -143,8 +150,11 @@ export class UsecaseContextFactory {
         mm => mm.modelId === modelId || mm.id === modelId
       );
       if (m) {
-        const p = providerId
-          ? this.settings.providers().find(pp => pp.id === providerId)
+        // Prefer the caller's provider when it still resolves; otherwise use
+        // the model's own provider. Only when neither exists (model enabled
+        // but provider gone) do we fall through to the task default.
+        const p = (providerId && this.settings.providers().some(pp => pp.id === providerId))
+          ? this.settings.providers().find(pp => pp.id === providerId)!
           : this.providerFor(m);
         if (p) return { model: m, provider: p };
       }

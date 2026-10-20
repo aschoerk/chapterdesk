@@ -1468,12 +1468,58 @@ describe('LLM orchestration — image-send (create image from text, occasional r
     expect(storyboard[0].refused).toBe(false);
     expect(slots.images?.value).toHaveLength(1);
 
+    // The model used in the fetch body is the settings image-create default.
+    const mbody = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(mbody.model).toBe('vendor/image');
+
     // Postprocess → illustration-1 + prompt-1 records.
     const post = TestBed.inject(LlmPostprocessorService);
     const plan = post.plan(slots, { chat: { id: 'chat-1' } as never, node: makeNode({ id: aid, role: 'assistant' }) as never, usecase: 'image-send', vars: {} });
     expect(plan).not.toBeNull();
     expect(plan?.attachments.some(a => a.name === 'illustration-1.png')).toBe(true);
     expect(plan?.attachments.some(a => a.name === 'prompt-1.txt')).toBe(true);
+  });
+
+  it('an explicit modelId in vars wins over the settings image-create default', async () => {
+    // Add a second image-capable model on the same provider.
+    api.models.push(makeModel({
+      id: 'img2', displayName: 'Image 2', modelId: 'vendor/image2',
+      providerId: 'prov-1', architecture: { input_modalities: [], output_modalities: ['image'] }
+    }));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    const { aid, uid, now, runner } = await setup();
+
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'image-send',
+      vars: { promptText: 'x', count: 1, modelId: 'vendor/image2', providerId: 'prov-1' }
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('vendor/image2');
+  });
+
+  it('a stale/missing providerId must NOT silently drop the chosen model for the settings default', async () => {
+    // The user chose vendor/image2, but the remembered providerId no longer
+    // exists (provider renamed/removed). The chosen model must STILL be used
+    // (with its own provider), never replaced by the image-create default.
+    api.models.push(makeModel({
+      id: 'img2', displayName: 'Image 2', modelId: 'vendor/image2',
+      providerId: 'prov-1', architecture: { input_modalities: [], output_modalities: ['image'] }
+    }));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+    const { aid, uid, now, runner } = await setup();
+
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'image-send',
+      vars: { promptText: 'x', count: 1, modelId: 'vendor/image2', providerId: 'no-such-provider' }
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('vendor/image2');
   });
 
   it('forwards reference images as image_url parts when attached', async () => {
