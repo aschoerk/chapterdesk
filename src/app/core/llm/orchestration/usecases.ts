@@ -523,10 +523,22 @@ async function runPlanning(
   const count = env.cx.vars.count ?? 1;
   const textOnly = env.factory.textOnlyMessages(env.contextMessages);
   const planPrompt = planningPrompt(count);
+  // The current beat (the ChatNode the user pressed Illustrate on) MUST reach
+  // the planning model: the context above only covers the history before it,
+  // so the beat text is appended as its own message — the planning prompt
+  // then refers to "the story so far AND the illustration request".
+  const beat = (env.cx.vars.content ?? env.cx.node?.content ?? '').trim();
+  const messages: ChatMessage[] = beat
+    ? [
+        ...textOnly,
+        { role: 'user', content: `The beat to depict is:\n${beat}` },
+        { role: 'user', content: planPrompt }
+      ]
+    : [...textOnly, { role: 'user', content: planPrompt }];
   return env.orch.completion(env.cx, {
     model: env.plan.model,
     provider: env.plan.provider,
-    messages: [...textOnly, { role: 'user', content: planPrompt }],
+    messages,
     extras: await env.factory.resolveExtras(env.plan.model, env.cx.chat)
   }, { expect: 'descriptions', prompt: planPrompt, signal: env.signal });
 }
@@ -697,10 +709,12 @@ export class LlmUseCaseRunner {
     // `image-generation` "adapt prompt & re-render" flow), else `vars.content`
     // (illustrate-from-draft / storyboard override), else the node's content.
     // With `historyMode === 'window'` the context is bounded to the last
-    // `historyNodes` beats (INCLUDING the current node, so `historyNodes - 1`
-    // nodes precede the anchor). The same windowed context feeds the
-    // storyboard planning pass, so both illustration and storyboarding can be
-    // grounded in a bounded slice of the story instead of the complete chat.
+    // `historyNodes` BEATS — counted in ASSISTANT nodes only (the current
+    // node is the anchor, so `historyNodes - 1` earlier chapters precede it;
+    // user directions/lore never count toward the window). The same windowed
+    // context feeds the storyboard planning pass, so both illustration and
+    // storyboarding can be grounded in a bounded slice of the story instead
+    // of the complete chat.
     const cParentId = cx.node.parentId;
     const historyNodes = build.vars.historyMode === 'window'
       ? Math.max(1, (build.vars.historyNodes ?? 0) - 1)

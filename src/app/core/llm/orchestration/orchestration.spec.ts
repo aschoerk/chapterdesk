@@ -552,6 +552,60 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(user).not.toContain('The full story text up to this beat is the established context');
   });
 
+  it('planning includes the current ChatNode as the beat to depict', async () => {
+    // The node the user pressed Illustrate on must reach the planning model —
+    // its text is appended as the "beat to depict" before the plan prompt.
+    fetchMock.mockResolvedValueOnce(textResponse('{"pictures":["A bridge.","A lantern."]}'));
+    fetchMock.mockResolvedValueOnce(completionImage(1));
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+    generation.update('image-interpret', { providerId: 'prov-1', modelId: 'vendor/text' });
+
+    const chatService = TestBed.inject(ChatService);
+    const uid = 'u1';
+    const aid = 'a1';
+    const now = new Date().toISOString();
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: uid, chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'CURRENT BEAT TEXT.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: aid, chatId: 'chat-1', parentId: uid, role: 'assistant', content: 'CURRENT BEAT TEXT.', isCurrent: true }),
+      usecase: 'planned-scenes',
+      vars: { count: 2 }
+    });
+
+    // First fetch = the planning call: besides the plan prompt (the LAST user
+    // message) the CURRENT node's text is sent as the "beat to depict".
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    const beatMsg = body.messages
+      .filter(m => m.role === 'user')
+      .find(m => m.content.includes('The beat to depict is:'));
+    expect(beatMsg?.content).toContain('CURRENT BEAT TEXT.');
+    // The plan prompt is still the final user message.
+    const user = [...body.messages].reverse().find(m => m.role === 'user')!.content;
+    expect(user).toContain('CONCRETE SCENES');
+  });
+
   it('does NOT forward reference attachments to the image model after planning', async () => {
     // The render model can also READ images — prior illustrations exist along
     // the path, but the post-planning render must still drive the image model
@@ -767,6 +821,7 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
       expect(typeof m.content).toBe('string');
     }
     expect(serialized).toContain('A direction with a picture'); // text context kept
+    expect(serialized).toContain('A chapter.'); // the current chatnode MUST be there
     expect(serialized).not.toContain('image_url');
     expect(serialized).not.toContain('REFIMAGE');
     expect(serialized).not.toContain('HANDIMAGE');
@@ -987,10 +1042,11 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
 
     // 1 planning + 1 empty one-shot + 3 per-scene fallbacks + 1 reprise.
     expect(fetchMock).toHaveBeenCalledTimes(6);
-    // The one-shot + per-scene render requests must NOT carry the raw
-    // assistant chapter text ('A chapter.' = the node being illustrated);
-    // the descriptions drive the scenes.
-    for (const i of [0, 1, 2, 3, 4]) {
+    // The one-shot + per-scene render requests (indices 1..4 — index 0 is the
+    // PLANNING call which now deliberately carries the current beat text) must
+    // NOT carry the raw assistant chapter text ('A chapter.' = the node being
+    // illustrated); the descriptions drive the scenes.
+    for (const i of [1, 2, 3, 4]) {
       const body = JSON.parse((fetchMock.mock.calls[i][1] as { body: string }).body) as {
         messages: { role: string; content: unknown }[];
       };
@@ -1210,10 +1266,11 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(serialized).not.toContain('HANDIMAGE');
   });
 
-  it('render-window sends only the last N context nodes plus the anchor', async () => {
+  it('render-window counts beats in ASSISTANT nodes only and keeps the current chapter', async () => {
     // A window of 3 beats INCLUDING the current chapter → the image model
-    // sees the last 2 context nodes (a1 + u2) plus the anchor — never the
-    // earlier history (u0/a0/u1).
+    // sees the last 2 ASSISTANT chapters before the anchor (C2, C3) plus the
+    // current CH chapter as the anchor — the D1/C1 beat (too old) never
+    // counts, and user directions travel with their chapter but don't count.
     api.models = [
       makeModel({
         id: 'img', displayName: 'Image', modelId: 'vendor/image',
@@ -1239,14 +1296,16 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
 
     const chatService = TestBed.inject(ChatService);
     const now = new Date().toISOString();
-    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 6, created_at: now, updated_at: now });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 8, created_at: now, updated_at: now });
     api.nodes = [
-      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'First direction.' }),
-      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'First chapter.' }),
-      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'Second direction.' }),
-      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'Second chapter.' }),
-      makeNode({ id: 'u2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Third direction.' }),
-      makeNode({ id: 'a2', chatId: 'chat-1', parentId: 'u2', role: 'assistant', content: 'A chapter.', isCurrent: true })
+      makeNode({ id: 'u0', chatId: 'chat-1', parentId: null, role: 'user', content: 'D1' }),
+      makeNode({ id: 'a0', chatId: 'chat-1', parentId: 'u0', role: 'assistant', content: 'C1' }),
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: 'a0', role: 'user', content: 'D2' }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'C2' }),
+      makeNode({ id: 'u2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'D3' }),
+      makeNode({ id: 'a2', chatId: 'chat-1', parentId: 'u2', role: 'assistant', content: 'C3' }),
+      makeNode({ id: 'u3', chatId: 'chat-1', parentId: 'a2', role: 'user', content: 'D4' }),
+      makeNode({ id: 'a3', chatId: 'chat-1', parentId: 'u3', role: 'assistant', content: 'CH', isCurrent: true })
     ];
     await chatService.loadChats();
     await chatService.selectChat('chat-1');
@@ -1256,11 +1315,13 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     chatService.setActiveChild('u1', 'a1');
     chatService.setActiveChild('a1', 'u2');
     chatService.setActiveChild('u2', 'a2');
+    chatService.setActiveChild('a2', 'u3');
+    chatService.setActiveChild('u3', 'a3');
 
     const runner = TestBed.inject(LlmUseCaseRunner);
     await runner.run({
-      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 6, created_at: now, updated_at: now },
-      node: makeNode({ id: 'a2', chatId: 'chat-1', parentId: 'u2', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 8, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a3', chatId: 'chat-1', parentId: 'u3', role: 'assistant', content: 'CH', isCurrent: true }),
       usecase: 'render-window',
       vars: { count: 1, historyMode: 'window', historyNodes: 3 }
     });
@@ -1273,14 +1334,15 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     for (const m of body.messages) {
       expect(typeof m.content).toBe('string');
     }
-    // The window (a1 + u2) and the anchor survive…
-    expect(serialized).toContain('Second chapter.');
-    expect(serialized).toContain('Third direction.');
-    expect(serialized).toContain('A chapter.');
-    // …but the earlier history is NOT sent.
-    expect(serialized).not.toContain('First direction.');
-    expect(serialized).not.toContain('First chapter.');
-    expect(serialized).not.toContain('Second direction.');
+    // The window (C2/D3/C3/D4) and the current anchor (CH) survive…
+    expect(serialized).toContain('C2');
+    expect(serialized).toContain('D3');
+    expect(serialized).toContain('C3');
+    expect(serialized).toContain('D4');
+    expect(serialized).toContain('CH');
+    // …but the too-old D1/C1 beat is NOT sent.
+    expect(serialized).not.toContain('D1');
+    expect(serialized).not.toContain('C1');
   });
 
   it('render-node does NOT send attachments to the image model either', async () => {

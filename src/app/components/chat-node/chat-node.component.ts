@@ -1169,39 +1169,41 @@ export class ChatNodeComponent implements OnDestroy {
    * can generate images). Opens the Illustrate dialog first to collect how
    * many scenes, the style, and (for word: >1 scenes) a storyboard prompt.
    * The prompt is grounded in the active path up to this point, so earlier
-   * chapters stay established context; on a direction node the direction text
-   * is the scene to depict. Prior illustrations are forwarded as visual
-   * reference when the chosen model can also read images. The result is
-   * attached to the chapter node.
+   * chapters stay established context. A direction node delegates to the
+   * ASSISTANT chapter that responds to it — the direction is only the
+   * instruction, the chapter is the beat to depict (and the picture is
+   * attached to that chapter). Prior illustrations are forwarded as visual
+   * reference when the chosen model can also read images.
    *
    * @param promptOverride when given (e.g. an edited direction draft),
-   *   use it as the scene description instead of the node's saved content.
+   *   use it as the scene description instead of the depicted node's content.
    */
   async illustrate(promptOverride?: string | null): Promise<void> {
-    const node = this.node();
-    if (node.role !== 'user' && node.role !== 'assistant') return;
-    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
+    const pressed = this.node();
+    if (pressed.role !== 'user' && pressed.role !== 'assistant') return;
+    if (this.isLoading() || this.chatService.isGenerating(pressed.id)) return;
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
-    // Where the resulting picture is stored, and what it should depict.
+    // The node to depict is the CURRENT CHAPTER: when the button was pressed
+    // on a direction (user) node, that is the assistant node right AFTER the
+    // direction (the beat that responded to it) — `this.node()` alone is the
+    // wrong node there. The picture is always attached to that chapter.
     let chapter: ChatNode;
-    let anchorText: string;
-    if (node.role === 'assistant') {
-      chapter = node;
-      anchorText = promptOverride ?? node.content ?? '';
+    if (pressed.role === 'assistant') {
+      chapter = pressed;
     } else {
-      const answers = this.chatService.getChildren(node.id)
+      const answers = this.chatService.getChildren(pressed.id)
         .filter(c => c.role === 'assistant' && c.isCurrent);
-      const candidate = answers[0] ?? this.chatService.getChildren(node.id)
+      const candidate = answers[0] ?? this.chatService.getChildren(pressed.id)
         .find(c => c.role === 'assistant');
       if (!candidate) {
         alert(this.i18n.t('node.imageNoChapter'));
         return;
       }
       chapter = candidate;
-      anchorText = promptOverride ?? node.content ?? '';
     }
+    const anchorText = promptOverride ?? chapter.content ?? '';
 
     // 1. Prefer the configured image-create task model.
     let defaultModel = this.generation.modelFor('image-create');
@@ -1310,7 +1312,7 @@ export class ChatNodeComponent implements OnDestroy {
         applySignal = this.chatService.beginOperation('illustrate');
         this.chatService.isIllustrating.set(true);
       }
-      const build = { chat, node, usecase, vars };
+      const build = { chat, node: chapter, usecase, vars };
       const result = await this.runner.run(build, {
         signal: applySignal ?? undefined,
         ...(onImages ? { onImages } : {})

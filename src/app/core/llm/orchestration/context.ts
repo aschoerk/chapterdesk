@@ -488,24 +488,39 @@ export class UsecaseContextFactory {
   }
 
   /**
-   * Context messages from the last `count` nodes of the active path up to
-   * (and including) `nodeId` — a bounded window instead of the complete chat.
-   * The same filtering as {@link buildContextMessagesUpTo} applies (excluded /
-   * empty-content nodes are skipped), but the window is measured in RAW story
-   * nodes: the caller passes how many recent beats the model should see.
-   * A `count` <= 0 falls back to the whole path.
+   * Context messages from the last `assistantCount` ASSISTANT beats of the
+   * active path up to (and including) `nodeId` — a bounded window instead of
+   * the complete chat. The window size is measured in ASSISTANT nodes only
+   * ("last N beats" = the last N chapters; a chapter's own user direction
+   * travels with it but never counts toward N). The same filtering as
+   * {@link buildContextMessagesUpTo} applies (excluded / empty-content nodes
+   * are skipped). A `assistantCount` <= 0 falls back to the whole path.
    */
-  buildContextMessagesWindow(chatId: string, nodeId: string | null, count: number): ChatMessage[] {
+  buildContextMessagesWindow(chatId: string, nodeId: string | null, assistantCount: number): ChatMessage[] {
     if (!nodeId) return [];
     const path = this.chatService.getPathToNode(nodeId);
-    if (!count || count <= 0) return this.buildContextMessagesUpTo(chatId, nodeId);
-    const slice = path.slice(-count);
+    if (!assistantCount || assistantCount <= 0) return this.buildContextMessagesUpTo(chatId, nodeId);
+    // The window keeps the LAST `assistantCount` assistant chapters. Anything
+    // before the window boundary (leading assistant beats there are too old to
+    // count) is excluded; the slice begins right after it, so the first kept
+    // assistant brings its own direction into the window.
+    const assistants = path.reduce((n, node) => n + (node.role === 'assistant' ? 1 : 0), 0);
+    const skip = Math.max(0, assistants - assistantCount);
+    let startIdx = 0;
+    if (skip > 0) {
+      let skipped = 0;
+      for (let i = 0; i < path.length; i++) {
+        if (path[i].role === 'assistant') {
+          skipped += 1;
+          if (skipped === skip) { startIdx = i + 1; break; }
+        }
+      }
+    }
+    const slice = path.slice(startIdx);
     const out: ChatMessage[] = [];
     for (const n of slice) {
       if (n.chatId !== chatId) continue;
       if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
-      // The FINAL node of the window (the beat right before the anchor) is
-      // always included — it is the immediate context of the scene.
       if (n.id !== nodeId && n.excludeFromContext) continue;
       const content = nodeToMessageContent(n);
       if (!content) continue;

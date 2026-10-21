@@ -2841,14 +2841,16 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       // Routes through the orchestration `render-node` use case (count 1,
-      // current-text only) with the direction text as the scene override.
+      // current-text only). The fixture presses the button on the DIRECTION
+      // node, but the beat to depict is the ASSISTANT chapter that follows the
+      // direction — its content is the scene override, not the direction text.
       expect(runner.run).toHaveBeenCalledTimes(1);
       const build = runner.run.mock.calls[0][0] as {
         usecase?: string;
         vars?: { content?: string; count?: number; modelId?: string };
       };
       expect(build.usecase).toBe('render-node');
-      expect(build.vars?.content).toBe('Night train, Mara at the window.');
+      expect(build.vars?.content).toBe('Mara folds the letter and watches the conductor pass.');
       expect(build.vars?.modelId).toBe('alpha/model');
 
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
@@ -2859,7 +2861,7 @@ describe('ChatNodeComponent', () => {
       expect(chapter.attachments![1].name).toBe('prompt-1.txt');
       expect(chapter.attachments![1].mimeType).toBe('text/plain');
       expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain(
-        'Night train, Mara at the window.',
+        'Mara folds the letter and watches the conductor pass.',
       );
       expect(emitted).toContain(chapter.id);
     });
@@ -3413,11 +3415,15 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
+      // The pressed node is the DIRECTION (q1), but the beat depicted is the
+      // ASSISTANT chapter after it (a1) — so the prompt files carry the
+      // chapter content, not the direction text.
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length).toBe(4);
       expect(chapter.attachments![0].name).toBe('illustration-1.png');
       expect(chapter.attachments![1].name).toBe('prompt-1.txt');
-      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain('Two beats.');
+      expect(decodeDataUrlToText(chapter.attachments![1].dataUrl)).toContain('Chapter.');
+      expect(chapter.attachments![1].dataUrl ? decodeDataUrlToText(chapter.attachments![1].dataUrl) : '').not.toContain('Two beats.');
       expect(chapter.attachments![2].name).toBe('illustration-2.png');
       expect(chapter.attachments![3].name).toBe('prompt-2.txt');
     });
