@@ -251,7 +251,9 @@
   </main>
 </div>
 @if (showForm()) {
-  <div class="modal-backdrop" (click)="requestClose()">
+  <div class="modal-backdrop"
+       (mousedown)="onFormBackdropMousedown($event)"
+       (click)="onFormBackdropClick($event)">
     <div
       #projectModal
       class="modal project-form"
@@ -384,7 +386,9 @@
   </div>
 }
 @if (showTopicForm()) {
-  <div class="modal-backdrop" (click)="requestCloseTopic()">
+  <div class="modal-backdrop"
+       (mousedown)="onTopicBackdropMousedown($event)"
+       (click)="onTopicBackdropClick($event)">
     <div class="modal topic-form" (click)="$event.stopPropagation()">
       <h3>{{ editingTopicId() ? i18n.t('projects.editTopicTitle') : i18n.t('projects.newTopicTitle') }}</h3>
 

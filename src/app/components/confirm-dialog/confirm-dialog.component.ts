@@ -10,8 +10,21 @@ import { ConfirmService } from '../../core/confirm.service';
 export class ConfirmDialogComponent {
   readonly confirm = inject(ConfirmService);
 
+  /** True when the current click interaction started with a pointer press
+   *  on the backdrop itself. A backdrop click only dismisses the dialog
+   *  when the press also started on the backdrop — otherwise a text-
+   *  selection drag that began inside the message and ended on the
+   *  backdrop would close the dialog while marking text to copy. */
+  private backdropPressStarted = false;
+
+  onBackdropMousedown(ev: MouseEvent): void {
+    this.backdropPressStarted = ev.target === ev.currentTarget;
+  }
+
   onBackdrop(ev: MouseEvent): void {
-    if (ev.target === ev.currentTarget) this.confirm.close(false);
+    const dismiss = ev.target === ev.currentTarget && this.backdropPressStarted;
+    this.backdropPressStarted = false;
+    if (dismiss) this.confirm.close(false);
   }
 
   onKey(ev: KeyboardEvent): void {

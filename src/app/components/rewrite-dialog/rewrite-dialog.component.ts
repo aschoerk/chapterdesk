@@ -235,8 +235,21 @@ export class RewriteDialogComponent {
     if (t) this.dialog.close(t);
   }
 
+  /** True when the current click interaction started with a pointer press
+   *  on the backdrop itself. A backdrop click only dismisses the dialog
+   *  when the press also started on the backdrop — otherwise a text-
+   *  selection drag that began inside a field and ended on the backdrop
+   *  would close the dialog while marking input content to overwrite. */
+  private backdropPressStarted = false;
+
+  onBackdropMousedown(ev: MouseEvent): void {
+    this.backdropPressStarted = ev.target === ev.currentTarget;
+  }
+
   onBackdrop(ev: MouseEvent): void {
-    if (ev.target === ev.currentTarget) this.dialog.cancel();
+    const dismiss = ev.target === ev.currentTarget && this.backdropPressStarted;
+    this.backdropPressStarted = false;
+    if (dismiss) this.dialog.cancel();
   }
 
   onKey(ev: KeyboardEvent): void {

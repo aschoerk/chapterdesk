@@ -607,6 +607,14 @@ describe('ChatReaderComponent', () => {
     const target = {} as EventTarget;
     component.onTypeBackdrop({ target, currentTarget: {} as EventTarget } as unknown as MouseEvent);
     expect(component.typeModalOpen()).toBe(true); // mismatched target: stays open
+    // A backdrop click whose press did NOT start on the backdrop (e.g. a
+    // text-selection drag from inside the form ending over the backdrop)
+    // must not dismiss the modal.
+    component.onTypeBackdropMousedown({ target: {} as EventTarget, currentTarget: {} as EventTarget } as unknown as MouseEvent);
+    component.onTypeBackdrop({ target, currentTarget: target } as unknown as MouseEvent);
+    expect(component.typeModalOpen()).toBe(true);
+    // A genuine backdrop click (press AND release on the backdrop) dismisses.
+    component.onTypeBackdropMousedown({ target, currentTarget: target } as unknown as MouseEvent);
     component.onTypeBackdrop({ target, currentTarget: target } as unknown as MouseEvent);
     expect(component.typeModalOpen()).toBe(false);
   });

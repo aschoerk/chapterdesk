@@ -212,8 +212,21 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     queueMicrotask(() => this.layout());
   }
 
+  /** True when the current click interaction started with a pointer press
+   *  on the backdrop itself. A backdrop click only dismisses the modal
+   *  when the press also started on the backdrop — otherwise a text-
+   *  selection drag that began inside a field and ended on the backdrop
+   *  would close the modal while marking input content to overwrite. */
+  private typeBackdropPressed = false;
+
+  onTypeBackdropMousedown(ev: MouseEvent): void {
+    this.typeBackdropPressed = ev.target === ev.currentTarget;
+  }
+
   onTypeBackdrop(ev: MouseEvent): void {
-    if (ev.target === ev.currentTarget) this.closeTypeModal();
+    const dismiss = ev.target === ev.currentTarget && this.typeBackdropPressed;
+    this.typeBackdropPressed = false;
+    if (dismiss) this.closeTypeModal();
   }
 
   private isUsable(n: ChatNode): boolean {

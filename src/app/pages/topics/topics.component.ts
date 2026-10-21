@@ -225,6 +225,23 @@ export class TopicsComponent implements OnInit {
     this.scheduleFitEditor();
   }
 
+  /** True when the current click interaction started with a pointer press
+   *  on the backdrop itself. A backdrop click only dismisses the editor
+   *  when the press also started on the backdrop — otherwise a text-
+   *  selection drag that began inside a field and ended on the backdrop
+   *  would close the form while marking input content to overwrite. */
+  private backdropPressed = false;
+
+  onBackdropMousedown(ev: MouseEvent): void {
+    this.backdropPressed = ev.target === ev.currentTarget;
+  }
+
+  onBackdropClick(ev: MouseEvent): void {
+    const dismiss = this.backdropPressed;
+    this.backdropPressed = false;
+    if (dismiss) void this.requestClose();
+  }
+
   /**
    * Close the editor. If the form is unchanged, close immediately.
    * If anything was edited, ask before discarding.
