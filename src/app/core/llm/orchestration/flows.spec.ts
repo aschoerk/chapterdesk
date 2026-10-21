@@ -54,6 +54,26 @@ function sseImagesResponse(urls: string[]): Response {
   } as unknown as Response;
 }
 
+/**
+ * Non-streaming JSON body delivering ONLY image_url parts (no text): a model
+ * that CANNOT stream answers a direction request with an image in a plain
+ * `application/json` body (it ignored `stream: true`).
+ */
+function jsonImagesResponse(urls: string[]): Response {
+  return {
+    ok: true, status: 200,
+    headers: { get: () => 'application/json' },
+    json: async () => ({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: urls.map(u => ({ type: 'image_url', image_url: { url: u } }))
+        }
+      }]
+    })
+  } as unknown as Response;
+}
+
 const CHAT_ID = 'chat-1';
 const IMG = { id: 'img', name: 'pic.png', mimeType: 'image/png', size: 4, dataUrl: 'data:image/png;base64,AAAA' };
 
@@ -151,9 +171,11 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     });
 
     // The branch answer was finalized (versioned) — NOT an empty placeholder.
+    // The model returned only an image, so the chapter is filled with the
+    // direction text and the generated picture is attached below it.
     const answerId = slots.flow!.value!.answerNodeId;
     const answerNode = chatService.nodes().find(n => n.id === answerId)!;
-    expect(answerNode.content).toBe('');
+    expect(answerNode.content).toBe('Render the scene');
     expect(answerNode.attachments?.length).toBe(1);
     expect(answerNode.attachments![0].name).toMatch(/^illustration-1\./);
     expect(answerNode.attachments![0].dataUrl).toBe(url);
@@ -161,6 +183,166 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     // The flow is NOT reported as empty (an image IS content).
     expect(slots.flow?.value?.empty).toBe(false);
     // The images also surface in the slots.
+    expect(slots.images?.value).toHaveLength(1);
+  });
+
+  it('send-branch: an IMAGE-ONLY answer from a NON-STREAMING model is attached to the answer node', async () => {
+    // The model cannot stream: the `stream: true` request is answered with a
+    // plain application/json body carrying ONLY an image. The flow must STILL
+    // finalize the assistant node with that image attached — otherwise it
+    // stays an empty placeholder and the picture is lost.
+    const url = 'data:image/png;base64,AAAA';
+    fetchMock.mockResolvedValueOnce(jsonImagesResponse([url]));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const current = chatService.nodes().find(n => n.id === 'q1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: current,
+      usecase: 'send-branch',
+      vars: { content: 'Render the scene' }
+    });
+
+    // The branch answer was finalized (versioned) with the image attached.
+    // The model returned only an image → the chapter carries the direction
+    // text and the picture is attached below it.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Render the scene');
+    expect(answerNode.attachments?.length).toBe(1);
+    expect(answerNode.attachments![0].dataUrl).toBe(url);
+    expect(answerNode.attachments![0].name).toMatch(/^illustration-1\./);
+    expect(answerNode.parentId).toBe(chatService.nodes().find(n => n.role === 'user' && n.content === 'Render the scene')!.id);
+    // The flow is NOT reported as empty (an image IS content).
+    expect(slots.flow?.value?.empty).toBe(false);
+    expect(slots.images?.value).toHaveLength(1);
+  });
+
+  it('send-branch: a NON-STREAMING model\'s full text answer still reaches the answer node', async () => {
+    // The endpoint cannot stream but ignores `stream: true` and answers with
+    // a plain application/json body — the text must reach the node instead of
+    // being dropped by the SSE parser (which would refuse "(no response)").
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Full text answer.' } }] })
+    } as unknown as Response);
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const current = chatService.nodes().find(n => n.id === 'q1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: current,
+      usecase: 'send-branch',
+      vars: { content: 'Continue the story' }
+    });
+
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Full text answer.');
+    expect(slots.text?.value).toBe('Full text answer.');
+    expect(slots.text?.status).toBe('ok');
+  });
+
+  it('send-branch: respects a model/chat configured NOT to stream (stream:false) and issues a clean non-streaming request', async () => {
+    // The model is configured as non-streaming (chat parameters stream:false):
+    // resolveTextExtras returns { stream: false }. send-branch must NOT force
+    // `stream: true` — it issues ONE plain non-streaming completion whose full
+    // text reaches the answer node (no SSE, no transport fallback dance).
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    // Spy AFTER openChat (it resets + reconfigures the module): the factory
+    // returns stream:false like a model/chat configured NOT to stream.
+    const factory = TestBed.inject(UsecaseContextFactory);
+    const streamFalse = vi.spyOn(factory, 'resolveTextExtras')
+      .mockResolvedValue({ stream: false } as any);
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Configured no-stream answer.' } }] })
+    } as unknown as Response);
+    try {
+      const current = chatService.nodes().find(n => n.id === 'q1')!;
+
+      const runner = TestBed.inject(LlmFlowRunner);
+      const slots = await runner.run({
+        chat: api.chats[0],
+        node: current,
+        usecase: 'send-branch',
+        vars: { content: 'Continue the story' }
+      });
+
+      // Exactly ONE network call, and it went out with stream:false.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { stream?: boolean };
+      expect(body.stream).toBe(false);
+      // The full non-stream text reached the answer node.
+      const answerId = slots.flow!.value!.answerNodeId;
+      const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+      expect(answerNode.content).toBe('Configured no-stream answer.');
+      expect(slots.text?.value).toBe('Configured no-stream answer.');
+      expect(slots.text?.status).toBe('ok');
+    } finally {
+      streamFalse.mockRestore();
+    }
+  });
+
+  it('send-branch: routes an image-GENERATION WRITE model to /images and attaches the picture', async () => {
+    // The writing model is an image-GENERATION model served ONLY on the
+    // /images endpoint (it cannot answer chat completions, stream or not).
+    // send-branch must route there with the direction text as the image
+    // prompt and attach the returned picture to the assistant node.
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false, status: 404,
+        text: async () => '{"error":{"message":"qwen/qwen-image is an image generation model and cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead."}}'
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ data: [{ b64_json: 'AAAA', media_type: 'image/png' }] })
+      } as unknown as Response);
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const current = chatService.nodes().find(n => n.id === 'q1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: current,
+      usecase: 'send-branch',
+      vars: { content: 'Render the scene' }
+    });
+
+    // First the chat-completions attempt, then the /images route.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/chat/completions');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/images');
+    // The /images call carried the direction text as the prompt.
+    const imagesBody = JSON.parse((fetchMock.mock.calls[1][1] as { body: string }).body) as { prompt?: string };
+    expect(imagesBody.prompt).toContain('Render the scene');
+    // The picture is attached to the (versioned) answer node. The model
+    // returned only an image → the chapter carries the direction text.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Render the scene');
+    expect(answerNode.attachments?.length).toBe(1);
+    expect(answerNode.attachments![0].dataUrl).toBe('data:image/png;base64,AAAA');
+    expect(answerNode.attachments![0].name).toMatch(/^illustration-1\./);
+    // The flow is NOT reported as empty (an image IS content).
+    expect(slots.flow?.value?.empty).toBe(false);
     expect(slots.images?.value).toHaveLength(1);
   });
 
@@ -219,6 +401,41 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(slots.flow?.value?.questionNodeId).toBe('q1');
   });
 
+  it('send-regenerate: an IMAGE-ONLY answer fills the fresh answer with the direction and attaches the image', async () => {
+    // The writing model answered the regenerated direction with ONLY a picture
+    // (non-stream JSON, image-only). The fresh chapter must carry the direction
+    // text again and the generated image as an attachment.
+    const url = 'data:image/png;base64,AAAA';
+    fetchMock.mockResolvedValueOnce(jsonImagesResponse([url]));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Render the castle' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'following', isCurrent: true })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-regenerate',
+      vars: {}
+    });
+
+    // Old answer + its subtree are gone.
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    expect(chatService.nodes().find(n => n.id === 'd1')).toBeUndefined();
+    const answerId = slots.flow!.value!.answerNodeId;
+    const fresh = chatService.nodes().find(n => n.id === answerId)!;
+    expect(fresh.parentId).toBe('q1');
+    // Image-only → the chapter repeats the direction and carries the picture.
+    expect(fresh.content).toBe('Render the castle');
+    expect(fresh.attachments?.length).toBe(1);
+    expect(fresh.attachments![0].dataUrl).toBe(url);
+    expect(fresh.attachments![0].name).toMatch(/^illustration-1\./);
+    expect(slots.flow?.value?.empty).toBe(false);
+  });
+
   it('send-rewrite: deletes only the answer and re-adopts the preserved children', async () => {
     fetchMock.mockResolvedValueOnce(sseResponse(['Rewritten ', 'answer.']));
     const chatService = await openChat([
@@ -248,6 +465,91 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(following!.parentId).toBe(answerId);
     expect(chatService.getActiveChild(answerId)?.id).toBe('d1');
     expect(slots.flow?.value?.activateId).toBe('q1');
+  });
+
+  it('send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture', async () => {
+    // send-rewrite with an image-generation writing model: the chat
+    // completions attempt fails (model lives only on /images) → routed there
+    // → the fresh answer carries the picture as an attachment.
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false, status: 404,
+        text: async () => '{"error":{"message":"image generation model cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead."}}'
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ data: [{ b64_json: 'BBBB', media_type: 'image/png' }] })
+      } as unknown as Response);
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'Continues here', isCurrent: true })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-rewrite',
+      vars: {}
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/images');
+    // Old answer gone; the fresh answer carries the generated picture and re-
+    // adopts the preserved following text. The model returned only an image →
+    // the chapter is filled with the direction text (the parent question).
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Question');
+    expect(answerNode.attachments?.length).toBe(1);
+    expect(answerNode.attachments![0].dataUrl).toBe('data:image/png;base64,BBBB');
+    const following = chatService.nodes().find(n => n.id === 'd1');
+    expect(following).toBeDefined();
+    expect(following!.parentId).toBe(answerId);
+    expect(slots.flow?.value?.empty).toBe(false);
+  });
+
+  it('send-rewrite: PRESERVES the old answer\'s attachments and merges the new image (previous pictures stay available)', async () => {
+    // The old answer already carried a generated illustration. A rewrite in
+    // place must KEEP that attachment (the old image stays available) and
+    // ADD the newly generated one (renumbered after the preserved picture).
+    const oldImg = {
+      id: 'old-img', name: 'illustration-1.png', mimeType: 'image/png', size: 4,
+      dataUrl: 'data:image/png;base64,OLDOLD'
+    };
+    fetchMock.mockResolvedValueOnce(jsonImagesResponse(['data:image/png;base64,NEWNEW']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Render the castle' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model', attachments: [oldImg] }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'Continues here', isCurrent: true })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-rewrite',
+      vars: {}
+    });
+
+    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    // The old picture AND the new one are both attached — the old image
+    // remains available after the rewrite.
+    expect(answerNode.attachments?.length).toBe(2);
+    expect(answerNode.attachments![0].dataUrl).toBe('data:image/png;base64,OLDOLD');
+    expect(answerNode.attachments![0].name).toBe('illustration-1.png');
+    expect(answerNode.attachments![1].dataUrl).toBe('data:image/png;base64,NEWNEW');
+    // New image is renumbered after the preserved one (illustration-2).
+    expect(answerNode.attachments![1].name).toBe('illustration-2.png');
+    // Content fill still applies (image-only).
+    expect(answerNode.content).toBe('Render the castle');
   });
 
   it('send-prepend: inserts a director node + result BEFORE the current direction, adopting it', async () => {

@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import type { ChatMessage, NodeAttachment } from '../../../models/chat';
+import { canGenerateImages } from '../../../models/chat-config';
 import type { EvalSlots, ImageScene, LlmImagePart, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
@@ -545,8 +546,9 @@ async function runPlanning(
 
 // ---------------------------------------------------------------------------
 // append — normal send: user/director at the end of the chat + full history.
-// Streams the answer; the text/thinking slots fill incrementally (partial)
-// so a view adapter can paint the node DURING the SSE stream, then finalize.
+// Streams the answer (unless the model/chat is configured non-streaming); the
+// text/thinking slots fill incrementally (partial) so a view adapter can paint
+// the node DURING the SSE stream, then finalize.
 // ---------------------------------------------------------------------------
 async function append(env: UsecaseEnv): Promise<EvalSlots> {
   const write = env.write;
@@ -559,7 +561,8 @@ async function append(env: UsecaseEnv): Promise<EvalSlots> {
     provider: write.provider,
     messages,
     extras: env.textExtras,
-    stream: true
+    stream: env.textExtras?.['stream'] !== false,
+    imageCapable: canGenerateImages(write.model)
   }, { expect: 'text', onChunk: env.onChunk, signal: env.signal, nodeId: env.nodeId });
 }
 
@@ -588,7 +591,8 @@ async function appendWithImages(env: UsecaseEnv): Promise<EvalSlots> {
     provider: write.provider,
     messages: prep.messages,
     extras: env.textExtras,
-    stream: true
+    stream: env.textExtras?.['stream'] !== false,
+    imageCapable: canGenerateImages(write.model)
   }, { expect: 'text', onChunk: env.onChunk, signal: env.signal, nodeId: env.nodeId });
 
   const out: EvalSlots = { ...slots };

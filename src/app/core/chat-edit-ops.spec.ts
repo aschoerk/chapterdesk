@@ -313,6 +313,49 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       expect(chat.getChildren(u1.id)).toHaveLength(0);
     });
 
+    it('adds a draft leaf under an empty-text assistant chapter with an image attachment (image-only answer)', async () => {
+      // An image-capable model answered the direction with ONLY a picture: the
+      // assistant node has an illustration attachment but no text. It is still
+      // an ANSWERED chapter and must get the next composer leaf.
+      const u0 = await add({ parentId: null, role: 'user', content: 'Draw the scene' });
+      const pic = {
+        id: 'pic-1', name: 'illustration-1.png', mimeType: 'image/png', size: 4,
+        dataUrl: 'data:image/png;base64,AAAA'
+      };
+      const a0 = await add({
+        parentId: u0.id, role: 'assistant', content: '', attachments: [pic]
+      });
+      chat.setActiveChild(null, u0.id);
+      chat.setActiveChild(u0.id, a0.id);
+      chat.stopGeneration();
+      await chat.ensureDraftAtLeaf(chatId);
+
+      const kids = chat.getChildren(a0.id);
+      expect(kids).toHaveLength(1);
+      expect(chat.isDraftQuestion(kids[0])).toBe(true);
+      expect(chat.getActiveChild(a0.id)?.id).toBe(kids[0].id);
+    });
+
+    it('does NOT add a draft leaf under an empty assistant chapter whose only attachment is a non-image record', async () => {
+      // A refused generation only attached text metadata (no image, no text):
+      // nothing was produced, so no composer leaf either.
+      const u0 = await add({ parentId: null, role: 'user', content: 'Draw the scene' });
+      const record = {
+        id: 'r-1', name: 'refused-prompt-1.txt', mimeType: 'text/plain', size: 9,
+        dataUrl: 'data:text/plain;charset=utf-8,refused'
+      };
+      const a0 = await add({
+        parentId: u0.id, role: 'assistant', content: '', attachments: [record]
+      });
+      chat.setActiveChild(null, u0.id);
+      chat.setActiveChild(u0.id, a0.id);
+      chat.stopGeneration();
+      await chat.ensureDraftAtLeaf(chatId);
+
+      expect(chat.getChildren(a0.id)).toHaveLength(0);
+      expect(chat.getActivePath().at(-1)?.id).toBe(a0.id);
+    });
+
     it('a second ensureDraftAtLeaf while one is in flight awaits the same operation (fixes batch stopping after lore sends)', async () => {
       const t = await linear();
       chat.stopGeneration();

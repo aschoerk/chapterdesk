@@ -38,7 +38,7 @@ import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
-import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments } from '../../core/llm/orchestration';
+import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments, imageOnlyAnswerContent } from '../../core/llm/orchestration';
 import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
@@ -1518,17 +1518,21 @@ export class ChatNodeComponent implements OnDestroy {
       const finalContent = slots.text?.value ?? accContent;
       const finalThinking = slots.thinking?.value ?? accThinking;
       const finalImages = slots.images?.value ?? accImages;
-      this.paintAnswer(answerNode.id, finalContent, finalThinking);
+      // An IMAGE-ONLY answer (the writing model returned only pictures, no
+      // text): fill the chapter with the original direction so it is not an
+      // empty bubble — the generated image is attached below it.
+      const chapterContent = imageOnlyAnswerContent(finalContent, question.content, finalImages);
+      this.paintAnswer(answerNode.id, chapterContent, finalThinking);
 
       // An image-only answer (image-capable model streamed pictures, no text)
       // must STILL be finalized with its attachments — otherwise it stays an
       // empty placeholder that renders as "Generation stopped".
-      if (finalContent.trim() || finalThinking.trim() || finalImages.length > 0) {
+      if (chapterContent.trim() || finalThinking.trim() || finalImages.length > 0) {
         const attachments = finalImages.length
           ? generatedImageAttachments(finalImages)
           : undefined;
         const versioned = await this.chatService.editAssistant(
-          chatId, answerNode.id, finalContent, attachments, finalThinking
+          chatId, answerNode.id, chapterContent, attachments, finalThinking
         );
         this.chatService.setActiveChild(question.id, versioned.id);
         // For batch iterations on foreign leaves the component's (activate)

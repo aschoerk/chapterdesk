@@ -1651,10 +1651,13 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       // The answer node is finalized (versioned) with the image attachment,
-      // instead of staying an empty placeholder.
+      // instead of staying an empty placeholder. The model returned ONLY an
+      // image, so the chapter is filled with the direction text and the
+      // generated picture is attached below it.
       const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
       const withImg = answers.find(n => (n.attachments ?? []).length > 0);
       expect(withImg).toBeTruthy();
+      expect(withImg!.content).toBe('Render the scene');
       expect(withImg!.attachments![0].name).toMatch(/^illustration-1\./);
       expect(withImg!.attachments![0].dataUrl).toBe('data:image/png;base64,QQ==');
       // The user node was persisted as the question.
@@ -1908,6 +1911,43 @@ describe('ChatNodeComponent', () => {
       // The write model that streamed the answer is the selected one.
       const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
       expect(req.model?.modelId).toBe('beta/model');
+    });
+
+    it('an IMAGE-ONLY branch fills the new assistant answer with the direction and attaches the image', async () => {
+      const q1 = node({ id: 'q1', content: 'Original' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      (orch.completion as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,QQ==' }] }
+      });
+      createFixture(q1);
+      await startEditing(q1);
+      component.onDraftText('Render the castle');
+
+      await component.saveAsBranchAndSend();
+      fixture.detectChanges();
+
+      const branch = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.content === 'Render the castle');
+      expect(branch).not.toBeUndefined();
+      // The assistant answer's VERSIONED node (editAssistant versions away the
+      // placeholder): it carries the direction text AND the generated image.
+      const answer = chatService
+        .nodes()
+        .filter((n) => n.role === 'assistant' && n.parentId === branch!.id)
+        .find((n) => (n.attachments ?? []).length > 0)
+        ?? chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === branch!.id && n.isCurrent);
+      expect(answer).toBeDefined();
+      expect(answer!.content).toBe('Render the castle');
+      expect((answer!.attachments ?? []).length).toBe(1);
+      expect(answer!.attachments![0].name).toMatch(/^illustration-1\./);
     });
 
     it('closes the editor and clears the edit session after branching', async () => {
@@ -2183,6 +2223,41 @@ describe('ChatNodeComponent', () => {
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
       chatService.stopGeneration();
     });
+
+    it('an IMAGE-ONLY regenerate fills the fresh answer with the direction and attaches the image', async () => {
+      const q1 = node({ id: 'q1', content: 'Render the castle' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old chapter',
+        modelId: 'alpha/model',
+      });
+      const d = node({ id: 'd', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, d]);
+      confirmResolves(true);
+      (orch.completion as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,QQ==' }] }
+      });
+      createFixture(a1);
+
+      await component.regenerateAnswer();
+      fixture.detectChanges();
+
+      const fresh = chatService
+        .nodes()
+        .filter((n) => n.role === 'assistant' && n.parentId === 'q1')
+        .find((n) => (n.attachments ?? []).length > 0)
+        ?? chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === 'q1' && n.isCurrent);
+      expect(fresh).toBeDefined();
+      // The model returned ONLY an image → the fresh chapter carries the
+      // direction text and the picture is attached below it.
+      expect(fresh!.content).toBe('Render the castle');
+      expect((fresh!.attachments ?? []).length).toBe(1);
+      expect(fresh!.attachments![0].name).toMatch(/^illustration-1\./);
+      expect(fresh!.attachments![0].dataUrl).toBe('data:image/png;base64,QQ==');
+    });
   });
 
   // ------------------------------------------------------------------
@@ -2292,6 +2367,55 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+    });
+
+    it('an IMAGE-ONLY rewrite preserves the OLD attachments and merges the NEW image', async () => {
+      const q1 = node({ id: 'q1', content: 'Render the castle' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Old chapter',
+        modelId: 'alpha/model',
+        attachments: [{
+          id: 'old-img', name: 'illustration-1.png', mimeType: 'image/png', size: 4,
+          dataUrl: 'data:image/png;base64,OLDOLD'
+        }]
+      });
+      const d1 = node({
+        id: 'd1', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Direction',
+      });
+      const a2 = node({
+        id: 'a2',
+        chatId: 'chat-1',
+        parentId: 'd1',
+        role: 'assistant',
+        content: 'Following text',
+        modelId: 'alpha/model',
+      });
+      await openChat([q1, a1, d1, a2]);
+      confirmResolves(true);
+      (orch.completion as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        images: { status: 'ok', value: [{ url: 'data:image/png;base64,QQ==' }] }
+      });
+      createFixture(a1);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
+      expect(newAnswer).toBeDefined();
+      expect(newAnswer.id).not.toBe('a1');
+      // An image-only rewrite → the fresh answer repeats the direction, keeps
+      // the OLD image AND adds the new one (renumbered after the old).
+      expect(newAnswer.content).toBe('Render the castle');
+      expect((newAnswer.attachments ?? []).length).toBe(2);
+      expect(newAnswer.attachments![0].dataUrl).toBe('data:image/png;base64,OLDOLD');
+      expect(newAnswer.attachments![0].name).toBe('illustration-1.png');
+      expect(newAnswer.attachments![1].name).toBe('illustration-2.png');
+      expect(newAnswer.attachments![1].dataUrl).toBe('data:image/png;base64,QQ==');
+      expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
     });
   });
 

@@ -15,6 +15,11 @@ export interface PrimitiveRequest {
   readonly messages: ChatMessage[];
   readonly extras?: Record<string, unknown>;
   readonly stream?: boolean;
+  /** True when the model can ALSO generate images (the transport then adds
+   *  `modalities` and, on failure, runs the images-endpoint fallback tree).
+   *  Used by ANSWER-SENDING flows whose write model is an image model — a
+   *  request without `modalities` may come back 200 with empty content. */
+  readonly imageCapable?: boolean;
   /** Force `modalities: ['text']` on the request (image-interpret). */
   readonly textOnlyModalities?: boolean;
 }
@@ -86,6 +91,7 @@ export class LlmOrchestratorService {
       model: req.model,
       messages: req.messages,
       extras: { ...(req.extras ?? {}), stream: req.stream ?? false },
+      imageCapable: req.imageCapable ?? false,
       textOnlyModalities: req.textOnlyModalities ?? false,
       onChunk: opts.onChunk,
       signal: opts.signal,
@@ -102,6 +108,15 @@ export class LlmOrchestratorService {
           opts.onChunk?.(chunk);
         }
       });
+      // When the endpoint could not stream and the transport fell back to a
+      // NON-stream JSON body (`streamed === false`), the raw body ALREADY
+      // holds the complete text/thinking/images — evaluate it directly. The
+      // folded partial stream is empty (no SSE chunks ever arrived), so
+      // finalizeStream would only refuse the answer and DROP the content
+      // (including an image-only response).
+      if (result.streamed === false) {
+        return attachUsageSlots(evaluateCompletion({ raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
+      }
       return attachUsageSlots(finalizeStream(running, { raw: result.raw, prompt: opts.prompt, scene: opts.scene }), result);
     }
 

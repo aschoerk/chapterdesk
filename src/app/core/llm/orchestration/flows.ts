@@ -1,12 +1,13 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage, ChatNode, NodeAttachment } from '../../../models/chat';
+import { canGenerateImages } from '../../../models/chat-config';
 import { ChatService } from '../../chat.service';
 import { LlmLogService } from '../llm-log.service';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import type { EvalSlots, FlowResult, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { makeSlot, okSlot } from './slots';
-import { imagePartToAttachment, type LlmImagePart } from '../llm-message';
+import { imagePartToAttachment, isGeneratedImageAttachment, type LlmImagePart } from '../llm-message';
 import { newId } from '../../common/helpers';
 
 /**
@@ -145,11 +146,13 @@ function flowEmpty(slots: EvalSlots): boolean {
 /**
  * Convert generated image parts into persisted node attachments (ids assigned,
  * deduped by URL — a stream may resend the same part in delta + final message).
+ * `startIndex` lets a caller that PRESERVES existing generated illustrations
+ * number the NEW pictures after them (`illustration-N` names stay unique).
  */
-export function generatedImageAttachments(images: LlmImagePart[]): NodeAttachment[] {
+export function generatedImageAttachments(images: LlmImagePart[], startIndex = 0): NodeAttachment[] {
   const seen = new Set<string>();
   const out: NodeAttachment[] = [];
-  let idx = 0;
+  let idx = startIndex;
   for (const img of images ?? []) {
     if (!img?.url || seen.has(img.url)) continue;
     seen.add(img.url);
@@ -157,6 +160,44 @@ export function generatedImageAttachments(images: LlmImagePart[]): NodeAttachmen
     idx++;
   }
   return out;
+}
+
+/** Count of app-generated illustrations (`illustration-N.ext`) in a list. */
+function existingGeneratedImageCount(attachments: NodeAttachment[] | undefined): number {
+  return (attachments ?? []).filter(a => isGeneratedImageAttachment(a)).length;
+}
+
+/**
+ * The attachments a rewritten chapter should carry: the PRESERVED attachments
+ * of the old answer (so previous images stay available after a rewrite in
+ * place) merged with any NEWLY generated image(s), renumbered after the
+ * preserved ones. Returns `undefined` when there is nothing to attach.
+ */
+function mergeAnswerAttachments(
+  preserved: NodeAttachment[] | undefined,
+  newImages: LlmImagePart[] | undefined
+): NodeAttachment[] | undefined {
+  const kept = preserved ?? [];
+  const fresh = generatedImageAttachments(newImages ?? [], existingGeneratedImageCount(kept));
+  if (kept.length === 0 && fresh.length === 0) return undefined;
+  return [...kept, ...fresh];
+}
+
+/**
+ * The content of an IMAGE-ONLY answer. When the writing model returned ONLY
+ * pictures (no text/thinking), the assistant chapter is filled with the
+ * original DIRECTION text so it is not an empty bubble — the generated image
+ * is attached right below it and the chapter still tells the reader what was
+ * asked. Returns the model text unchanged when the model DID answer with text.
+ */
+export function imageOnlyAnswerContent(
+  modelText: string,
+  questionText: string | null | undefined,
+  images: LlmImagePart[] | undefined
+): string {
+  if ((modelText ?? '').trim()) return modelText;
+  if (!images?.length) return modelText;
+  return (questionText ?? '').trim();
 }
 
 /**
@@ -170,7 +211,7 @@ async function streamAnswerNode(
   chatId: string,
   questionNodeId: string,
   messages: ChatMessage[],
-  opts: { adoptNodeIds?: string[] } = {}
+  opts: { adoptNodeIds?: string[]; preserveAttachments?: NodeAttachment[] } = {}
 ): Promise<{ answerNodeId: string; slots: EvalSlots }> {
   const chatService = env.chatService;
   const write = env.write;
@@ -194,7 +235,14 @@ async function streamAnswerNode(
       provider: write.provider,
       messages,
       extras: env.textExtras,
-      stream: true
+      // Respect the model's / chat's configured streaming preference — a
+      // non-streaming configuration (chat parameters stream:false) must make
+      // a plain completion, not force an SSE stream.
+      stream: env.textExtras['stream'] !== false,
+      // An image-GENERATION write model must be told to generate (modalities)
+      // and gets the images-endpoint fallback tree; otherwise it answers 200
+      // with empty content and no picture.
+      imageCapable: canGenerateImages(write.model)
     }, {
       expect: 'text',
       nodeId: answerNode.id,
@@ -212,18 +260,26 @@ async function streamAnswerNode(
     const finalContent = slots.text?.value ?? accContent;
     const finalThinking = slots.thinking?.value ?? accThinking;
     const finalImages = slots.images?.value ?? accImages;
+    // An IMAGE-ONLY answer (the writing model returned only pictures, no
+    // text): fill the chapter with the original direction so it is not an
+    // empty bubble — the generated image is attached below it. The user
+    // direction is the question node this answer is streamed under.
+    const question = chatService.nodes().find(n => n.id === questionNodeId);
+    const chapterContent = imageOnlyAnswerContent(finalContent, question?.content, finalImages);
     chatService.updateNodes(list =>
-      list.map(n => (n.id === answerNode.id ? { ...n, content: finalContent, thinking: finalThinking } : n))
+      list.map(n => (n.id === answerNode.id ? { ...n, content: chapterContent, thinking: finalThinking } : n))
     );
 
     let answerId = answerNode.id;
     // An image-only answer (image-capable model streamed pictures, no text)
     // must STILL be finalized — otherwise it stays an empty placeholder that
     // renders as "Generation stopped" and the images are never attached.
-    if (finalContent.trim() || finalThinking.trim() || finalImages.length > 0) {
-      const attachments = finalImages.length ? generatedImageAttachments(finalImages) : undefined;
+    if (chapterContent.trim() || finalThinking.trim() || finalImages.length > 0 || (opts.preserveAttachments?.length ?? 0) > 0) {
+      // Preserved attachments (e.g. the old answer's images on a rewrite in
+      // place) + any newly generated image(s), renumbered after the kept ones.
+      const attachments = mergeAnswerAttachments(opts.preserveAttachments, finalImages);
       const versioned = await chatService.editAssistant(
-        chatId, answerNode.id, finalContent, attachments, finalThinking
+        chatId, answerNode.id, chapterContent, attachments, finalThinking
       );
       answerId = versioned.id;
       chatService.setActiveChild(questionNodeId, answerId);
@@ -379,6 +435,10 @@ const sendRewrite: FlowController = async env => {
   await env.chatService.ensureLoreNodeBefore(chatId, question.id);
 
   const adoptNodeIds = env.chatService.getChildren(node.id).map(c => c.id);
+  // Rewrite in place preserves the OLD answer's attachments (e.g. previously
+  // generated images) — they must survive the node deletion and be merged
+  // onto the fresh answer so earlier pictures stay available.
+  const preservedAttachments = (node.attachments ?? []).slice();
   await env.chatService.deleteNode(chatId, node.id, { keepChildren: true });
 
   const prep = await prepareTextSend(env, chatId, question, {
@@ -386,7 +446,9 @@ const sendRewrite: FlowController = async env => {
     attachments: question.attachments
   });
   await persistInterpretation(env, chatId, question, prep);
-  const { answerNodeId, slots } = await streamAnswerNode(env, chatId, question.id, prep.messages, { adoptNodeIds });
+  const { answerNodeId, slots } = await streamAnswerNode(
+    env, chatId, question.id, prep.messages, { adoptNodeIds, preserveAttachments: preservedAttachments }
+  );
   if (adoptNodeIds.length) env.chatService.setActiveChild(answerNodeId, adoptNodeIds[0]);
   return flowResult(slots, {
     questionNodeId: question.id,

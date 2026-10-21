@@ -350,6 +350,178 @@ describe('LLM orchestration — transport fallbacks (the retries stay in transpo
     expect((entry.response as { usage?: unknown }).usage).toEqual(usage);
     logRecordSpy.mockRestore();
   });
+
+  it('handles a `stream: true` request answered with a plain JSON body as NON-stream (model cannot stream)', async () => {
+    // The endpoint ignores `stream: true` and replies with the COMPLETE JSON
+    // body (content-type application/json). The transport must NOT parse it
+    // as SSE — that would silently drop every byte — but surface it as a
+    // non-stream response whose raw carries the full text.
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Full answer.' } }] })
+    } as unknown as Response);
+
+    const result = await transport.complete({
+      provider, model,
+      messages: [{ role: 'user', content: 'Continue the story' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.streamed).toBe(false);
+    const rawMsg = (result.raw as { choices: { message: { content: string } }[] }).choices[0].message;
+    expect(rawMsg.content).toBe('Full answer.');
+  });
+
+  it('surfaces images from a NON-stream image-only JSON body (model cannot stream)', async () => {
+    // A model that cannot stream answers the direction request with ONLY an
+    // image in a plain JSON body — the transport must keep the images in the
+    // raw so the caller can attach them to the assistant node.
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]
+          }
+        }]
+      })
+    } as unknown as Response);
+
+    const result = await transport.complete({
+      provider, model,
+      messages: [{ role: 'user', content: 'Render the scene' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    expect(result.streamed).toBe(false);
+    const parts = ((result.raw as { choices: { message: { content: unknown[] } }[] }).choices[0].message.content as unknown[]);
+    expect(parts).toHaveLength(1);
+  });
+
+  it('retries ONCE without streaming when the provider rejects `stream: true`', async () => {
+    // Some endpoints cannot stream and answer with an ERROR instead of
+    // ignoring the flag — the text path must fall back to a non-stream call.
+    fetchMock.mockResolvedValueOnce(errorResponse(
+      400,
+      '{"error":{"message":"streaming is not supported for this model."}}'
+    ));
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'Fallback answer.' } }] })
+    } as unknown as Response);
+
+    const result = await transport.complete({
+      provider, model,
+      messages: [{ role: 'user', content: 'Continue' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse((fetchMock.mock.calls[1][1] as { body: string }).body) as { stream?: boolean };
+    expect(retryBody.stream).toBe(false);
+    expect(result.streamed).toBe(false);
+    const rawMsg = (result.raw as { choices: { message: { content: string } }[] }).choices[0].message;
+    expect(rawMsg.content).toBe('Fallback answer.');
+  });
+
+  it('routes a TEXT-path completion to /images when an image-GENERATION model rejects chat completions', async () => {
+    // The "writing model" is an image model served ONLY on /images (e.g. a
+    // Qwen image model). The text path (send-branch / send-rewrite / append)
+    // must route to /images — the returned picture lands as `raw` with
+    // streamed:false so the orchestrator evaluates it into image slots.
+    fetchMock.mockResolvedValueOnce(errorResponse(
+      404,
+      '{"error":{"message":"qwen/qwen-image is an image generation model and cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead."}}'
+    ));
+    fetchMock.mockResolvedValueOnce(imagesResponse(1));
+
+    const result = await transport.complete({
+      provider, model,
+      messages: [{ role: 'user', content: 'Draw a castle' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/chat/completions');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/images');
+    expect(result.streamed).toBe(false);
+    expect((result.raw as { data: unknown[] }).data).toHaveLength(1);
+  });
+
+  it('routes to /images even on the non-stream retry when an image model rejects chat completions', async () => {
+    // First attempt stream:true is rejected as unsupported → retried with
+    // stream:false → THAT also hits the images-endpoint error → routes to
+    // /images. The retry goes through complete() again so it benefits from
+    // the routing.
+    fetchMock.mockResolvedValueOnce(errorResponse(
+      400,
+      '{"error":{"message":"streaming is not supported for this model."}}'
+    ));
+    fetchMock.mockResolvedValueOnce(errorResponse(
+      404,
+      '{"error":{"message":"model cannot be used with the chat/completions endpoint. Use the /api/v1/images endpoint instead."}}'
+    ));
+    fetchMock.mockResolvedValueOnce(imagesResponse(1));
+
+    const result = await transport.complete({
+      provider, model,
+      messages: [{ role: 'user', content: 'Draw a castle at dusk' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/chat/completions');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/images');
+    // The non-stream retry's body was a non-stream call (stream:false).
+    const retryBody = JSON.parse((fetchMock.mock.calls[1][1] as { body: string }).body) as { stream?: boolean };
+    expect(retryBody.stream).toBe(false);
+    expect(result.streamed).toBe(false);
+    expect((result.raw as { data: unknown[] }).data).toHaveLength(1);
+  });
+
+  it('sends modalities for an imageCapable WRITE-model completion and surfaces the 200 image (the empty-200 fix)', async () => {
+    // An image-GENERATION model used as the WRITING model (send-* / append):
+    // the request MUST carry `modalities` so the model actually generates —
+    // without it such models answer 200 with `{content:'', thinking:''}` and
+    // no picture. The 200 image body is surfaced as `streamed:false` raw so
+    // the orchestrator extracts it into `slots.images`.
+    const imageUrl = 'data:image/png;base64,QQ==';
+    fetchMock.mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        choices: [{ message: { role: 'assistant', content: [{ type: 'image_url', image_url: { url: imageUrl } }] } }]
+      })
+    } as unknown as Response);
+
+    const imageModel = makeModel({ modelId: 'vendor/img', architecture: { input_modalities: [], output_modalities: ['image'] } });
+    const result = await transport.complete({
+      provider, model: imageModel,
+      messages: [{ role: 'user', content: 'Render the scene' }],
+      extras: { stream: true },
+      chat: { id: 'c', title: 't', usecase: 'append' },
+      imageCapable: true
+    });
+
+    // The request carried modalities (which output the image).
+    const sent = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      modalities?: string[]; stream?: boolean;
+    };
+    expect(sent.modalities).toEqual(['image']);
+    expect(result.streamed).toBe(false);
+    expect((result.raw as { choices: { message: { content: { type: string; image_url: { url: string } }[] } }[] })
+      .choices[0].message.content[0].image_url.url).toBe(imageUrl);
+  });
 });
 
 describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {

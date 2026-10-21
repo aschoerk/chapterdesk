@@ -64,6 +64,14 @@ export interface CompletionResult {
   usage?: unknown;
   /** The recorded LLM-log entry of this call (for node attribution). */
   logEntry?: import('../llm-log.service').LlmLogEntry;
+  /**
+   * True when the response was actually an SSE stream and `onChunk` fired
+   * live. False when a `stream: true` request was answered with a regular
+   * NON-stream JSON body (a model/endpoint that cannot stream) or when the
+   * request was non-stream from the start — in that case the caller must
+   * evaluate the raw JSON directly instead of finalizing folded chunks.
+   */
+  streamed?: boolean;
 }
 
 export interface ImagesResult {
@@ -161,6 +169,22 @@ export class LlmTransportService {
       }
 
       if (stream) {
+        // A provider may ignore `stream: true` (a model/endpoint that cannot
+        // stream) and answer with a regular `application/json` body instead
+        // of an SSE stream. Detect that via the content-type and handle the
+        // body as a NON-stream response — the full text / thinking / images
+        // are already in the JSON, and the caller evaluates it directly.
+        const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+        // A plain `application/json` body in reply to a `stream: true` request
+        // means the endpoint cannot stream and answered with the full response
+        // (text/thinking/images already complete). Treat it as NON-stream.
+        const isPlainJson = /application\/json/i.test(contentType) && !/event-stream/i.test(contentType);
+        if (isPlainJson) {
+          const raw = await response.json();
+          this.llmLog.complete(logEntry, { response: raw });
+          const usage = (raw as Record<string, unknown>)['usage'];
+          return { content: '', thinking: '', raw, usage, logEntry, streamed: false };
+        }
         // Only the STREAMING path needs a readable body.
         if (!response.body) {
           const err: TransportError = { status: 0, text: 'No response body', aborted: controller.signal.aborted };
@@ -195,14 +219,14 @@ export class LlmTransportService {
         };
         return {
           content: assembled.content, thinking: assembled.thinking, images: assembled.images,
-          raw, usage: assembled.usage, logEntry
+          raw, usage: assembled.usage, logEntry, streamed: true
         };
       }
 
       const raw = await response.json();
       this.llmLog.complete(logEntry, { response: raw });
       const usage = (raw as Record<string, unknown>)['usage'];
-      return { content: '', thinking: '', raw, usage, logEntry };
+      return { content: '', thinking: '', raw, usage, logEntry, streamed: false };
     } catch (err: any) {
       if ((err as TransportError).status !== undefined) throw err;
       const aborting = controller.signal.aborted;
@@ -279,9 +303,71 @@ export class LlmTransportService {
    * Plain chat completion (text use cases + the planning pass). Streams when
    * `req.extras.stream` is not false, firing `onChunk` live. Returns a
    * CompletionResult (raw + assembled text/thinking).
+   *
+   * When `req.imageCapable` is set (an image-GENERATION model used as the
+   * WRITING model of an answer flow), it is the image-capable completion with
+   * `modalities` + the full fallback tree (`imageCallOnce`): a provider that
+   * refuses chat completions routes to `/images`; a provider that cannot
+   * stream routes through the non-stream retry. This is what lets send-* /
+   * append produce a picture from an image model instead of an empty 200.
    */
   async complete(req: CompletionRequest): Promise<CompletionResult> {
-    return this.rawCompletion({ ...req, imageCapable: false });
+    if (req.imageCapable) {
+      try {
+        const raw = await this.imageCallOnce({ ...req, imageCapable: true });
+        return { raw, content: '', thinking: '', streamed: false };
+      } catch (err: any) {
+        const tErr = err as TransportError;
+        const msg = String(tErr?.text ?? err?.message ?? err);
+        if (tErr?.aborted) throw err;
+        // A provider that cannot stream may reject `stream: true`; retry once
+        // without streaming (still image-capable → fallback tree applies).
+        const wantsStream = (req.extras?.['stream'] ?? true) !== false;
+        if (wantsStream && isStreamingUnsupported(msg)) {
+          return this.complete({ ...req, extras: { ...req.extras, stream: false } });
+        }
+        throw err;
+      }
+    }
+
+    try {
+      return await this.rawCompletion({ ...req, imageCapable: false });
+    } catch (err: any) {
+      const tErr = err as TransportError;
+      const msg = String(tErr?.text ?? err?.message ?? err);
+      if (!tErr || tErr.aborted) throw err;
+
+      // An image-GENERATION model used as a WRITING model (send-branch /
+      // send-rewrite / append) is served ONLY on the /images endpoint and
+      // rejects chat completions outright. Route to /images with the last
+      // user prompt so the flow still gets the generated image(s) to attach
+      // to the assistant node.
+      if (isImagesEndpointHint(msg)) {
+        const prompt = lastUserPromptText(req.messages);
+        if (prompt.trim()) {
+          const routed = await this.images({
+            provider: req.provider,
+            model: req.model,
+            prompt,
+            signal: req.signal,
+            chat: req.chat,
+            timeoutMs: req.timeoutMs
+          });
+          return { raw: routed.raw, content: '', thinking: '', streamed: false };
+        }
+      }
+
+      // A model/endpoint that cannot stream may REJECT `stream: true` with a
+      // provider error instead of ignoring it. Retry ONCE without streaming —
+      // the raw body is then a complete JSON response evaluated as such. The
+      // retry goes through complete() again so it also benefits from the
+      // /images routing above.
+      const wantsStream = (req.extras?.['stream'] ?? true) !== false;
+      if (wantsStream && isStreamingUnsupported(msg)) {
+        return this.complete({ ...req, extras: { ...req.extras, stream: false } });
+      }
+      throw err;
+    }
   }
 
   /** OpenRouter-Images endpoint: `{ model, prompt, n }`. Returns raw JSON. */
@@ -374,6 +460,31 @@ export class LlmTransportService {
       || /maximum context length|context length is|reduce the length|requested about \d+ tokens|too many tokens/i.test(text)
     );
   }
+}
+
+/**
+ * True when a provider error text means the model is an image-GENERATION
+ * model served only via the images endpoint (not chat completions) — the text
+ * path then routes to `/images` with the last user prompt. Deliberately
+ * narrower than `shouldRouteToImages` (which also matches context overflow):
+ * routing a plain TEXT completion to /images is only right when the provider
+ * itself tells us the model lives on that endpoint.
+ */
+export function isImagesEndpointHint(text: string): boolean {
+  return (
+    /cannot be used with the chat\/completions endpoint|use the \/api\/v1\/images endpoint|images endpoint instead/i.test(text)
+  );
+}
+
+/**
+ * True when a provider error text means the model/endpoint rejected
+ * `stream: true` (it cannot stream) — used to retry once without streaming.
+ */
+export function isStreamingUnsupported(text: string): boolean {
+  return (
+    /stream/i.test(text) &&
+    /not support|unsupported|does not|cannot|can't|disabled|invalid|not allowed|unavailable|not available|not permitted|not enabled/i.test(text)
+  );
 }
 
 /** The exact last user-prompt text (used to record exact prompts). */

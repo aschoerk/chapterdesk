@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment } from '../models/chat';
 import { CHAT_API } from '../api/chat-api.token';
 import {NodeEditSession} from './node-edit-session';
+import { isImageMime, resolvedMime } from './llm/llm-message';
 
 const LS_CHAT  = 'chat.currentChatId';
 const LS_SCROLL = 'chat.scrollByChatId';
@@ -33,6 +34,13 @@ export function isChatLoreNode(
     typeof node.content === 'string' &&
     node.content.includes(LORE_NODE_PREFIX) &&
     node.content.includes(LORE_NODE_SUFFIX);
+}
+
+/** True when the node carries at least one real image attachment (e.g. a
+ *  generated illustration). Used to treat an empty-text, image-only answer
+ *  as an answered assistant chapter for draft-housekeeping. */
+export function hasImageAttachment(node: Pick<ChatNode, 'attachments'> | null | undefined): boolean {
+  return (node?.attachments ?? []).some(a => isImageMime(resolvedMime(a)));
 }
 
 @Injectable({
@@ -916,7 +924,12 @@ export class ChatService {
       // cases are handled explicitly by ensureDraftUnderUserLeaf from the
       // stable entry points (chat-node delete / selectChat).
       if (leaf.role !== 'assistant') return;
-      if (!leaf.content?.trim()) return;
+      // An empty-text assistant chapter with real image attachments is still
+      // an ANSWERED chapter (an image-capable model answered the direction
+      // with ONLY a picture — the illustration was attached, no text came
+      // back). It needs the next composer leaf too, so only bail when the
+      // leaf has neither text nor an image.
+      if (!leaf.content?.trim() && !hasImageAttachment(leaf)) return;
 
       const existing = this.getChildren(leaf.id).filter(n => n.role === 'user');
       if (existing.length > 0) {
