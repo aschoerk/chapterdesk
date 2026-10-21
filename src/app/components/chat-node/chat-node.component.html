@@ -197,9 +197,14 @@
         </div>
       }
 
-      <div class="attachment-chips editable">
+      <div class="attachment-chips editable"
+           [class.selection-active]="showAttachmentToolbar()">
         @for (a of editAttachments(); track a.id) {
-          <div class="chip">
+          <div class="chip"
+               [class.selected]="isAttachmentSelected(a.id)"
+               [class.cut]="isAttachmentCut(a)"
+               (click)="onAttachmentChipClick(a, $event)">
+            <span class="chip-sel" aria-hidden="true"></span>
             @if (a.mimeType.startsWith('image/')) {
               <img [src]="a.dataUrl" class="thumb" [alt]="a.name" />
             } @else {
@@ -208,7 +213,7 @@
             <span class="name" [title]="a.name">{{ a.name }}</span>
             <button type="button" class="remove"
                     [disabled]="isLoading()"
-                    (click)="removeEditAttachment(a.id)">×</button>
+                    (click)="removeEditAttachment(a.id); $event.stopPropagation()">×</button>
           </div>
         }
 
@@ -225,6 +230,48 @@
                accept="image/*,.pdf,.txt,.md,.json"
                (change)="onEditorFilesSelected($event)" />
       </div>
+
+      @if (showAttachmentToolbar() && isEditing()) {
+        <div class="attachment-toolbar">
+          @if (hasAttachmentSelection()) {
+            <span class="att-count">{{ i18n.t('node.attSelected', { n: selectedCount() }) }}</span>
+            <button class="btn small" type="button"
+                    [disabled]="isLoading()"
+                    (click)="copySelectedAttachments()"
+                    [title]="i18n.t('node.attCopyTitle')">{{ i18n.t('node.attCopy') }}</button>
+            <button class="btn small" type="button"
+                    [disabled]="isLoading()"
+                    (click)="cutSelectedAttachments()"
+                    [title]="i18n.t('node.attCutTitle')">{{ i18n.t('node.attCut') }}</button>
+            <button class="btn small danger" type="button"
+                    [disabled]="isLoading()"
+                    (click)="deleteSelectedAttachments()"
+                    [title]="i18n.t('node.attDeleteTitle')">{{ i18n.t('node.attDelete') }}</button>
+            <button class="btn-icon" type="button"
+                    (click)="clearAttachmentSelection()"
+                    [title]="i18n.t('node.attClearTitle')">✕</button>
+          }
+          @if (attachmentClipboard.hasContent()) {
+            @if (hasAttachmentSelection()) {
+              <span class="att-sep"></span>
+            }
+            <span class="att-clip-status"
+                  [class.cut]="attachmentClipboard.action() === 'cut'"
+                  [title]="attachmentClipboard.action() === 'cut' ? i18n.t('node.attCutStagedHint') : i18n.t('node.attCopyStagedHint')">
+              {{ attachmentClipboard.action() === 'cut'
+                  ? i18n.t('node.attCutStaged', { n: attachmentClipboard.count() })
+                  : i18n.t('node.attCopyStaged', { n: attachmentClipboard.count() }) }}
+            </span>
+            <button class="btn small primary" type="button"
+                    [disabled]="isLoading()"
+                    (click)="pasteAttachments()"
+                    [title]="i18n.t('node.attPasteTitle')">{{ i18n.t('node.attPaste') }}</button>
+            <button class="btn-icon" type="button"
+                    (click)="cancelAttachmentClipboard()"
+                    [title]="i18n.t('node.attCancelTitle')">✕</button>
+          }
+        </div>
+      }
 
       <div class="editor-body">
         <textarea #editArea
@@ -427,15 +474,22 @@
     }
 
     @if (node().attachments?.length) {
-      <div class="attachment-chips read-only">
+      <div class="attachment-chips read-only"
+           [class.selection-active]="showAttachmentToolbar()">
         @for (a of node().attachments; track a.id) {
-          <div class="chip" [class.refused]="isRefusedPromptAttachment(a)">
+          <div class="chip"
+               [class.refused]="isRefusedPromptAttachment(a)"
+               [class.selected]="isAttachmentSelected(a.id)"
+               [class.cut]="isAttachmentCut(a)"
+               (click)="onAttachmentChipClick(a, $event)"
+               [title]="attachmentClipboard.isStaged(a.id) ? i18n.t('node.attStagedHint') : ''">
+            <span class="chip-sel" aria-hidden="true"></span>
             @if (a.mimeType.startsWith('image/')) {
               <img [src]="a.dataUrl" class="thumb" [alt]="a.name"
-                   (click)="openImage(a.dataUrl); $event.stopPropagation()" />
+                   (click)="onAttachmentImageClick(a, $event)" />
             } @else if (isPromptAttachment(a)) {
               <button type="button" class="prompt-toggle"
-                      (click)="togglePrompt(a); $event.stopPropagation()">
+                      (click)="onAttachmentPromptClick(a, $event)">
                 <span class="file-icon">📄</span>
                 @if (isRefusedPromptAttachment(a)) {
                   <span class="refused-flag">{{ i18n.t('node.promptRefused') }}</span>
@@ -444,7 +498,8 @@
                 <span class="prompt-caret">{{ expandedPromptId() === a.id ? '▴' : '▾' }}</span>
               </button>
             } @else {
-              <a class="file-link" [href]="a.dataUrl" [download]="a.name">
+              <a class="file-link" [href]="a.dataUrl" [download]="a.name"
+                 (click)="onAttachmentLinkClick(a, $event)">
                 <span class="file-icon">📄</span> {{ a.name }}
               </a>
             }
@@ -499,6 +554,48 @@
           </div>
         }
       }
+    }
+
+    @if (showAttachmentToolbar() && !isEditing()) {
+      <div class="attachment-toolbar">
+        @if (hasAttachmentSelection()) {
+          <span class="att-count">{{ i18n.t('node.attSelected', { n: selectedCount() }) }}</span>
+          <button class="btn small" type="button"
+                  [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                  (click)="copySelectedAttachments()"
+                  [title]="i18n.t('node.attCopyTitle')">{{ i18n.t('node.attCopy') }}</button>
+          <button class="btn small" type="button"
+                  [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                  (click)="cutSelectedAttachments()"
+                  [title]="i18n.t('node.attCutTitle')">{{ i18n.t('node.attCut') }}</button>
+          <button class="btn small danger" type="button"
+                  [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                  (click)="deleteSelectedAttachments()"
+                  [title]="i18n.t('node.attDeleteTitle')">{{ i18n.t('node.attDelete') }}</button>
+          <button class="btn-icon" type="button"
+                  (click)="clearAttachmentSelection()"
+                  [title]="i18n.t('node.attClearTitle')">✕</button>
+        }
+        @if (attachmentClipboard.hasContent()) {
+          @if (hasAttachmentSelection()) {
+            <span class="att-sep"></span>
+          }
+          <span class="att-clip-status"
+                [class.cut]="attachmentClipboard.action() === 'cut'"
+                [title]="attachmentClipboard.action() === 'cut' ? i18n.t('node.attCutStagedHint') : i18n.t('node.attCopyStagedHint')">
+            {{ attachmentClipboard.action() === 'cut'
+                ? i18n.t('node.attCutStaged', { n: attachmentClipboard.count() })
+                : i18n.t('node.attCopyStaged', { n: attachmentClipboard.count() }) }}
+          </span>
+          <button class="btn small primary" type="button"
+                  [disabled]="isLoading() || chatService.isGenerating(node().id)"
+                  (click)="pasteAttachments()"
+                  [title]="i18n.t('node.attPasteTitle')">{{ i18n.t('node.attPaste') }}</button>
+          <button class="btn-icon" type="button"
+                  (click)="cancelAttachmentClipboard()"
+                  [title]="i18n.t('node.attCancelTitle')">✕</button>
+        }
+      </div>
     }
 
     <div class="node-actions">

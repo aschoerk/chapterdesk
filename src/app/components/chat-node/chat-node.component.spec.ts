@@ -13,6 +13,7 @@ import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeAttachment, makeModel, makeNode, seedApi } from '../../../../test-helpers/factories';
 import { ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
+import { AttachmentClipboardService } from '../../core/attachment-clipboard.service';
 import { GenerationSettingsService } from '../../core/generation-settings.service';
 import { LightboxService } from '../../core/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
@@ -2802,6 +2803,255 @@ describe('ChatNodeComponent', () => {
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
       expect(text).toContain('Adapt prompt & re-render');
       expect(text).toContain('Delete prompt');
+    });
+
+    // Attachment multi-selection + copy / cut / paste
+    // ------------------------------------------------------------------
+
+    /** The CURRENT (isCurrent) assistant chapter whose content includes `text`. */
+    function currentChapter(text: string): ChatNode {
+      const found = chatService
+        .getChildren('q1')
+        .filter(c => c.role === 'assistant' && c.isCurrent)
+        .find(c => (c.content ?? '').includes(text));
+      expect(found).toBeDefined();
+      return found!;
+    }
+
+    function img(id: string, name = 'pic.png'): ReturnType<typeof attachment> {
+      return attachment({
+        id,
+        name,
+        mimeType: 'image/png',
+        dataUrl: `data:image/png;base64,${id.toUpperCase().repeat(4)}`,
+      });
+    }
+
+    it('toggles multi-selection on chip click and marks the chip', () => {
+      const a1 = img('img1');
+      const a2 = img('img2');
+      createFixture(node({ content: 'x', attachments: [a1, a2] }));
+
+      const chips = fixture.nativeElement.querySelectorAll(
+        '.attachment-chips.read-only .chip',
+      );
+      expect(chips.length).toBe(2);
+
+      (chips[0] as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      fixture.detectChanges();
+
+      expect(component.isAttachmentSelected('img1')).toBe(true);
+      expect(component.isAttachmentSelected('img2')).toBe(false);
+      expect((chips[0] as HTMLElement).classList.contains('selected')).toBe(true);
+      expect((chips[1] as HTMLElement).classList.contains('selected')).toBe(false);
+      expect(component.selectedCount()).toBe(1);
+
+      // Clicking again deselects.
+      component.toggleAttachmentSelection(a1);
+      expect(component.isAttachmentSelected('img1')).toBe(false);
+    });
+
+    it('Ctrl+click on an image thumb selects instead of opening the lightbox', () => {
+      const a1 = img('img1');
+      const lightbox = TestBed.inject(LightboxService);
+      const openSpy = vi.spyOn(lightbox, 'open').mockImplementation(() => {});
+      createFixture(node({ content: 'x', attachments: [a1] }));
+
+      const thumb = fixture.nativeElement.querySelector('.thumb') as HTMLElement;
+      const ev = new MouseEvent('click', { bubbles: true, ctrlKey: true });
+      thumb.dispatchEvent(ev);
+      fixture.detectChanges();
+
+      expect(component.isAttachmentSelected('img1')).toBe(true);
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it('copies selected attachments and pastes a CLONE into another node', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter one', attachments: [a1],
+      });
+      const n2 = node({
+        id: 'n2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter two',
+      });
+      await openChat([q1, n1, n2]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.copySelectedAttachments();
+      expect(component.attachmentClipboard.hasContent()).toBe(true);
+      expect(component.attachmentClipboard.action()).toBe('copy');
+
+      createFixture(n2, 'n2');
+      await component.pasteAttachments();
+      fixture.detectChanges();
+
+      // The source keeps its attachment, the target gets a clone with a NEW id.
+      const n1Cur = currentChapter('Chapter one');
+      expect(n1Cur.attachments?.some(a => a.id === 'img1')).toBe(true);
+      const n2Cur = currentChapter('Chapter two');
+      expect(n2Cur.attachments?.length).toBe(1);
+      expect(n2Cur.attachments![0].id).not.toBe('img1');
+      expect(n2Cur.attachments![0].dataUrl).toBe(a1.dataUrl);
+      expect(component.attachmentClipboard.hasContent()).toBe(false);
+    });
+
+    it('cut stages WITHOUT removing, and paste MOVES the attachments', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter one', attachments: [a1],
+      });
+      const n2 = node({
+        id: 'n2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter two',
+      });
+      await openChat([q1, n1, n2]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.cutSelectedAttachments();
+      expect(component.attachmentClipboard.action()).toBe('cut');
+      // Cut is only real when pasted: the source still has the attachment.
+      expect(currentChapter('Chapter one').attachments?.some(a => a.id === 'img1')).toBe(true);
+      expect(component.isAttachmentCut(a1)).toBe(true);
+
+      createFixture(n2, 'n2');
+      await component.pasteAttachments();
+      fixture.detectChanges();
+
+      // Moved: the source lost it (new version), the target gained it (same id).
+      expect(currentChapter('Chapter one').attachments?.some(a => a.id === 'img1')).toBe(false);
+      expect(currentChapter('Chapter two').attachments?.some(a => a.id === 'img1')).toBe(true);
+      expect(component.attachmentClipboard.hasContent()).toBe(false);
+    });
+
+    it('cutting then cancelling keeps the attachments untouched', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter', attachments: [a1],
+      });
+      await openChat([q1, n1]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.cutSelectedAttachments();
+      component.cancelAttachmentClipboard();
+
+      expect(component.attachmentClipboard.hasContent()).toBe(false);
+      expect(currentChapter('Chapter').attachments?.some(a => a.id === 'img1')).toBe(true);
+      // No version was created by the cut itself.
+      expect(
+        chatService.getChildren('q1').filter(c => c.role === 'assistant' && c.isCurrent).length,
+      ).toBe(1);
+    });
+
+    it('pasting a cut back into the SAME node is a no-op but clears the staging', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter', attachments: [a1],
+      });
+      await openChat([q1, n1]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.cutSelectedAttachments();
+      await component.pasteAttachments();
+      fixture.detectChanges();
+
+      expect(component.attachmentClipboard.hasContent()).toBe(false);
+      expect(currentChapter('Chapter').attachments?.some(a => a.id === 'img1')).toBe(true);
+      // Still exactly one current chapter — no extra version was created.
+      expect(
+        chatService.getChildren('q1').filter(c => c.role === 'assistant' && c.isCurrent).length,
+      ).toBe(1);
+    });
+
+    it('deletes the selected attachments from a read-only node after confirmation', async () => {
+      const a1 = img('img1');
+      const a2 = img('img2', 'other.png');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter', attachments: [a1, a2],
+      });
+      await openChat([q1, n1]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.toggleAttachmentSelection(a2);
+      confirmResolves(true);
+      await component.deleteSelectedAttachments();
+      fixture.detectChanges();
+
+      expect(confirm.ask).toHaveBeenCalled();
+      const nCur = currentChapter('Chapter');
+      expect(nCur.attachments ?? []).toHaveLength(0);
+      expect(component.selectedCount()).toBe(0);
+    });
+
+    it('keeps the attachments when deletion is cancelled', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter', attachments: [a1],
+      });
+      await openChat([q1, n1]);
+
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      confirmResolves(false);
+      await component.deleteSelectedAttachments();
+      fixture.detectChanges();
+
+      expect(currentChapter('Chapter').attachments?.some(a => a.id === 'img1')).toBe(true);
+    });
+
+    it('deletes the selected attachments from the unsaved DRAFT while editing', async () => {
+      const a1 = img('img1');
+      const a2 = img('img2', 'other.png');
+      createFixture(node({ content: 'Hello', attachments: [a1, a2] }));
+      await startEditing(node({ content: 'Hello', attachments: [a1, a2] }));
+
+      const confirmSpy = vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+      component.toggleAttachmentSelection(a1);
+      await component.deleteSelectedAttachments();
+      fixture.detectChanges();
+
+      expect(component.editAttachments().map(a => a.id)).toEqual(['img2']);
+      expect(component.selectedCount()).toBe(0);
+      expect(confirmSpy).not.toHaveBeenCalled();
+    });
+
+    it('paste while editing appends to the draft (copy)', async () => {
+      const a1 = img('img1');
+      const q1 = node({ id: 'q1', chatId: 'chat-1', role: 'user', content: 'Dir' });
+      const n1 = node({
+        id: 'n1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Chapter', attachments: [a1],
+      });
+      await openChat([q1, n1]);
+      createFixture(n1, 'n1');
+      component.toggleAttachmentSelection(a1);
+      component.copySelectedAttachments();
+
+      // Reuse the SAME component but flip it into edit mode.
+      await startEditing();
+      fixture.detectChanges();
+      await component.pasteAttachments();
+      fixture.detectChanges();
+
+      expect(component.editAttachments().length).toBe(2);
+      expect(component.attachmentClipboard.hasContent()).toBe(false);
+      // The persisted source still has the original attachment.
+      expect(currentChapter('Chapter').attachments?.some(a => a.id === 'img1')).toBe(true);
     });
   });
 

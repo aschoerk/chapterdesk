@@ -519,6 +519,7 @@
   background: var(--bg-hover, #f8fafc);
   color: var(--text);
   font-size: 0.75rem;
+  cursor: pointer;
 }
 
 .attachment-chips .thumb {
@@ -592,6 +593,89 @@
 .attachment-chips .prompt-caret {
   color: var(--text-muted, #64748b);
   font-size: 0.75rem;
+}
+
+/* ===== Attachment multi-selection + clipboard toolbar ===== */
+
+/* Selection marker (hollow circle → filled check when selected). */
+.attachment-chips .chip-sel {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--text-muted, #64748b);
+  border-radius: 50%;
+  background: transparent;
+  box-sizing: border-box;
+  transition: background 0.1s ease;
+}
+
+.attachment-chips .chip.selected {
+  border-color: var(--color-accent, #3b82f6);
+  background: color-mix(in srgb, var(--color-accent, #3b82f6) 12%, var(--bg-hover, #f8fafc));
+}
+
+.attachment-chips .chip.selected .chip-sel {
+  border-color: var(--color-accent, #3b82f6);
+  background: var(--color-accent, #3b82f6);
+}
+
+.attachment-chips .chip.selected .chip-sel::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
+/* A staged cut: marked but still in place (removed only when pasted). */
+.attachment-chips .chip.cut {
+  border-style: dashed;
+  border-color: var(--color-accent, #3b82f6);
+  opacity: 0.72;
+}
+
+.attachment-chips .chip.cut.selected {
+  opacity: 1;
+}
+
+.attachment-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: var(--bg-hover, #f8fafc);
+  font-size: 0.75rem;
+}
+
+.attachment-toolbar .att-count,
+.attachment-toolbar .att-clip-status {
+  color: var(--text-muted, #64748b);
+}
+
+.attachment-toolbar .att-clip-status.cut {
+  color: var(--color-accent, #3b82f6);
+  font-weight: 600;
+}
+
+.attachment-toolbar .att-sep {
+  width: 1px;
+  height: 1rem;
+  background: var(--border, #e2e8f0);
+}
+
+.attachment-toolbar .btn-icon {
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
 }
 
 .prompt-box {

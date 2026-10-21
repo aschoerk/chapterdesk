@@ -44,6 +44,7 @@ import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { ChatUsageService } from '../../core/chat-usage.service';
+import { AttachmentClipboardService } from '../../core/attachment-clipboard.service';
 import { nearestScrollParent, textareaCharMetrics } from '../../core/dom-metrics';
 
 /**
@@ -106,6 +107,19 @@ export class ChatNodeComponent implements OnDestroy {
   readonly editAttachments = signal<NodeAttachment[]>([]);
   readonly isEditorDragOver = signal(false);
   private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
+
+  /** Client-side clipboard for moving/duplicating attachments between nodes. */
+  readonly attachmentClipboard = inject(AttachmentClipboardService);
+  /** Ids of the attachments selected in THIS node (click toggles, multi-select). */
+  readonly selectedAttachmentIds = signal<Set<string>>(new Set());
+  readonly selectedCount = computed(() => this.selectedAttachmentIds().size);
+  readonly hasAttachmentSelection = computed(() => this.selectedCount() > 0);
+  /** Toolbar is visible when there is a selection and/or clipboard content. */
+  readonly showAttachmentToolbar = computed(
+    () => this.hasAttachmentSelection() || this.attachmentClipboard.hasContent()
+  );
+  /** Tracks only the node id so the selection resets when a different node is shown. */
+  private readonly nodeIdForSelection = computed(() => this.node().id);
 
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
@@ -443,6 +457,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.editDismissed.set(false);
     this.contentDraft.set(n.content || '');
     this.editAttachments.set([...(n.attachments || [])]);
+    this.clearAttachmentSelection();
     this.branchModelId.set(n.modelId || this.resolvePreferredModelId(n));
     this.pendingAction.set(null);
     this.scheduleResize();
@@ -516,6 +531,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.showPreview.set(false);
     this.contentDraft.set('');
     this.editAttachments.set([]);
+    this.clearAttachmentSelection();
     this.pendingScrollOffset = null;
     this.editSession.abandon(this.node().id);
   }
@@ -526,6 +542,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.showPreview.set(false);
     this.contentDraft.set('');
     this.editAttachments.set([]);
+    this.clearAttachmentSelection();
     this.pendingScrollOffset = null;
     this.editSession.commit(id);
   }
@@ -2518,6 +2535,12 @@ export class ChatNodeComponent implements OnDestroy {
       this.updateRendered(content);
     });
     effect(() => {
+      // The selection is bound to a specific node: when the displayed node
+      // changes (navigation, versioning) stale ids must not linger.
+      this.nodeIdForSelection();
+      this.clearAttachmentSelection();
+    });
+    effect(() => {
       const id = this.node().id;
       this.prependEnabled.set(this.isPrependStored(id));
       this.prependText.set(this.storedPrependText(id));
@@ -2809,6 +2832,267 @@ export class ChatNodeComponent implements OnDestroy {
       this.editAttachments.update(list => [...list, ...added]);
       this.syncAttachments();
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Attachment multi-selection + copy / cut / paste
+  // ------------------------------------------------------------------
+
+  isAttachmentSelected(id: string): boolean {
+    return this.selectedAttachmentIds().has(id);
+  }
+
+  /** True when this attachment is staged for a cut (marked, still in place). */
+  isAttachmentCut(a: NodeAttachment): boolean {
+    return this.attachmentClipboard.isCutAttachment(a.id);
+  }
+
+  /** Toggle an attachment in the multi-selection. */
+  toggleAttachmentSelection(a: NodeAttachment): void {
+    this.selectedAttachmentIds.update(set => {
+      const next = new Set(set);
+      if (next.has(a.id)) {
+        next.delete(a.id);
+      } else {
+        next.add(a.id);
+      }
+      return next;
+    });
+  }
+
+  clearAttachmentSelection(): void {
+    this.selectedAttachmentIds.set(new Set());
+  }
+
+  /** The attachments currently selected (draft list while editing, node list otherwise). */
+  private selectedAttachments(): NodeAttachment[] {
+    const list = this.isEditing()
+      ? this.editAttachments()
+      : (this.node().attachments ?? []);
+    const ids = this.selectedAttachmentIds();
+    return list.filter(a => ids.has(a.id));
+  }
+
+  /**
+   * Click on a chip: Ctrl/Cmd+click always toggles multi-selection; a plain
+   * click on the chip body toggles it too. Interactive children (image thumb,
+   * prompt toggle, file link) stop propagation so their own action still runs
+   * (see onAttachment*Click below).
+   */
+  onAttachmentChipClick(a: NodeAttachment, event: MouseEvent): void {
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
+    this.toggleAttachmentSelection(a);
+    event.stopPropagation();
+  }
+
+  onAttachmentImageClick(a: NodeAttachment, event: MouseEvent): void {
+    if (event.ctrlKey || event.metaKey) {
+      this.toggleAttachmentSelection(a);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    this.openImage(a.dataUrl);
+    event.stopPropagation();
+  }
+
+  onAttachmentPromptClick(a: NodeAttachment, event: MouseEvent): void {
+    if (event.ctrlKey || event.metaKey) {
+      this.toggleAttachmentSelection(a);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    this.togglePrompt(a);
+    event.stopPropagation();
+  }
+
+  onAttachmentLinkClick(a: NodeAttachment, event: MouseEvent): void {
+    if (event.ctrlKey || event.metaKey) {
+      this.toggleAttachmentSelection(a);
+      event.preventDefault();
+    }
+    event.stopPropagation();
+  }
+
+  /** Copy the selected attachments into the attachment clipboard. */
+  copySelectedAttachments(): void {
+    const list = this.selectedAttachments();
+    if (!list.length) return;
+    try {
+      this.attachmentClipboard.copy(this.node().id, this.node().chatId, list);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.attCopyFailed', { error: err?.message || err }));
+    }
+  }
+
+  /**
+   * Cut (stage a move). Nothing is removed from the persisted node here — the
+   * attachments stay in place and are only removed when pasted into another
+   * node ("cut is only done in reality when paste is done"). While EDITING the
+   * staged items are dropped from the UNSAVED draft immediately: the draft is
+   * local state, so cancelling the editor restores them — no data loss.
+   */
+  cutSelectedAttachments(): void {
+    const list = this.selectedAttachments();
+    if (!list.length) return;
+    try {
+      this.attachmentClipboard.cut(this.node().id, this.node().chatId, list);
+      if (this.isEditing()) {
+        const ids = new Set(list.map(a => a.id));
+        this.editAttachments.update(cur => cur.filter(a => !ids.has(a.id)));
+        this.syncAttachments();
+      }
+      this.clearAttachmentSelection();
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.attCutFailed', { error: err?.message || err }));
+    }
+  }
+
+  /**
+   * Paste the attachment clipboard into THIS node.
+   *
+   * - copy → clones are appended (a new version is created / the draft grows).
+   * - cut  → the staged attachments are MOVED here: removed from their source
+   *   node (new version) and appended to this one. Cut + paste into the same
+   *   node is a no-op (nothing moves), the staging is just dropped.
+   *
+   * While editing, pasted attachments land in the unsaved draft instead of a
+   * new version; a cut source whose editor is open is skipped (the staged
+   * items were already dropped from that draft).
+   */
+  async pasteAttachments(): Promise<void> {
+    const entry = this.attachmentClipboard.clipboard();
+    if (!entry || !entry.attachments.length) return;
+    const isCut = entry.action === 'cut';
+    try {
+      // Cut + paste into the SAME node: nothing moves, just drop the staging.
+      if (isCut && entry.sourceNodeId === this.node().id) {
+        this.attachmentClipboard.clear();
+        this.clearAttachmentSelection();
+        return;
+      }
+
+      // Execute a staged cut: remove the attachments from their SOURCE node
+      // (a new version is created). Skipped when the source is the node whose
+      // draft is currently open — the staged items were already removed from
+      // that draft when Cut was pressed (the removal lands when the draft saves).
+      if (isCut && entry.sourceNodeId && entry.sourceNodeId !== this.node().id) {
+        const sourceIsBeingEdited =
+          this.editSession.editingNodeId() === entry.sourceNodeId;
+        if (!sourceIsBeingEdited) {
+          const source = this.chatService.nodes().find(
+            n => n.id === entry.sourceNodeId
+          );
+          if (source) {
+            const cutIds = new Set(entry.attachments.map(a => a.id));
+            const remaining = (source.attachments ?? []).filter(
+              a => !cutIds.has(a.id)
+            );
+            await this.persistAttachments(source, remaining);
+          }
+        }
+      }
+
+      const incoming = isCut
+        ? entry.attachments
+        : entry.attachments.map(a => ({ ...a, id: newId() }));
+
+      if (this.isEditing()) {
+        this.editAttachments.update(list => [...list, ...incoming]);
+        this.syncAttachments();
+      } else {
+        const target = this.node();
+        const merged = [...(target.attachments ?? []), ...incoming];
+        const saved = await this.persistAttachments(target, merged);
+        this.activate.emit(saved.id);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.attPasteFailed', { error: err?.message || err }));
+    } finally {
+      this.attachmentClipboard.clear();
+      this.clearAttachmentSelection();
+    }
+  }
+
+  /** Cancel a staged cut/copy: nothing is removed, the staging is dropped. */
+  cancelAttachmentClipboard(): void {
+    this.attachmentClipboard.clear();
+    this.clearAttachmentSelection();
+  }
+
+  /**
+   * Delete the selected attachments from this node.
+   *
+   * Read-only: asks for confirmation and persists a NEW version without them.
+   * Editing: only the unsaved draft is touched (Cancel restores the persisted
+   * node), so no confirmation is needed.
+   */
+  async deleteSelectedAttachments(): Promise<void> {
+    const ids = this.selectedAttachmentIds();
+    if (!ids.size) return;
+
+    if (this.isEditing()) {
+      this.editAttachments.update(list => list.filter(a => !ids.has(a.id)));
+      this.syncAttachments();
+      this.clearAttachmentSelection();
+      return;
+    }
+
+    const n = this.node();
+    const remaining = (n.attachments ?? []).filter(a => !ids.has(a.id));
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('node.attDeleteAsk', { n: ids.size }),
+      message: this.i18n.t('node.attDeleteMsg', { n: ids.size }),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
+
+    this.isLoading.set(true);
+    this.pendingAction.set('version');
+    try {
+      const saved = await this.persistAttachments(n, remaining);
+      this.activate.emit(saved.id);
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.attDeleteFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+      this.clearAttachmentSelection();
+    }
+  }
+
+  /**
+   * Persist the given attachments as a NEW version of `node` (role-aware,
+   * keeps content + thinking) — used to add/remove/move attachments outside
+   * the editor. Returns the newly created version.
+   */
+  private async persistAttachments(
+    node: ChatNode,
+    attachments: NodeAttachment[]
+  ): Promise<ChatNode> {
+    const chatId = node.chatId;
+    if (node.role === 'assistant' || node.role === 'system' || node.role === 'structural') {
+      return this.chatService.editAssistant(
+        chatId,
+        node.id,
+        node.content ?? '',
+        attachments,
+        node.thinking ?? undefined
+      );
+    }
+    return this.chatService.editUser(
+      chatId,
+      node.id,
+      node.content ?? '',
+      attachments
+    );
   }
 
   removeEditAttachment(id: string) {
