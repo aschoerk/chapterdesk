@@ -14,6 +14,8 @@
     >
       <h3 id="illustrate-title">{{ i18n.t('illustrateDialog.title') }}</h3>
 
+      <!-- 1. Model selection — Default (from settings) first, then the
+           last-used choice / every image-capable model. -->
       <label class="ill-field">
         <span>{{ i18n.t('illustrateDialog.modelLabel') }}</span>
         <select
@@ -21,6 +23,9 @@
           (ngModelChange)="onModelChange($event)"
           [title]="i18n.t('illustrateDialog.modelTitle')"
         >
+          <option value="">
+            {{ i18n.t('illustrateDialog.modelDefault') }}{{ defaultModelName() ? ' — ' + defaultModelName() : '' }}
+          </option>
           @for (model of imageModels(); track model.id) {
             <option [value]="model.modelId">{{ model.displayName }}</option>
           }
@@ -28,6 +33,48 @@
         <small class="ill-hint">{{ i18n.t('illustrateDialog.modelHint') }}</small>
       </label>
 
+      <!-- 2. Use case selection — how the pictures are produced. -->
+      <fieldset class="ill-radio-group">
+        <legend>{{ i18n.t('illustrateDialog.usecaseLabel') }}</legend>
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="usecase"
+            [checked]="usecase() === 'planned'"
+            (change)="onUsecaseChange('planned')"
+          />
+          <span>
+            {{ i18n.t('illustrateDialog.usecasePlanned') }}
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.usecasePlannedHint') }}</small>
+          </span>
+        </label>
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="usecase"
+            [checked]="usecase() === 'direct'"
+            (change)="onUsecaseChange('direct')"
+          />
+          <span>
+            {{ i18n.t('illustrateDialog.usecaseDirect') }}
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.usecaseDirectHint') }}</small>
+          </span>
+        </label>
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="usecase"
+            [checked]="usecase() === 'pure'"
+            (change)="onUsecaseChange('pure')"
+          />
+          <span>
+            {{ i18n.t('illustrateDialog.usecasePure') }}
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.usecasePureHint') }}</small>
+          </span>
+        </label>
+      </fieldset>
+
+      <!-- 3. Number of pictures / scenes. -->
       <label class="ill-field">
         <span>{{ i18n.t('illustrateDialog.countLabel') }}</span>
         <input
@@ -40,22 +87,13 @@
         <small class="ill-hint">{{ i18n.t('illustrateDialog.countHint') }}</small>
       </label>
 
-      <label class="ill-field">
-        <span>{{ i18n.t('illustrateDialog.styleLabel') }}</span>
-        <input
-          type="text"
-          [ngModel]="style()"
-          (ngModelChange)="style.set($event)"
-          [placeholder]="i18n.t('illustrateDialog.stylePh')"
-        />
-      </label>
-
+      <!-- 4. Story text to use — current text / last N beats / all text. -->
       <fieldset class="ill-radio-group">
         <legend>{{ i18n.t('illustrateDialog.contextModeLabel') }}</legend>
         <label class="ill-radio">
           <input
             type="radio"
-            name="historyMode"
+            name="contextMode"
             [checked]="historyMode() === 'single'"
             (change)="onHistoryMode('single')"
           />
@@ -67,7 +105,7 @@
         <label class="ill-radio">
           <input
             type="radio"
-            name="historyMode"
+            name="contextMode"
             [checked]="historyMode() === 'window'"
             (change)="onHistoryMode('window')"
           />
@@ -77,7 +115,7 @@
               <input
                 class="ill-window-count"
                 type="number"
-                [min]="2"
+                [min]="1"
                 [max]="64"
                 [disabled]="historyMode() !== 'window'"
                 [value]="activeHistoryNodes()"
@@ -89,8 +127,21 @@
             <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeWindowHint', { nodes: activeHistoryNodes() }) }}</small>
           </span>
         </label>
+        <label class="ill-radio">
+          <input
+            type="radio"
+            name="contextMode"
+            [checked]="historyMode() === 'full'"
+            (change)="onHistoryMode('full')"
+          />
+          <span>
+            {{ i18n.t('illustrateDialog.contextModeFull') }}
+            <small class="ill-hint">{{ i18n.t('illustrateDialog.contextModeFullHint') }}</small>
+          </span>
+        </label>
       </fieldset>
 
+      <!-- 5. Additional rules that apply to every picture. -->
       <label class="ill-field">
         <span>{{ i18n.t('illustrateDialog.storyPromptLabel') }}</span>
         <textarea
@@ -101,32 +152,16 @@
         ></textarea>
       </label>
 
-      <label class="ill-check">
+      <!-- 6. Style — a single line. -->
+      <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.styleLabel') }}</span>
         <input
-          type="checkbox"
-          [checked]="purePictures()"
-          (change)="onPureChange($any($event.target).checked)"
+          type="text"
+          [ngModel]="style()"
+          (ngModelChange)="style.set($event)"
+          [placeholder]="i18n.t('illustrateDialog.stylePh')"
         />
-        <span>{{ i18n.t('illustrateDialog.purePicturesLabel') }}</span>
       </label>
-      <small class="ill-hint">{{ i18n.t('illustrateDialog.purePicturesHint') }}</small>
-
-      <label class="ill-check">
-        <input
-          type="checkbox"
-          [checked]="planDescriptions() || planningDisabled()"
-          (change)="onPlanChange($any($event.target).checked)"
-          [disabled]="planningDisabled()"
-        />
-        <span>{{ i18n.t('illustrateDialog.planningLabel') }}</span>
-      </label>
-      <small class="ill-hint">
-        @if (planningDisabled()) {
-          {{ i18n.t('illustrateDialog.planningForcedHint') }}
-        } @else {
-          {{ i18n.t('illustrateDialog.planningHint') }}
-        }
-      </small>
 
       <div class="illustrate-actions">
         <button class="btn" type="button" (click)="dialog.cancel()">

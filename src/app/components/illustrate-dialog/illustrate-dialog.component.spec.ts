@@ -57,17 +57,17 @@ describe('IllustrateDialogComponent', () => {
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
   });
 
-  it('shows the storyboard rules regardless of the scene count', async () => {
+  it('shows the additional-rules textarea regardless of the scene count', async () => {
     const p = dialog.open();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).not.toBeNull();
 
-    // The storyboard rules are ALWAYS shown — no special handling for count 1.
-    expect(fixture.nativeElement.textContent).toContain('Storyboard rules');
+    // The additional rules textarea is ALWAYS shown — no special handling for count 1.
+    expect(fixture.nativeElement.textContent).toContain('Additional rules');
 
     component.count.set(12);
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Storyboard rules');
+    expect(fixture.nativeElement.textContent).toContain('Additional rules');
 
     dialog.cancel();
     await p;
@@ -91,14 +91,14 @@ describe('IllustrateDialogComponent', () => {
       modelId: '',
       providerId: '',
       historyMode: 'single',
-      historyNodes: 4,
-      storyboardHistoryNodes: 4,
+      historyNodes: 1,
+      storyboardHistoryNodes: 1,
       planDescriptions: true
     });
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
   });
 
-  it('shows the image-capable models in a model select', async () => {
+  it('shows the image-capable models in a model select with a Default option first', async () => {
     dialog.open();
     fixture.detectChanges();
 
@@ -108,7 +108,22 @@ describe('IllustrateDialogComponent', () => {
     expect(labels).toContain('Image One');
     expect(labels).toContain('Image Two');
     expect(labels).not.toContain('Text Only'); // non-image model excluded
+    // The first option is the settings default (empty model id).
+    expect(select.options[0].value).toBe('');
+    expect(select.options[0].textContent).toContain('Default (from settings)');
     dialog.cancel();
+  });
+
+  it('submits no model when the Default option is chosen', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    component.onModelChange('');
+    fixture.detectChanges();
+    component.submit();
+    fixture.detectChanges();
+
+    await expect(p).resolves.toMatchObject({ modelId: '', providerId: '' });
   });
 
   it('selecting a model updates modelId + providerId and submits them', async () => {
@@ -126,7 +141,13 @@ describe('IllustrateDialogComponent', () => {
     });
   });
 
-  it('seeds the model select from the options it was opened with', async () => {
+  it('uses the opened settings-default seed when no model is remembered', async () => {
+    // Reset the remembered model to none first.
+    dialog.submit({
+      count: 1, style: '', storyboardPrompt: '', purePictures: false,
+      modelId: '', providerId: '', historyMode: 'single',
+      historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
+    });
     dialog.open({ modelId: 'alpha/image', providerId: 'prov-1' });
     await fixture.whenStable();
     fixture.detectChanges();
@@ -138,33 +159,50 @@ describe('IllustrateDialogComponent', () => {
     dialog.cancel();
   });
 
-  it('toggles pure picture mode and submits it', async () => {
+  it('remembers the last-used model over the opened settings-default seed', async () => {
+    dialog.submit({
+      count: 1, style: '', storyboardPrompt: '', purePictures: false,
+      modelId: 'beta/image', providerId: 'prov-1', historyMode: 'single',
+      historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
+    });
+    dialog.open({ modelId: 'alpha/image', providerId: 'prov-1' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The user's own last choice wins over the settings-default seed.
+    expect(component.modelId()).toBe('beta/image');
+    const select = fixture.nativeElement.querySelector('.ill-field select') as HTMLSelectElement;
+    expect(select.value).toBe('beta/image');
+    dialog.cancel();
+  });
+
+  it('selecting the "pure" use case submits purePictures with planning forced on', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    const checkbox = fixture.nativeElement.querySelector('.ill-check input[type="checkbox"]') as HTMLInputElement;
-    expect(checkbox).not.toBeNull();
-    component.purePictures.set(true);
+    const usecaseRadios = fixture.nativeElement.querySelectorAll('input[name="usecase"]') as NodeListOf<HTMLInputElement>;
+    expect(usecaseRadios[2]).not.toBeNull();
+    component.usecase.set('pure');
     fixture.detectChanges();
     component.submit();
     fixture.detectChanges();
 
-    await expect(p).resolves.toMatchObject({ purePictures: true });
+    await expect(p).resolves.toMatchObject({ purePictures: true, planDescriptions: true });
   });
 
-  it('seeds pure picture mode from the last-used options', async () => {
+  it('seeds the pure use case from the last-used options', async () => {
     dialog.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
     dialog.open();
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(component.purePictures()).toBe(true);
-    const checkbox = fixture.nativeElement.querySelector('.ill-check input[type="checkbox"]') as HTMLInputElement;
-    expect(checkbox?.checked).toBe(true);
+    expect(component.usecase()).toBe('pure');
+    const usecaseRadios = fixture.nativeElement.querySelectorAll('input[name="usecase"]') as NodeListOf<HTMLInputElement>;
+    expect(usecaseRadios[2].checked).toBe(true);
     dialog.cancel();
   });
 
-  it('shows the pure picture mode checkbox and its hint', async () => {
+  it('shows the pure picture use case radio and its hint', async () => {
     dialog.open();
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
@@ -276,7 +314,7 @@ describe('IllustrateDialogComponent', () => {
 
     expect(component.historyMode()).toBe('window');
     expect(component.historyNodes()).toBe(8);
-    const radios = fixture.nativeElement.querySelectorAll('.ill-radio input[type="radio"]');
+    const radios = fixture.nativeElement.querySelectorAll('input[name="contextMode"]');
     expect((radios[1] as HTMLInputElement).checked).toBe(true);
     dialog.cancel();
   });
@@ -285,13 +323,13 @@ describe('IllustrateDialogComponent', () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    component.purePictures.set(true);
+    component.usecase.set('pure');
     component.historyMode.set('window');
     fixture.detectChanges();
 
     // Pure picture mode still lets the user bound the context with the window —
     // the window limits what the PLANNING (text) model sees, not the image model.
-    const radios = fixture.nativeElement.querySelectorAll('.ill-radio input[type="radio"]');
+    const radios = fixture.nativeElement.querySelectorAll('input[name="contextMode"]');
     expect((radios[1] as HTMLInputElement).disabled).toBe(false);
     expect((radios[1] as HTMLInputElement).checked).toBe(true);
 
@@ -305,7 +343,7 @@ describe('IllustrateDialogComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    const radios = fixture.nativeElement.querySelectorAll('.ill-radio input[type="radio"]');
+    const radios = fixture.nativeElement.querySelectorAll('input[name="contextMode"]');
     (radios[0] as HTMLInputElement).click();
     fixture.detectChanges();
     component.submit();
@@ -314,54 +352,57 @@ describe('IllustrateDialogComponent', () => {
     await expect(p).resolves.toMatchObject({ historyMode: 'single' });
   });
 
-  it('shows the planning checkbox enabled by default and submits planDescriptions on', async () => {
+  it('clicking the full-chat context and submitting persists historyMode full', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    const checkboxes = fixture.nativeElement.querySelectorAll('.ill-check input[type="checkbox"]');
-    const planningBox = checkboxes[checkboxes.length - 1] as HTMLInputElement;
-    expect(planningBox.disabled).toBe(false);
-    expect(planningBox.checked).toBe(true);
-
+    const radios = fixture.nativeElement.querySelectorAll('input[name="contextMode"]');
+    (radios[2] as HTMLInputElement).click();
+    fixture.detectChanges();
     component.submit();
     fixture.detectChanges();
-    await expect(p).resolves.toMatchObject({ planDescriptions: true });
+
+    await expect(p).resolves.toMatchObject({ historyMode: 'full' });
   });
 
-  it('can turn planning off and submits planDescriptions false', async () => {
+  it('defaults to the planned use case and submits planDescriptions on', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    component.planDescriptions.set(false);
+    const usecaseRadios = fixture.nativeElement.querySelectorAll('input[name="usecase"]') as NodeListOf<HTMLInputElement>;
+    expect(usecaseRadios[0].checked).toBe(true);
+
     component.submit();
     fixture.detectChanges();
-    await expect(p).resolves.toMatchObject({ planDescriptions: false });
+    await expect(p).resolves.toMatchObject({ planDescriptions: true, purePictures: false });
   });
 
-  it('seeds the planning checkbox from the opened options', async () => {
+  it('the "direct" use case submits planDescriptions false', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    component.usecase.set('direct');
+    component.submit();
+    fixture.detectChanges();
+    await expect(p).resolves.toMatchObject({ planDescriptions: false, purePictures: false });
+  });
+
+  it('seeds the "direct" use case from the opened options', async () => {
     dialog.open({ planDescriptions: false });
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(component.planDescriptions()).toBe(false);
-    const checkboxes = fixture.nativeElement.querySelectorAll('.ill-check input[type="checkbox"]');
-    const planningBox = checkboxes[checkboxes.length - 1] as HTMLInputElement;
-    expect(planningBox.checked).toBe(false);
+    expect(component.usecase()).toBe('direct');
+    const usecaseRadios = fixture.nativeElement.querySelectorAll('input[name="usecase"]') as NodeListOf<HTMLInputElement>;
+    expect(usecaseRadios[1].checked).toBe(true);
     dialog.cancel();
   });
 
-  it('forces planning back on (disabled checkbox) in pure picture mode', async () => {
+  it('the "pure" use case always submits planning on and purePictures', async () => {
     const p = dialog.open();
     fixture.detectChanges();
 
-    component.purePictures.set(true);
-    component.planDescriptions.set(false);
-    fixture.detectChanges();
-
-    const checkboxes = fixture.nativeElement.querySelectorAll('.ill-check input[type="checkbox"]');
-    const planningBox = checkboxes[checkboxes.length - 1] as HTMLInputElement;
-    expect(planningBox.disabled).toBe(true);
-    // onSubmit (and onPlanChange) clamp back to true.
+    component.usecase.set('pure');
     component.submit();
     fixture.detectChanges();
     await expect(p).resolves.toMatchObject({ planDescriptions: true, purePictures: true });

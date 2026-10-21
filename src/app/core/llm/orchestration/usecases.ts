@@ -711,17 +711,18 @@ export class LlmUseCaseRunner {
     // With `historyMode === 'window'` the context is bounded to the last
     // `historyNodes` BEATS — counted in ASSISTANT nodes only (the current
     // node is the anchor, so `historyNodes - 1` earlier chapters precede it;
-    // user directions/lore never count toward the window). The same windowed
-    // context feeds the storyboard planning pass, so both illustration and
-    // storyboarding can be grounded in a bounded slice of the story instead
-    // of the complete chat.
+    // user directions/lore never count toward the window). A window of 1
+    // keeps NO preceding beat (the anchor alone is the current beat). The
+    // same windowed context feeds the storyboard planning pass, so both
+    // illustration and storyboarding can be grounded in a bounded slice of
+    // the story instead of the complete chat.
     const cParentId = cx.node.parentId;
-    const historyNodes = build.vars.historyMode === 'window'
-      ? Math.max(1, (build.vars.historyNodes ?? 0) - 1)
+    const precedingNodes = build.vars.historyMode === 'window'
+      ? Math.max(0, (build.vars.historyNodes ?? 1) - 1)
       : 0;
     const contextMessages = cParentId
-      ? (historyNodes > 0
-          ? this.factory.buildContextMessagesWindow(cx.chat.id, cParentId, historyNodes)
+      ? (build.vars.historyMode === 'window'
+          ? this.factory.buildContextMessagesWindow(cx.chat.id, cParentId, precedingNodes)
           : this.factory.buildContextMessagesUpTo(cx.chat.id, cParentId))
       : [];
     const sceneText = build.vars.promptText ?? build.vars.content ?? cx.node.content ?? '';

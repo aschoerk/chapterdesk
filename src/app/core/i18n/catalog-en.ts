@@ -340,7 +340,6 @@ export const EN = {
     imageInterpretPrefix: 'Attached image (interpreted automatically):',
     illustrate: 'Illustrate',
     illustrateTitle: 'Generate a picture for this beat using the story so far',
-    illustrateDraftTitle: 'Generate a picture from the edited direction text',
     generatingImage: 'Creating…',
     generatingImageCount: 'Creating {{done}}/{{total}}…',
     imageModelMissing: 'No image model is enabled. Choose one in Settings → Generation tasks.',
@@ -516,30 +515,35 @@ export const EN = {
     title: 'Illustrate',
     modelLabel: 'Model',
     modelTitle: 'Image model used to render the picture(s)',
-    modelHint: 'Only models that can generate images are listed. The choice is remembered for the next illustration.',
-    contextModeLabel: 'Context sent to the model',
+    modelDefault: 'Default (from settings)',
+    modelHint: 'The choice is remembered for the next illustration. Choose “Default” to always use the image model configured under Settings → Generation tasks.',
+    usecaseLabel: 'Use case',
+    usecasePlanned: 'Plan descriptions first (text model)',
+    usecasePlannedHint:
+      'A text model expands the story into concrete picture descriptions before the image model draws them. Used for storyboards and pure picture mode.',
+    usecaseDirect: 'Direct to image model',
+    usecaseDirectHint:
+      'Send the story text straight to the image model without a planning pass. For a single picture the context choice below decides how much of the chat is sent.',
+    usecasePure: 'Pure picture mode (descriptions only)',
+    usecasePureHint:
+      'Only derived, temporal-free picture descriptions plus the consistency rules reach the image model — never the raw story text. Lowers moderation rejects on sensitive content; planning is always on.',
+    contextModeLabel: 'Story text to use',
     contextModeSingle: 'Current text only',
-    contextModeSingleHint: 'Send just this beat\'s text to the model as a single message.',
+    contextModeSingleHint: 'Use just this beat\'s text as the scene.',
     contextModeWindow: 'Last beats up to this point',
     contextNodesLabel: 'Number of recent beats to include as context',
     contextModeWindowHint:
-      'Send the content of the last {{nodes}} story beats (up to and including this one) as normal user/assistant messages — a bounded window instead of the complete chat.',
-    countLabel: 'Number of scenes',
+      'Use the content of the last {{nodes}} story beats (up to and including this one) as context.',
+    contextModeFull: 'All story text up to this point',
+    contextModeFullHint: 'Use the complete chat up to this beat as context.',
+    countLabel: 'Number of pictures / scenes',
     countHint:
       '1 renders the current scene. A number greater than 1 renders that many distinct scenes from the story so far (storyboard).',
     styleLabel: 'Style',
     stylePh: 'e.g. comic style, ink, watercolor… (leave empty for none)',
-    storyPromptLabel: 'Storyboard rules',
+    storyPromptLabel: 'Additional rules',
     storyPromptPh:
       'Optional: extra instructions that apply to every picture, e.g. "no explicit images — hide behind bystanders, furniture, shadows."',
-    purePicturesLabel: 'Pure picture mode (descriptions only)',
-    purePicturesHint:
-      'Only the derived, temporal-free picture descriptions plus the consistency rules reach the image model — never the raw story text. This lowers moderation rejects on sensitive story content; all pictures are requested together so the image model keeps characters, setting and style consistent.',
-    planningLabel: 'Plan picture descriptions first (text model)',
-    planningHint:
-      'A text model expands the story into concrete picture descriptions before the image model draws them. Uncheck to skip that pass: the story text is then sent to the image model directly. For a single picture, the context selection above decides how much of the chat is sent.',
-    planningForcedHint:
-      'Pure picture mode needs the derived descriptions — the raw story text never reaches the image model, so planning cannot be disabled here.',
     confirm: 'Generate',
   },
   setupWizard: {

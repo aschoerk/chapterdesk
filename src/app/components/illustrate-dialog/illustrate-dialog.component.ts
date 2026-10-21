@@ -11,7 +11,10 @@ import {
   ILLUSTRATE_HISTORY_NODES_DEFAULT,
   ILLUSTRATE_HISTORY_NODES_MIN,
   ILLUSTRATE_HISTORY_NODES_MAX,
-  IllustrateHistoryMode
+  IllustrateHistoryMode,
+  IllustrateUsecase,
+  isIllustrateHistoryMode,
+  isIllustrateUsecase
 } from '../../models/illustrate-options';
 
 @Component({
@@ -30,13 +33,18 @@ export class IllustrateDialogComponent {
   readonly count = signal(1);
   readonly style = signal('');
   readonly storyboardPrompt = signal('');
-  readonly purePictures = signal(false);
   readonly modelId = signal('');
   readonly providerId = signal('');
   readonly historyMode = signal<IllustrateHistoryMode>('single');
   readonly historyNodes = signal(ILLUSTRATE_HISTORY_NODES_DEFAULT);
   readonly storyboardHistoryNodes = signal(ILLUSTRATE_HISTORY_NODES_DEFAULT);
-  readonly planDescriptions = signal(true);
+  /**
+   * The illustration approach — 'planned' (text model describes first),
+   * 'direct' (story text straight to the image model), or 'pure' (only derived
+   * descriptions reach the image model). Drives `purePictures` and
+   * `planDescriptions` on submit.
+   */
+  readonly usecase = signal<IllustrateUsecase>('planned');
   /**
    * The window width currently being edited — the storyboard width when
    * count > 1, else the single-picture width. Remembered separately so each
@@ -45,12 +53,6 @@ export class IllustrateDialogComponent {
    */
   readonly activeHistoryNodes = computed(() =>
     this.count() > 1 ? this.storyboardHistoryNodes() : this.historyNodes());
-  /**
-   * Picture-description planning can be turned off — except in pure picture
-   * mode, where the derived descriptions ARE what reaches the image model
-   * (raw story prose is never sent).
-   */
-  readonly planningDisabled = computed(() => this.purePictures());
 
   /**
    * Models the user can render with: every enabled image-capable model, plus
@@ -66,6 +68,15 @@ export class IllustrateDialogComponent {
     return enabled;
   });
 
+  /**
+   * Display name of the configured "image-create" default model (fallback:
+   * first enabled image-capable model), shown next to the "Default (from
+   * settings)" option so the user sees WHICH model the default is.
+   */
+  readonly defaultModelName = computed<string>(() => {
+    return this.imageModels()[0]?.displayName ?? '';
+  });
+
   constructor() {
     effect(() => {
       const s = this.dialog.current();
@@ -74,13 +85,18 @@ export class IllustrateDialogComponent {
       this.count.set(s.count);
       this.style.set(s.style);
       this.storyboardPrompt.set(s.storyboardPrompt);
-      this.purePictures.set(s.purePictures);
       this.modelId.set(s.modelId);
       this.providerId.set(s.providerId);
       this.historyMode.set(s.historyMode);
       this.historyNodes.set(s.historyNodes);
       this.storyboardHistoryNodes.set(s.storyboardHistoryNodes);
-      this.planDescriptions.set(s.planDescriptions);
+      this.usecase.set(s.purePictures ? 'pure' : (s.planDescriptions === false ? 'direct' : 'planned'));
+      // A remembered model that is no longer selectable (provider disabled /
+      // model removed from the catalog) falls back to the settings default.
+      if (s.modelId && !this.imageModels().some(m => m.modelId === s.modelId || m.id === s.modelId)) {
+        this.modelId.set('');
+        this.providerId.set('');
+      }
     });
   }
 
@@ -114,42 +130,36 @@ export class IllustrateDialogComponent {
     }
   }
 
-  /** The context mode: current text only, or the last N beats (window). */
+  /** The context source: current text only, the last N beats (window), or all story text. */
   onHistoryMode(value: string): void {
-    this.historyMode.set(value === 'window' ? 'window' : 'single');
+    this.historyMode.set(isIllustrateHistoryMode(value) ? value : 'single');
   }
 
-  onPureChange(checked: boolean): void {
-    this.purePictures.set(!!checked);
-  }
-
-  /**
-   * Planning stays on in pure picture mode (forced — see submit). Unchecking
-   * it for a single picture means the raw story text is sent to the image
-   * model directly instead of being distilled by a text model first.
-   */
-  onPlanChange(value: boolean): void {
-    this.planDescriptions.set(this.purePictures() ? true : value);
+  /** The illustration approach: planned / direct / pure. */
+  onUsecaseChange(value: string): void {
+    this.usecase.set(isIllustrateUsecase(value) ? value : 'planned');
   }
 
   submit(): void {
+    const usecase = this.usecase();
     this.dialog.submit({
       count: this.count(),
       style: this.style(),
       storyboardPrompt: this.storyboardPrompt(),
-      purePictures: this.purePictures(),
-      modelId: this.modelId(),
-      providerId: this.providerId(),
       // Pure picture mode never forwards the raw chat itself — the planning
       // (text) model derives the picture descriptions. The context mode still
       // applies: it bounds what the planning model sees (current beat vs last
-      // N beats).
+      // N beats vs the complete chat).
+      purePictures: usecase === 'pure',
+      modelId: this.modelId(),
+      providerId: this.providerId(),
       historyMode: this.historyMode(),
       historyNodes: this.historyNodes(),
       storyboardHistoryNodes: this.storyboardHistoryNodes(),
+      // 'planned' and 'pure' both run the planning pass; 'direct' skips it.
       // Pure picture mode REQUIRES the derived descriptions — raw story prose
       // must never reach the image model — so planning is forced back on.
-      planDescriptions: this.purePictures() ? true : this.planDescriptions()
+      planDescriptions: usecase === 'planned' || usecase === 'pure'
     });
   }
 

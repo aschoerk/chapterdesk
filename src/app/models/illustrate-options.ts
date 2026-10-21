@@ -38,24 +38,26 @@ export interface IllustrateOptions {
    *   including) the current node is sent in normal form as user/assistant
    *   messages, with the current node's text as the final message — a bounded
    *   slice of the story instead of the complete chat.
+   * - 'full': the complete chat up to (and including) the current node is
+   *   sent as context.
    * For a single picture this bounds what the image model sees; for a
    * storyboard (count > 1) it bounds what the planning text model sees.
    */
-  historyMode: 'single' | 'window';
+  historyMode: 'single' | 'window' | 'full';
   /**
    * Window width for 'window' mode when rendering a SINGLE picture
-   * (count === 1): number of recent chat nodes (beats) used as context,
-   * INCLUDING the current node (2 = current + the one before it). Remembered
+   * (count === 1): number of recent assistant-node texts used as context,
+   * INCLUDING the current node (1 = just the current beat). Remembered
    * separately from the storyboard width, because the two use cases usually
    * want a different amount of context. Ignored in 'single' mode.
    */
   historyNodes: number;
   /**
    * Window width for 'window' mode when rendering a STORYBOARD (count > 1):
-   * number of recent chat nodes (beats) used as context, INCLUDING the current
-   * node. This bounds what the planning (text) model sees before it derives
-   * the picture descriptions. Remembered separately from the single-picture
-   * width. Ignored in 'single' mode.
+   * number of recent assistant-node texts used as context, INCLUDING the
+   * current node (1 = just the current beat). This bounds what the planning
+   * (text) model sees before it derives the picture descriptions. Remembered
+   * separately from the single-picture width. Ignored in 'single' mode.
    */
   storyboardHistoryNodes: number;
   /**
@@ -74,16 +76,33 @@ export interface IllustrateOptions {
 
 export type IllustrateHistoryMode = IllustrateOptions['historyMode'];
 
+/**
+ * The illustration approach chosen in the dialog's "Use case" radio group.
+ * Replaces the two separate `purePictures` / `planDescriptions` checkboxes:
+ * - 'planned': a TEXT model expands the story into concrete picture
+ *   descriptions before the image model renders them (planDescriptions=true,
+ *   purePictures=false). Used for storyboards.
+ * - 'direct': the story text is sent straight to the image model without a
+ *   planning pass (planDescriptions=false, purePictures=false).
+ * - 'pure': ONLY derived, temporal-free picture descriptions reach the image
+ *   model — never the raw story prose (purePictures=true, planning forced on).
+ */
+export type IllustrateUsecase = 'planned' | 'direct' | 'pure';
+
 export const ILLUSTRATE_COUNT_MIN = 1;
 export const ILLUSTRATE_COUNT_MAX = 64;
-/** Window width in 'window' mode: at least 2 (current + one more), at most 64. */
-export const ILLUSTRATE_HISTORY_NODES_MIN = 2;
+/** Window width in 'window' mode: at least 1 (just the current beat), at most 64. */
+export const ILLUSTRATE_HISTORY_NODES_MIN = 1;
 export const ILLUSTRATE_HISTORY_NODES_MAX = 64;
-/** Default window width: the current beat + the 3 preceding beats. */
-export const ILLUSTRATE_HISTORY_NODES_DEFAULT = 4;
+/** Default window width: the current beat only. */
+export const ILLUSTRATE_HISTORY_NODES_DEFAULT = 1;
 
 export function isIllustrateHistoryMode(v: unknown): v is IllustrateHistoryMode {
-  return v === 'single' || v === 'window';
+  return v === 'single' || v === 'window' || v === 'full';
+}
+
+export function isIllustrateUsecase(v: unknown): v is IllustrateUsecase {
+  return v === 'planned' || v === 'direct' || v === 'pure';
 }
 
 export function defaultIllustrateOptions(): IllustrateOptions {

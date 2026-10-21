@@ -342,7 +342,6 @@ export const DE = {
     imageInterpretPrefix: 'Angehängtes Bild (automatisch interpretiert):',
     illustrate: 'Illustrieren',
     illustrateTitle: 'Ein Bild für diesen Abschnitt aus der bisherigen Geschichte erzeugen',
-    illustrateDraftTitle: 'Ein Bild aus dem bearbeiteten Anweisungstext erzeugen',
     generatingImage: 'Wird erstellt…',
     generatingImageCount: 'Wird erstellt {{done}}/{{total}}…',
     imageModelMissing: 'Kein Bildmodell aktiviert. Bitte unter Einstellungen → Schreibaufgaben auswählen.',
@@ -518,30 +517,35 @@ export const DE = {
     title: 'Illustrieren',
     modelLabel: 'Modell',
     modelTitle: 'Bildmodell, das die Bilder erzeugt',
-    modelHint: 'Nur Modelle, die Bilder erzeugen können, sind gelistet. Die Auswahl wird für die nächste Illustration gemerkt.',
-    contextModeLabel: 'Kontext für das Modell',
+    modelDefault: 'Standard (aus Einstellungen)',
+    modelHint: 'Die Auswahl wird für die nächste Illustration gemerkt. Wählen Sie „Standard“, um immer das unter Einstellungen → Generierungsaufgaben konfigurierte Bildmodell zu verwenden.',
+    usecaseLabel: 'Verwendungszweck',
+    usecasePlanned: 'Beschreibungen zuerst planen (Textmodell)',
+    usecasePlannedHint:
+      'Ein Textmodell weitet die Geschichte zu konkreten Bildbeschreibungen aus, bevor das Bildmodell zeichnet. Für Storyboards und reine Bildbeschreibungen.',
+    usecaseDirect: 'Direkt ans Bildmodell',
+    usecaseDirectHint:
+      'Sendet den Geschichtstext direkt ans Bildmodell ohne Planungsschritt. Bei einem einzelnen Bild entscheidet die Kontextauswahl unten, wie viel vom Chat gesendet wird.',
+    usecasePure: 'Reine Bildbeschreibungen (nur Beschreibungen)',
+    usecasePureHint:
+      'Nur abgeleitete, zeitlose Bildbeschreibungen plus Konsistenzregeln erreichen das Bildmodell – nie der rohe Geschichtstext. Reduziert Moderations-Ablehnungen bei sensiblen Inhalten; Planung ist immer aktiv.',
+    contextModeLabel: 'Zu verwendender Geschichtstext',
     contextModeSingle: 'Nur den aktuellen Text',
-    contextModeSingleHint: 'Sende nur den Text dieses Abschnitts als einzelne Nachricht an das Modell.',
+    contextModeSingleHint: 'Verwendet nur den Text dieses Abschnitts als Szene.',
     contextModeWindow: 'Letzte Abschnitte bis hierher',
     contextNodesLabel: 'Anzahl der letzten Abschnitte als Kontext',
     contextModeWindowHint:
-      'Sende den Inhalt der letzten {{nodes}} Abschnitte (bis einschließlich dieses) als normale Benutzer-/Assistenten-Nachrichten – ein begrenztes Fenster statt des kompletten Chats.',
-    countLabel: 'Anzahl Szenen',
+      'Verwendet den Inhalt der letzten {{nodes}} Abschnitte (bis einschließlich dieses) als Kontext.',
+    contextModeFull: 'Den gesamten Geschichtstext bis hierher',
+    contextModeFullHint: 'Verwendet den kompletten Chat bis zu diesem Abschnitt als Kontext.',
+    countLabel: 'Anzahl Bilder / Szenen',
     countHint:
       '1 erzeugt die aktuelle Szene. Bei mehr als 1 werden so viele verschiedene Szenen aus der bisherigen Geschichte erzeugt (Storyboard).',
     styleLabel: 'Stil',
     stylePh: 'z. B. Comic-Stil, Tinte, Aquarell… (leer lassen = keiner)',
-    storyPromptLabel: 'Storyboard-Regeln',
+    storyPromptLabel: 'Zusätzliche Regeln',
     storyPromptPh:
       'Optional: Regeln für jedes Bild, z. B. „Keine expliziten Bilder – hinter Passanten, Möbeln, Schatten verstecken.“',
-    purePicturesLabel: 'Reine Bildbeschreibungen (nur Beschreibungen)',
-    purePicturesHint:
-      'Nur die abgeleiteten, zeitlosen Bildbeschreibungen plus Konsistenzregeln erreichen das Bildmodell – nie der rohe Geschichtstext. Reduziert Moderations-Ablehnungen bei sensiblen Inhalten; alle Bilder werden zusammen angefordert, damit das Bildmodell Figuren, Schauplatz und Stil konsistent hält.',
-    planningLabel: 'Bildbeschreibungen zuerst planen (Textmodell)',
-    planningHint:
-      'Ein Textmodell weitet die Geschichte zu konkreten Bildbeschreibungen aus, bevor das Bildmodell zeichnet. Deaktivieren überspringt diesen Schritt: Die Geschichte wird dann direkt ans Bildmodell gesendet. Bei einem einzelnen Bild entscheidet die Kontextauswahl oben, wie viel vom Chat gesendet wird.',
-    planningForcedHint:
-      'Der reine Bildmodus benötigt die abgeleiteten Beschreibungen – der rohe Geschichtstext erreicht das Bildmodell nie, daher kann die Planung hier nicht deaktiviert werden.',
     confirm: 'Erzeugen',
   },
   setupWizard: {

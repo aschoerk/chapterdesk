@@ -65,24 +65,20 @@ export class IllustrateDialogService {
    *
    * @param seed initial overrides for fields not (or no longer) remembered —
    *   e.g. `{ modelId, providerId }` for the default rendering model that the
-   *   caller resolved. The dialog still starts from the last-used options for
-   *   everything else; a seeded model wins over a stale remembered one.
+   *   caller resolved. The dialog starts from the last-used options and only
+   *   falls back to a seeded model when nothing was remembered yet — the
+   *   user's own last choice wins over the settings default.
    */
   open(seed: Partial<IllustrateOptions> = {}): Promise<IllustrateOptions | null> {
     const last = this.last();
+    const seeded = { ...last, ...seed };
     return new Promise(resolve => {
       this.current.set({
-        count: last.count,
-        style: last.style,
-        storyboardPrompt: last.storyboardPrompt,
-        purePictures: last.purePictures,
-        modelId: last.modelId,
-        providerId: last.providerId,
-        historyMode: last.historyMode,
-        historyNodes: last.historyNodes,
-        storyboardHistoryNodes: last.storyboardHistoryNodes,
-        planDescriptions: last.planDescriptions,
-        ...seed,
+        ...seeded,
+        // Last-used model wins over the settings-default seed; the seed only
+        // fills the gap when no model was remembered yet.
+        modelId: last.modelId || seeded.modelId,
+        providerId: last.providerId || seeded.providerId,
         resolve
       });
     });

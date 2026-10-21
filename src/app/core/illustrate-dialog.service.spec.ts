@@ -31,7 +31,7 @@ describe('IllustrateDialogService', () => {
   it('starts with single-scene defaults', () => {
     expect(service.last()).toEqual({
       count: 1, style: '', storyboardPrompt: '', purePictures: false,
-      modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
+      modelId: '', providerId: '', historyMode: 'single', historyNodes: 1, storyboardHistoryNodes: 1, planDescriptions: true
     });
     expect(service.current()).toBeNull();
   });
@@ -92,7 +92,7 @@ describe('IllustrateDialogService', () => {
     });
   });
 
-  it('open() seed overrides the remembered model while keeping other fields', async () => {
+  it('open() keeps the remembered model over the settings-default seed', async () => {
     service.submit({
       count: 2,
       style: 'ink',
@@ -107,13 +107,36 @@ describe('IllustrateDialogService', () => {
     });
 
     const promise = service.open({ modelId: 'new/image', providerId: 'prov-1' });
-    expect(service.current()?.modelId).toBe('new/image');
-    expect(service.current()?.providerId).toBe('prov-1');
+    // The user's own last choice wins over the settings-default seed.
+    expect(service.current()?.modelId).toBe('old/image');
+    expect(service.current()?.providerId).toBe('prov-9');
     // Non-model fields still come from the remembered options.
     expect(service.current()?.count).toBe(2);
     expect(service.current()?.style).toBe('ink');
     expect(service.current()?.planDescriptions).toBe(false);
 
+    service.cancel();
+    await promise;
+  });
+
+  it('open() falls back to the settings-default seed when no model is remembered', async () => {
+    // Fresh service — no model remembered yet.
+    const promise = service.open({ modelId: 'new/image', providerId: 'prov-1' });
+    expect(service.current()?.modelId).toBe('new/image');
+    expect(service.current()?.providerId).toBe('prov-1');
+
+    service.cancel();
+    await promise;
+  });
+
+  it('remembers a full-chat historyMode and re-opens with it', async () => {
+    service.submit({
+      count: 1, style: '', storyboardPrompt: '', purePictures: false,
+      modelId: '', providerId: '', historyMode: 'full',
+      historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
+    });
+    const promise = service.open();
+    expect(service.current()?.historyMode).toBe('full');
     service.cancel();
     await promise;
   });
@@ -178,7 +201,7 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
+    expect(reloaded.last()).toEqual({ count: 4, style: 'pastel', storyboardPrompt: 'none', purePictures: true, modelId: '', providerId: '', historyMode: 'single', historyNodes: 1, storyboardHistoryNodes: 1, planDescriptions: true });
     expect(reloaded.current()).toBeNull();
   });
 
@@ -215,10 +238,10 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false, modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true });
+    expect(reloaded.last()).toEqual({ count: 2, style: 'x', storyboardPrompt: 'y', purePictures: false, modelId: '', providerId: '', historyMode: 'single', historyNodes: 1, storyboardHistoryNodes: 1, planDescriptions: true });
   });
 
-  it('is backward compatible with a stored legacy full-chat historyMode (→ single)', () => {
+  it('keeps a stored full-chat historyMode (now a first-class option)', () => {
     localStorage.setItem(
       LS_KEY,
       JSON.stringify({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'full' })
@@ -232,15 +255,15 @@ describe('IllustrateDialogService', () => {
       ]
     });
     const reloaded = TestBed.inject(IllustrateDialogService);
-    // 'full' is gone — the dialog now offers a bounded window instead.
-    expect(reloaded.last().historyMode).toBe('single');
-    expect(reloaded.last().historyNodes).toBe(4);
+    // 'full' ("all assistant-node text") is a supported context choice.
+    expect(reloaded.last().historyMode).toBe('full');
+    expect(reloaded.last().historyNodes).toBe(1);
   });
 
-  it('clamps historyNodes into 2..64 and defaults to 4 when missing', async () => {
+  it('clamps historyNodes into 1..64 and defaults to 1 when missing', async () => {
     const promise = service.open();
-    service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: 1, storyboardHistoryNodes: 4, planDescriptions: true });
-    await expect(promise).resolves.toMatchObject({ historyNodes: 2 });
+    service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: 0, storyboardHistoryNodes: 4, planDescriptions: true });
+    await expect(promise).resolves.toMatchObject({ historyNodes: 1 });
 
     const promise2 = service.open();
     service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: 999, storyboardHistoryNodes: 4, planDescriptions: true });
@@ -248,7 +271,7 @@ describe('IllustrateDialogService', () => {
 
     const promise3 = service.open();
     service.submit({ count: 1, style: '', storyboardPrompt: '', purePictures: false, modelId: '', providerId: '', historyMode: 'window', historyNodes: undefined as any, storyboardHistoryNodes: undefined as any, planDescriptions: true });
-    await expect(promise3).resolves.toMatchObject({ historyNodes: 4 });
+    await expect(promise3).resolves.toMatchObject({ historyNodes: 1 });
   });
 
   it('is backward compatible with stored options missing historyMode and planDescriptions', () => {
@@ -284,7 +307,7 @@ describe('IllustrateDialogService', () => {
     const reloaded = TestBed.inject(IllustrateDialogService);
     expect(reloaded.last()).toEqual({
       count: 1, style: '', storyboardPrompt: '', purePictures: false,
-      modelId: '', providerId: '', historyMode: 'single', historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true
+      modelId: '', providerId: '', historyMode: 'single', historyNodes: 1, storyboardHistoryNodes: 1, planDescriptions: true
     });
   });
 

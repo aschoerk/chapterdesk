@@ -3060,9 +3060,10 @@ describe('ChatNodeComponent', () => {
   // ------------------------------------------------------------------
 
   describe('illustrate', () => {
-    it('is disabled on a direction without a chapter, enabled with one', () => {
+    it('is only enabled on assistant nodes with content', () => {
       const dir = node({ id: 'q1', content: 'Night train, Mara at the window.' });
       createFixture(dir);
+      // Directions no longer offer illustration.
       expect(component.canIllustrate()).toBe(false);
 
       const a1 = node({
@@ -3070,6 +3071,10 @@ describe('ChatNodeComponent', () => {
       });
       createFixture(a1);
       expect(component.canIllustrate()).toBe(true);
+
+      const empty = node({ id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: '   ' });
+      createFixture(empty);
+      expect(component.canIllustrate()).toBe(false);
     });
 
     it('generates a picture for the current chapter and attaches it', async () => {
@@ -3520,40 +3525,6 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(window.alert).toHaveBeenCalled();
-    });
-
-    it('uses the edited draft as the prompt when illustrating from the composer', async () => {
-      const q1 = node({ id: 'q1', content: 'Old stubborn direction.' });
-      const a1 = node({
-        id: 'a1',
-        chatId: 'chat-1',
-        parentId: 'q1',
-        role: 'assistant',
-        content: 'Mara watches the conductor pass.',
-      });
-      await openChat([q1, a1]);
-
-      const generation = TestBed.inject(GenerationSettingsService);
-      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
-
-      createFixture(q1, 'a1');
-      await component.startEdit();
-      component.onDraftText('The train stops at a ghost platform');
-      expect(component.canIllustrateDraft()).toBe(true);
-      await component.illustrateWithDraft();
-      fixture.detectChanges();
-
-      // The edited draft (promptOverride) drives the scene content, not the
-      // stale saved content.
-      expect(runner.run).toHaveBeenCalledTimes(1);
-      const build = runner.run.mock.calls[0][0] as { vars?: { content?: string } };
-      expect(build.vars?.content).toContain('The train stops at a ghost platform');
-      expect(build.vars?.content).not.toContain('Old stubborn direction.');
-
-      const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
-      expect(chapter.attachments?.length).toBe(2);
-      expect(chapter.attachments![0].name).toBe('illustration-1.png');
-      expect(chapter.attachments![1].name).toBe('prompt-1.txt');
     });
 
     it('requests the dialog storyboard count + style + rules and attaches every image', async () => {

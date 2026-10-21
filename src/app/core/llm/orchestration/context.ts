@@ -494,12 +494,13 @@ export class UsecaseContextFactory {
    * ("last N beats" = the last N chapters; a chapter's own user direction
    * travels with it but never counts toward N). The same filtering as
    * {@link buildContextMessagesUpTo} applies (excluded / empty-content nodes
-   * are skipped). A `assistantCount` <= 0 falls back to the whole path.
+   * are skipped). An `assistantCount` of 0 keeps NO preceding beat (the
+   * caller appends the current node's own text as the anchor).
    */
   buildContextMessagesWindow(chatId: string, nodeId: string | null, assistantCount: number): ChatMessage[] {
     if (!nodeId) return [];
     const path = this.chatService.getPathToNode(nodeId);
-    if (!assistantCount || assistantCount <= 0) return this.buildContextMessagesUpTo(chatId, nodeId);
+    if (!assistantCount || assistantCount <= 0) return [];
     // The window keeps the LAST `assistantCount` assistant chapters. Anything
     // before the window boundary (leading assistant beats there are too old to
     // count) is excluded; the slice begins right after it, so the first kept

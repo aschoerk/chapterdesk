@@ -857,25 +857,12 @@ export class ChatNodeComponent implements OnDestroy {
 
   /**
    * Whether the user-facing "Illustrate" action is available for this node.
-   * Chapters can be illustrated directly. Directions need the chapter that
-   * responded to them (the picture is attached to that chapter).
+   * Illustrating is only offered on assistant (chapter) nodes — the beat the
+   * picture depicts — and only when it has text to depict.
    */
   canIllustrate(): boolean {
     const n = this.node();
-    if (n.role === 'assistant') return !!n.content?.trim();
-    if (n.role === 'user') {
-      return !!n.content?.trim()
-        && this.hasCurrentChapter(n);
-    }
-    return false;
-  }
-
-  /** True while editing a direction that has a draft and a chapter to attach to. */
-  canIllustrateDraft(): boolean {
-    const n = this.node();
-    return n.role === 'user'
-      && !!this.contentDraft().trim()
-      && this.hasCurrentChapter(n);
+    return n.role === 'assistant' && !!n.content?.trim();
   }
 
   /** Progress of a storyboard run (done/total), set while `pendingAction === 'image'`. */
@@ -1163,21 +1150,6 @@ export class ChatNodeComponent implements OnDestroy {
       if (pr) return { ...a, name: `prompt-${scene}${pr[2] ?? '.txt'}` };
       return a;
     });
-  }
-
-  private hasCurrentChapter(n: ChatNode): boolean {
-    return this.chatService.getChildren(n.id).some(c => c.role === 'assistant' && c.isCurrent);
-  }
-
-  /**
-   * Generate a picture from the direction text being edited in the composer.
-   * Uses the current draft (not yet saved) as the prompt, so you can tweak the
-   * direction and immediately preview it as an illustration.
-   */
-  async illustrateWithDraft(): Promise<void> {
-    const text = this.contentDraft().trim();
-    if (!text) return;
-    await this.illustrate(text);
   }
 
   /**
@@ -2427,11 +2399,6 @@ export class ChatNodeComponent implements OnDestroy {
           disabled: this.isLoading()
         });
       }
-      roleItems.push({
-        label: this.i18n.t('node.ctxIllustrate'),
-        action: () => void this.illustrate(),
-        disabled: busy || !this.canIllustrate()
-      });
     }
 
     // Destructive actions, always last.
