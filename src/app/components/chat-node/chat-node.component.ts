@@ -1641,7 +1641,12 @@ export class ChatNodeComponent implements OnDestroy {
     const { node, content, attachments, model } = target;
     if (node.role !== 'user') return;
 
-    const ok = await this.runFlow('send-insert', 'insert', build => {
+    // The draft was consumed to create the insert: close the editor NOW
+    // (commit the session) so it does not stay open while the insert flow
+    // streams its answer — matching the Send path timing.
+    this.closeEditor();
+
+    await this.runFlow('send-insert', 'insert', build => {
       build.vars['content'] = content;
       build.vars['attachments'] = attachments;
       // The model selected in the editor wins — the flow writer (and the new
@@ -1649,9 +1654,6 @@ export class ChatNodeComponent implements OnDestroy {
       build.vars['modelId'] = model.modelId;
       build.vars['providerId'] = model.providerId;
     });
-    // Same as Branch: the draft was consumed by the insert — close the editor
-    // (and the edit session) so a later edit does not start out dirty.
-    if (ok) this.closeEditor();
   }
 
   /** Generate a chapter heading for THIS assistant answer; only its text is used as context. */

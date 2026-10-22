@@ -361,6 +361,13 @@ const sendInsert: FlowController = async env => {
   const newQuestion = await env.chatService.branchQuestion(
     chatId, node.id, content, env.write.model.modelId, env.write.model.providerId, carried
   );
+  // Switch the active path to the new question IMMEDIATELY (mirroring
+  // send-branch) so the streamed answer paints LIVE while it fills in. With
+  // the switch deferred to the end, the new nodes stay off the active path
+  // (the tree only renders the active path): the user sees neither the
+  // streaming answer nor — from their side — the editor closing.
+  env.chatService.setActiveChild(parentId, newQuestion.id);
+
   const adoptNodeIds = env.chatService.nodes()
     .filter(n => n.chatId === chatId && (n.parentId ?? null) === parentId && n.id !== newQuestion.id)
     .map(n => n.id);
@@ -372,8 +379,7 @@ const sendInsert: FlowController = async env => {
   await persistInterpretation(env, chatId, newQuestion, prep);
   const { answerNodeId, slots } = await streamAnswerNode(env, chatId, newQuestion.id, prep.messages, { adoptNodeIds });
 
-  env.chatService.setActiveChild(parentId, newQuestion.id);
-  env.chatService.setActiveChild(newQuestion.id, answerNodeId);
+  // Show the adopted (old) sibling chain under the fresh answer.
   const firstAdopt = adoptNodeIds.includes(node.id) ? node.id : adoptNodeIds[0];
   if (firstAdopt) env.chatService.setActiveChild(answerNodeId, firstAdopt);
 
