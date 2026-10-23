@@ -249,10 +249,12 @@ export class LlmTransportService {
 
   /**
    * One IMAGE-capable completion attempt WITH the graceful fallback tree.
-   * Returns the raw JSON body for the evaluator.
+   * Returns the full CompletionResult (raw + usage + logEntry) so the caller
+   * can attribute tokens/cost to the answer node. The /images-endpoint
+   * fallback reports no usage block — it is logged but contributes nothing.
    */
-  private async imageCallOnce(req: CompletionRequest): Promise<unknown> {
-    const run = (r: CompletionRequest): Promise<unknown> => this.rawCompletion(r).then(res => res.raw);
+  private async imageCallOnce(req: CompletionRequest): Promise<CompletionResult> {
+    const run = (r: CompletionRequest): Promise<CompletionResult> => this.rawCompletion(r);
     try {
       return await run({ ...req, imageCapable: true });
     } catch (err: any) {
@@ -272,14 +274,15 @@ export class LlmTransportService {
       if (this.shouldRouteToImages(msg)) {
         const prompt = lastUserPromptText(req.messages);
         if (prompt.trim()) {
-          return await this.images({
+          const routed = await this.images({
             provider: req.provider,
             model: req.model,
             prompt,
             signal: req.signal,
             chat: req.chat,
             timeoutMs: req.timeoutMs
-          }).then(r => r.raw);
+          });
+          return { raw: routed.raw, content: '', thinking: '', streamed: false };
         }
       }
       throw tErr;
@@ -292,11 +295,13 @@ export class LlmTransportService {
    * raw JSON body so the evaluator can extract images.
    */
   async completeImage(req: Omit<CompletionRequest, 'imageCapable'>): Promise<unknown> {
-    return this.imageCallOnce({
-      ...req,
-      imageCapable: true,
-      extras: { ...req.extras, stream: false }
-    });
+    return (
+      await this.imageCallOnce({
+        ...req,
+        imageCapable: true,
+        extras: { ...req.extras, stream: false }
+      })
+    ).raw;
   }
 
   /**
@@ -314,8 +319,11 @@ export class LlmTransportService {
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     if (req.imageCapable) {
       try {
-        const raw = await this.imageCallOnce({ ...req, imageCapable: true });
-        return { raw, content: '', thinking: '', streamed: false };
+        // Keep the raw JSON + the provider's usage/log entry so an
+        // image-capable WRITE-model answer still gets its tokens/cost
+        // attributed (the raw lookalike carries the assembled text).
+        const result = await this.imageCallOnce({ ...req, imageCapable: true });
+        return { ...result, content: '', thinking: '', streamed: false };
       } catch (err: any) {
         const tErr = err as TransportError;
         const msg = String(tErr?.text ?? err?.message ?? err);

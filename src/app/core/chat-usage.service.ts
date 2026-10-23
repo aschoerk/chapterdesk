@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { LlmLogService, LlmLogEntry } from './llm/llm-log.service';
 import { ParsedUsage, parseProviderUsage, sumUsage } from './llm/usage';
+import type { ChatNode } from '../models/chat';
 
 /**
  * localStorage key prefix of the PERSISTED per-chat token/cost totals. The
@@ -62,6 +63,52 @@ export class ChatUsageService {
         .filter(e => e.completed && !!e.response && !e.error && e.chatId === chatId)
         .map(e => parseProviderUsage(this.usageOf(e)))
     );
+  }
+
+  /**
+   * The PERSISTED usage fields of a node (`promptTokens` / `completionTokens`
+   * / `cachedTokens` / `totalTokens` / `totalCost`), normalized to a
+   * `ParsedUsage` — or null when the node carries no usage. Prefer this over
+   * the LLM log: it survives reloads and is shared across browsers.
+   */
+  usageFromNode(node: Pick<
+    ChatNode,
+    'promptTokens' | 'completionTokens' | 'cachedTokens' | 'totalTokens' | 'totalCost'
+  > | null | undefined): ParsedUsage | null {
+    if (!node) return null;
+    const u: ParsedUsage = {};
+    const add = (key: keyof ParsedUsage, v: number | null | undefined): void => {
+      const n = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : NaN;
+      if (Number.isFinite(n)) u[key] = n;
+    };
+    add('input', node.promptTokens);
+    add('output', node.completionTokens);
+    add('cached', node.cachedTokens);
+    add('total', node.totalTokens);
+    add('cost', node.totalCost);
+    return Object.keys(u).length ? u : null;
+  }
+
+  /**
+   * Group the LLM-log entries of one chat by node id and sum each node's
+   * usage. Used by the sidebar's "Σ" button to backfill the server's
+   * per-node usage (and recompute chat totals) from the browser log.
+   * Nodes without any usable usage are omitted.
+   */
+  nodeUsagesForChat(chatId: string): { nodeId: string; usage: ParsedUsage }[] {
+    if (!chatId) return [];
+    const byNode = new Map<string, ParsedUsage[]>();
+    for (const e of this.logs.entries()) {
+      if (!e.completed || !!e.error || !e.response || e.chatId !== chatId || !e.nodeId) continue;
+      const u = parseProviderUsage(this.usageOf(e));
+      if (!u) continue;
+      const list = byNode.get(e.nodeId) ?? [];
+      list.push(u);
+      byNode.set(e.nodeId, list);
+    }
+    return [...byNode.entries()]
+      .map(([nodeId, list]) => ({ nodeId, usage: sumUsage(list) }))
+      .filter((n): n is { nodeId: string; usage: ParsedUsage } => n.usage != null);
   }
 
   /** The persisted (localStorage) totals for a chat, or null. */

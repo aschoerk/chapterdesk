@@ -6,6 +6,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NodeAttachment,
+  NodeUsageSummary,
   Persona,
   Project,
   PromptScope,
@@ -63,7 +64,11 @@ export interface ChatApiPort {
     nodeId: string,
     content: string,
     attachments?: NodeAttachment[],
-    thinking?: string
+    thinking?: string,
+    /** Normalized token usage / cost of the call that produced this answer
+     *  (persisted onto the node so per-node + per-chat figures survive
+     *  reloads / other browsers). Absent for manual edits. */
+    usage?: NodeUsageSummary,
   ): Promise<ChatNode>;
   editUser(
     chatId: string,
@@ -73,6 +78,16 @@ export interface ChatApiPort {
   ): Promise<ChatNode>;
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode>;
   patchNode(chatId: string, nodeId: string, data: PatchNodeRequest): Promise<ChatNode>;
+  /**
+   * Persist per-node token usage / cost onto the current nodes of a chat (in
+   * place, WITHOUT versioning) and recompute + store the chat's summed totals
+   * from those nodes. Returns the updated chat. Used by the sidebar's "Σ"
+   * button to backfill the server from the browser LLM log.
+   */
+  saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[],
+  ): Promise<Chat>;
   deleteNode(chatId: string, nodeId: string, options?: { keepChildren?: boolean }): Promise<void>;
   /** Deleted branch roots (soft-deleted nodes whose parent is not deleted). */
   getDeletedNodes(chatId: string): Promise<ChatNode[]>;

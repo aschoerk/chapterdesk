@@ -22,6 +22,7 @@ import { PrependDialogService } from '../../core/prepend-dialog.service';
 import { RewriteDialogService } from '../../core/rewrite-dialog.service';
 import { CreateImageDialogService } from '../../core/create-image-dialog.service';
 import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
+import { PromptDefaultsService } from '../../core/prompt-defaults.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -1731,6 +1732,25 @@ describe('ChatNodeComponent', () => {
       expect(component.isEditing()).toBe(false);
     });
 
+    it('continueDraft uses the editable "Continue" template', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      expect(chatService.nodes().find((n) => n.id === 'q1')?.content).toBe('continue the story');
+      expect(emitted).toContain('q1');
+      expect(component.isEditing()).toBe(false);
+    });
+
     it('switchCharactersDraft fills the "switch characters" template, sends it, and closes the editor', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
@@ -1766,13 +1786,19 @@ describe('ChatNodeComponent', () => {
       await openChat([q1]);
       createFixture(q1);
 
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
       component.repeatCount.set(3);
       await component.continueDraft();
       fixture.detectChanges();
 
-      // 3 directions + 3 answers, each 'continue' on a successive leaf.
+      // 3 directions + 3 answers, each 'continue the story' on a successive leaf.
       const continues = chatService.nodes().filter(
-        (n) => n.role === 'user' && n.content === 'continue'
+        (n) => n.role === 'user' && n.content === 'continue the story'
       );
       expect(continues).toHaveLength(3);
       // One final placeholder per send is later versioned — count the settled

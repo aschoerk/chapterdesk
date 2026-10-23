@@ -5,6 +5,7 @@ import type {
   ChatParameters,
   ChatParametersDraft,
   CreateNodeRequest,
+  NodeUsageSummary,
   ThinkingLevel,
 } from '../domain/models.js';
 import type {
@@ -336,6 +337,7 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
         content: string;
         attachments?: CreateNodeRequest['attachments'];
         thinking?: string;
+        usage?: NodeUsageSummary;
       };
       if (body.content === undefined || body.content === null) throw badRequest('content is required');
       res.status(201).json(
@@ -345,8 +347,23 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
           body.content,
           body.attachments,
           body.thinking,
+          body.usage,
         ),
       );
+    }),
+  );
+  app.post(
+    '/api/chats/:id/usage',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as {
+        nodes?: { nodeId?: string; usage?: NodeUsageSummary }[];
+      };
+      const nodes = Array.isArray(body.nodes)
+        ? body.nodes
+            .filter((n) => typeof n?.nodeId === 'string')
+            .map((n) => ({ nodeId: n.nodeId as string, usage: n.usage }))
+        : [];
+      res.json(await api.saveChatUsage(param(req, 'id'), nodes));
     }),
   );
   app.post(

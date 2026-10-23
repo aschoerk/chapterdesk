@@ -179,7 +179,10 @@ export class ChatNodeComponent implements OnDestroy {
   readonly nodeUsageLabel = computed(() => {
     const n = this.node();
     if (n.role !== 'assistant') return null;
-    const u = this.usage.nodeUsage(n.id);
+    // Persisted per-node usage (server-shared, survives reloads / browsers)
+    // wins; the browser LLM log is only a fallback for legacy nodes without
+    // persisted values.
+    const u = this.usage.usageFromNode(n) ?? this.usage.nodeUsage(n.id);
     if (!u) return null;
     const parts: string[] = [];
     if (u.input) parts.push(`${this.i18n.t('logs.usageIn')} ${u.input}`);
@@ -629,8 +632,8 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
-   * Empty leaf question: put “continue” in the draft, pin the default LLM,
-   * and send. Same path as Send, no extra branch.
+   * Empty leaf question: fill the draft with the "Continue" template, pin the
+   * default LLM, and send. Same path as Send, no extra branch.
    */
   async continueDraft(): Promise<void> {
     if (!this.isUnsentQuestion() || this.isLoading()) return;
@@ -638,7 +641,9 @@ export class ChatNodeComponent implements OnDestroy {
       await this.runDirectionBatch('continue', this.repeatCount());
       return;
     }
-    this.contentDraft.set('continue');
+    this.contentDraft.set(
+      this.promptDefaults.effective('structure.continue') || 'continue'
+    );
     this.editAttachments.set([]);
     this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
     this.pendingAction.set('continue');
@@ -706,7 +711,7 @@ export class ChatNodeComponent implements OnDestroy {
     }
 
     const content = direction === 'continue'
-      ? 'continue'
+      ? (this.promptDefaults.effective('structure.continue') || 'continue')
       : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
 
     // One Stop press cancels the whole batch.
@@ -1542,7 +1547,7 @@ export class ChatNodeComponent implements OnDestroy {
           ? generatedImageAttachments(finalImages)
           : undefined;
         const versioned = await this.chatService.editAssistant(
-          chatId, answerNode.id, chapterContent, attachments, finalThinking
+          chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
         );
         this.chatService.setActiveChild(question.id, versioned.id);
         // For batch iterations on foreign leaves the component's (activate)

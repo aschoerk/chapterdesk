@@ -1,5 +1,23 @@
 export type NodeRole = 'system' | 'user' | 'assistant' | 'structural';
 
+/**
+ * Normalized, provider-agnostic token usage / cost of one LLM call. Mirrors
+ * the server's `NodeUsageSummary` and the normalized `ParsedUsage` figures
+ * parsed from provider usage blocks (`src/app/core/llm/usage.ts`).
+ */
+export interface NodeUsageSummary {
+  /** Prompt / input tokens. */
+  input?: number;
+  /** Completion / output tokens. */
+  output?: number;
+  /** Cached (prompt-cache hit) input tokens, when the provider reports them. */
+  cached?: number;
+  /** Total tokens, when the provider reports them. */
+  total?: number;
+  /** Total USD cost of the call, when the provider reports it. */
+  cost?: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -41,6 +59,16 @@ export interface Chat {
   node_number: number;
   created_at: string;
   updated_at: string;
+  /** Summed input tokens over the current nodes of this chat (persisted server-side). */
+  promptTokens?: number | null;
+  /** Summed output tokens over the current nodes of this chat. */
+  completionTokens?: number | null;
+  /** Summed cached input tokens over the current nodes of this chat. */
+  cachedTokens?: number | null;
+  /** Summed total tokens over the current nodes of this chat. */
+  totalTokens?: number | null;
+  /** Summed USD cost over the current nodes of this chat. */
+  totalCost?: number | null;
 }
 
 export interface NodeAttachment {
@@ -59,6 +87,12 @@ export interface ChatNode {
   content: string;
   thinking?: string | null;
   modelId?: string | null;
+  /** Cached (prompt-cache hit) input tokens, when the provider reported them. */
+  cachedTokens?: number | null;
+  /** Total tokens, when the provider reported them. */
+  totalTokens?: number | null;
+  /** Total USD cost of the call, when the provider reported it. */
+  totalCost?: number | null;
   providerId?: string | null;
   version: number;
   previousVersionId?: string | null;

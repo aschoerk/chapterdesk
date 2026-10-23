@@ -8,6 +8,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NodeAttachment,
+  NodeUsageSummary,
   Persona,
   Project,
   PromptScope,
@@ -517,8 +518,9 @@ export class MemoryPersistence implements PersistencePort {
     content: string,
     attachments?: NodeAttachment[],
     thinking?: string,
+    usage?: NodeUsageSummary,
   ): Promise<ChatNode> {
-    return this.versionNode(chatId, nodeId, 'assistant', { content, attachments, thinking });
+    return this.versionNode(chatId, nodeId, 'assistant', { content, attachments, thinking, usage });
   }
 
   async editUser(
@@ -936,7 +938,12 @@ export class MemoryPersistence implements PersistencePort {
     chatId: string,
     nodeId: string,
     expected: ChatNode['role'],
-    patch: { content: string; attachments?: NodeAttachment[]; thinking?: string },
+    patch: {
+      content: string;
+      attachments?: NodeAttachment[];
+      thinking?: string;
+      usage?: NodeUsageSummary;
+    },
   ): ChatNode {
     const old = this.requireNode(chatId, nodeId);
     if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected) {
@@ -952,6 +959,7 @@ export class MemoryPersistence implements PersistencePort {
       old.content = patch.content;
       if (patch.thinking !== undefined) old.thinking = patch.thinking;
       if (patch.attachments !== undefined) old.attachments = patch.attachments;
+      this.applyUsage(old, patch.usage);
       old.updatedAt = ts;
       const chat = this.requireChat(chatId);
       chat.updated_at = ts;
@@ -971,6 +979,15 @@ export class MemoryPersistence implements PersistencePort {
       updatedAt: ts,
       deletedAt: null,
     };
+    // A fresh LLM answer overrides the copied usage with the reported values;
+    // a manual edit (usage absent) keeps the copied ones.
+    if (patch.usage) {
+      next.promptTokens = patch.usage.input ?? null;
+      next.completionTokens = patch.usage.output ?? null;
+      next.cachedTokens = patch.usage.cached ?? null;
+      next.totalTokens = patch.usage.total ?? null;
+      next.totalCost = patch.usage.cost ?? null;
+    }
     this.nodes.set(next.id, next);
     for (const child of this.nodes.values()) {
       if (child.parentId === old.id) child.parentId = next.id;
@@ -979,5 +996,57 @@ export class MemoryPersistence implements PersistencePort {
     chat.node_number += 1;
     chat.updated_at = ts;
     return clone(next);
+  }
+
+  /** Overwrite the usage fields of a node in place (keeps existing values when absent). */
+  private applyUsage(node: ChatNode, usage?: NodeUsageSummary): void {
+    if (!usage) return;
+    node.promptTokens = usage.input ?? node.promptTokens ?? null;
+    node.completionTokens = usage.output ?? node.completionTokens ?? null;
+    node.cachedTokens = usage.cached ?? node.cachedTokens ?? null;
+    node.totalTokens = usage.total ?? node.totalTokens ?? null;
+    node.totalCost = usage.cost ?? node.totalCost ?? null;
+  }
+
+  /**
+   * Persist per-node token usage / cost in place (NO versioning) and recompute
+   * + store the chat's summed totals from its CURRENT nodes. Returns the chat.
+   */
+  async saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[],
+  ): Promise<Chat> {
+    this.requireChat(chatId);
+    const ts = now();
+    for (const { nodeId, usage } of nodes) {
+      if (!usage) continue;
+      const node = this.nodes.get(nodeId);
+      if (!node || node.chatId !== chatId) continue;
+      this.applyUsage(node, usage);
+      node.updatedAt = ts;
+    }
+    const current = [...this.nodes.values()].filter(
+      (n) => n.chatId === chatId && n.isCurrent && !n.deletedAt,
+    );
+    const sum = (pick: (n: ChatNode) => number | null | undefined): number | null => {
+      let acc = 0;
+      let any = false;
+      for (const n of current) {
+        const v = pick(n);
+        if (v != null) {
+          acc += v;
+          any = true;
+        }
+      }
+      return any ? acc : null;
+    };
+    const chat = this.requireChat(chatId);
+    chat.promptTokens = sum((n) => n.promptTokens);
+    chat.completionTokens = sum((n) => n.completionTokens);
+    chat.cachedTokens = sum((n) => n.cachedTokens);
+    chat.totalTokens = sum((n) => n.totalTokens);
+    chat.totalCost = sum((n) => n.totalCost);
+    chat.updated_at = ts;
+    return clone(chat);
   }
 }

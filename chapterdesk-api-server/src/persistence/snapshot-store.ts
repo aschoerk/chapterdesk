@@ -7,6 +7,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NodeAttachment,
+  NodeUsageSummary,
   Persona,
   Project,
   PromptScope,
@@ -185,9 +186,10 @@ export class SnapshotPersistence implements PersistencePort {
     nodeId: string,
     content: string,
     attachments?: NodeAttachment[],
-    thinking?: string
+    thinking?: string,
+    usage?: NodeUsageSummary,
   ): Promise<ChatNode> {
-    const row = await this.memory.editAssistant(chatId, nodeId, content, attachments, thinking);
+    const row = await this.memory.editAssistant(chatId, nodeId, content, attachments, thinking, usage);
     await this.flush();
     return row;
   }
@@ -208,6 +210,14 @@ export class SnapshotPersistence implements PersistencePort {
   }
   async patchNode(chatId: string, nodeId: string, data: PatchNodeRequest): Promise<ChatNode> {
     const row = await this.memory.patchNode(chatId, nodeId, data);
+    await this.flush();
+    return row;
+  }
+  async saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[],
+  ): Promise<Chat> {
+    const row = await this.memory.saveChatUsage(chatId, nodes);
     await this.flush();
     return row;
   }

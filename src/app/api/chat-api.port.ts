@@ -1,5 +1,5 @@
 import {
-  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
+  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary
 } from '../models/chat';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import {
@@ -38,7 +38,11 @@ export interface ChatApiPort {
   createNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode>;
   editAssistant(
     chatId: string, nodeId: string, content: string,
-    attachments?: NodeAttachment[], thinking?: string
+    attachments?: NodeAttachment[], thinking?: string,
+    /** Normalized token usage / cost of the LLM call that produced this
+     *  answer — persisted onto the versioned node so per-node + per-chat
+     *  figures survive reloads / other browsers. Absent for manual edits. */
+    usage?: NodeUsageSummary
   ): Promise<ChatNode>;
   editUser(
     chatId: string, nodeId: string, content: string,
@@ -51,6 +55,16 @@ export interface ChatApiPort {
     parentId: string | null,
     orderedNodeIds: string[],
   ): Promise<ChatNode[]>;
+  /**
+   * Persist per-node token usage / cost onto the current nodes of a chat (in
+   * place, WITHOUT versioning) and recompute + store the chat's summed totals
+   * from those nodes. Returns the updated chat. Used by the sidebar's "Σ"
+   * button to backfill the server from the browser LLM log.
+   */
+  saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[]
+  ): Promise<Chat>;
   patchNode(chatId: string, nodeId: string, data: {
     content?: string; thinking?: string; attachments?: NodeAttachment[];
     modelId?: string; providerId?: string; parentId?: string | null;

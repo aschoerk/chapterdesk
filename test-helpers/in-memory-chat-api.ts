@@ -17,7 +17,7 @@ import {
   UpdatePersonaRequest
 } from '../src/app/api/chat-api.types';
 import {
-  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
+  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary
 } from '../src/app/models/chat';
 import { ProviderConfig, ModelEntry } from '../src/app/models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../src/app/models/chat-parameters';
@@ -41,6 +41,7 @@ class InMemoryChatApi implements Pick<
   | 'getChats' | 'createChat' | 'cloneChat' | 'deleteChat' | 'patchChat'
   | 'getNodes' | 'createNode' | 'editAssistant' | 'editUser' | 'branchUser'
   | 'patchNode' | 'deleteNode' | 'getDeletedNodes' | 'restoreNode' | 'purgeNode'
+  | 'saveChatUsage'
   | 'getPersonas' | 'createPersona' | 'updatePersona' | 'deletePersona'
   | 'getProjects' | 'createProject' | 'updateProject' | 'deleteProject'
   | 'getTopics' | 'createTopic' | 'updateTopic' | 'deleteTopic'
@@ -241,10 +242,10 @@ class InMemoryChatApi implements Pick<
   }
   async editAssistant(
     chatId: string, nodeId: string, content: string,
-    attachments?: NodeAttachment[], thinking?: string
+    attachments?: NodeAttachment[], thinking?: string, usage?: NodeUsageSummary
   ) {
     const old = this.must(this.nodes, nodeId, 'Node');
-    return this.createNode(chatId, {
+    const row = await this.createNode(chatId, {
       parentId: old.parentId,
       role: 'assistant',
       content,
@@ -254,6 +255,14 @@ class InMemoryChatApi implements Pick<
       modelId: old.modelId ?? undefined,
       providerId: old.providerId ?? undefined
     });
+    if (usage) {
+      row.promptTokens = usage.input ?? null;
+      row.completionTokens = usage.output ?? null;
+      row.cachedTokens = usage.cached ?? null;
+      row.totalTokens = usage.total ?? null;
+      row.totalCost = usage.cost ?? null;
+    }
+    return row;
   }
   async editUser(
     chatId: string, nodeId: string, content: string,
@@ -281,6 +290,42 @@ class InMemoryChatApi implements Pick<
       providerId: data.providerId,
       attachments: data.attachments
     });
+  }
+
+  async saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]) {
+    const ts = new Date().toISOString();
+    for (const { nodeId, usage } of nodes) {
+      if (!usage) continue;
+      const row = this.nodes.find(n => n.id === nodeId && n.chatId === chatId);
+      if (!row) continue;
+      row.promptTokens = usage.input ?? row.promptTokens ?? null;
+      row.completionTokens = usage.output ?? row.completionTokens ?? null;
+      row.cachedTokens = usage.cached ?? row.cachedTokens ?? null;
+      row.totalTokens = usage.total ?? row.totalTokens ?? null;
+      row.totalCost = usage.cost ?? row.totalCost ?? null;
+      row.updatedAt = ts;
+    }
+    const chat = this.must(this.chats, chatId, 'Chat');
+    const current = this.nodes.filter(n => n.chatId === chatId && n.isCurrent !== false && !n.deletedAt);
+    const sum = (pick: (n: ChatNode) => number | null | undefined): number | null => {
+      let acc = 0;
+      let any = false;
+      for (const n of current) {
+        const v = pick(n);
+        if (v != null) {
+          acc += v;
+          any = true;
+        }
+      }
+      return any ? acc : null;
+    };
+    chat.promptTokens = sum(n => n.promptTokens);
+    chat.completionTokens = sum(n => n.completionTokens);
+    chat.cachedTokens = sum(n => n.cachedTokens);
+    chat.totalTokens = sum(n => n.totalTokens);
+    chat.totalCost = sum(n => n.totalCost);
+    chat.updated_at = ts;
+    return { ...chat };
   }
 
   // ---------- Personas ----------

@@ -869,6 +869,90 @@ describe('API Routes (in-memory SQLite)', () => {
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('content is required');
       });
+
+      test('POST edit-assistant persists usage onto the versioned node', async () => {
+        const res = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${rootAnswerId}/edit-assistant`)
+          .send({
+            content: 'Answer with usage',
+            usage: { input: 120, output: 45, cached: 10, total: 165, cost: 0.0004 },
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.promptTokens).toBe(120);
+        expect(res.body.completionTokens).toBe(45);
+        expect(res.body.cachedTokens).toBe(10);
+        expect(res.body.totalTokens).toBe(165);
+        expect(res.body.totalCost).toBeCloseTo(0.0004, 10);
+
+        // A manual edit WITHOUT usage keeps the copied usage values.
+        const manual = await request(app)
+          .post(`/api/chats/${chatId}/nodes/${res.body.id}/edit-assistant`)
+          .send({ content: 'Manual edit' });
+        expect(manual.status).toBe(201);
+        expect(manual.body.promptTokens).toBe(120);
+        expect(manual.body.completionTokens).toBe(45);
+        expect(manual.body.totalCost).toBeCloseTo(0.0004, 10);
+      });
+    });
+  });
+
+  // ------------------------------------------------------------------------
+  // Usage persistence (POST /api/chats/:id/usage)
+  // ------------------------------------------------------------------------
+  describe('Usage persistence', () => {
+    let chatId: string;
+    let nodeAId: string;
+    let nodeBId: string;
+
+    beforeEach(async () => {
+      const chatRes = await request(app).post('/api/chats').send({ title: 'Usage Chat' });
+      chatId = chatRes.body.id;
+
+      const a = await request(app)
+        .post(`/api/chats/${chatId}/nodes`)
+        .send({ content: 'Answer A', role: 'assistant' });
+      nodeAId = a.body.id;
+
+      const b = await request(app)
+        .post(`/api/chats/${chatId}/nodes`)
+        .send({ content: 'Answer B', role: 'assistant' });
+      nodeBId = b.body.id;
+    });
+
+    test('POST /api/chats/:id/usage persists node usage and recomputes chat totals', async () => {
+      const res = await request(app)
+        .post(`/api/chats/${chatId}/usage`)
+        .send({
+          nodes: [
+            { nodeId: nodeAId, usage: { input: 100, output: 20, cached: 5, total: 120, cost: 0.001 } },
+            { nodeId: nodeBId, usage: { input: 40, output: 10, total: 50, cost: 0.0004 } },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.promptTokens).toBe(140);
+      expect(res.body.completionTokens).toBe(30);
+      expect(res.body.cachedTokens).toBe(5);
+      expect(res.body.totalTokens).toBe(170);
+      expect(res.body.totalCost).toBeCloseTo(0.0014, 10);
+
+      // Node rows carry their persisted usage (read back via GET).
+      const nodes = await request(app).get(`/api/chats/${chatId}/nodes`);
+      const a = nodes.body.find((n: { id: string }) => n.id === nodeAId);
+      const b = nodes.body.find((n: { id: string }) => n.id === nodeBId);
+      expect(a.promptTokens).toBe(100);
+      expect(a.completionTokens).toBe(20);
+      expect(a.totalCost).toBeCloseTo(0.001, 10);
+      expect(b.promptTokens).toBe(40);
+      expect(b.totalCost).toBeCloseTo(0.0004, 10);
+    });
+
+    test('POST /api/chats/:id/usage with no nodes returns the chat unchanged', async () => {
+      const res = await request(app).post(`/api/chats/${chatId}/usage`).send({ nodes: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.promptTokens).toBeNull();
+      expect(res.body.totalCost).toBeNull();
     });
   });
 

@@ -279,7 +279,7 @@ async function streamAnswerNode(
       // place) + any newly generated image(s), renumbered after the kept ones.
       const attachments = mergeAnswerAttachments(opts.preserveAttachments, finalImages);
       const versioned = await chatService.editAssistant(
-        chatId, answerNode.id, chapterContent, attachments, finalThinking
+        chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
       );
       answerId = versioned.id;
       chatService.setActiveChild(questionNodeId, answerId);

@@ -95,4 +95,43 @@ describe('ChatUsageService', () => {
     service.clearStored('c1');
     expect(service.storedTotals('c1')).toBeNull();
   });
+
+  it('usageFromNode reads the persisted node usage fields', () => {
+    const u = service.usageFromNode({
+      promptTokens: 120,
+      completionTokens: 45,
+      cachedTokens: 10,
+      totalTokens: 165,
+      totalCost: 0.0004
+    });
+    expect(u?.input).toBe(120);
+    expect(u?.output).toBe(45);
+    expect(u?.cached).toBe(10);
+    expect(u?.total).toBe(165);
+    expect(u?.cost).toBeCloseTo(0.0004, 10);
+  });
+
+  it('usageFromNode returns null for a node without persisted usage', () => {
+    expect(service.usageFromNode({ promptTokens: null, completionTokens: null })).toBeNull();
+    expect(service.usageFromNode(null)).toBeNull();
+  });
+
+  it('nodeUsagesForChat groups log entries per node and sums', () => {
+    setEntries([
+      usageEntry({ prompt_tokens: 12, completion_tokens: 30, total_cost: 0.0004 }),
+      usageEntry({ prompt_tokens: 8, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 3 } }),
+      { ...usageEntry({ prompt_tokens: 50 }), nodeId: 'n2' },
+      { ...usageEntry({ prompt_tokens: 999 }), chatId: 'c2' },
+      failedEntry()
+    ]);
+    const byNode = service.nodeUsagesForChat('c1');
+    const n1 = byNode.find(e => e.nodeId === 'n1');
+    const n2 = byNode.find(e => e.nodeId === 'n2');
+    expect(n1?.usage.input).toBe(20);
+    expect(n1?.usage.output).toBe(35);
+    expect(n1?.usage.cached).toBe(3);
+    expect(n1?.usage.cost).toBeCloseTo(0.0004, 10);
+    expect(n2?.usage.input).toBe(50);
+    expect(byNode).toHaveLength(2);
+  });
 });

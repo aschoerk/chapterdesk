@@ -11,6 +11,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NodeAttachment,
+  NodeUsageSummary,
   Persona,
   Project,
   PromptScope,
@@ -70,6 +71,11 @@ function mapChat(row: Row): Chat {
     node_number: Number(row.node_number ?? 0),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
+    promptTokens: (row.prompt_tokens as number | null) ?? null,
+    completionTokens: (row.completion_tokens as number | null) ?? null,
+    cachedTokens: (row.cached_tokens as number | null) ?? null,
+    totalTokens: (row.total_tokens as number | null) ?? null,
+    totalCost: (row.total_cost as number | null) ?? null,
   };
 }
 
@@ -91,6 +97,9 @@ function mapNode(row: Row): ChatNode {
     deletedAt: (row.deleted_at as string | null) ?? null,
     promptTokens: (row.prompt_tokens as number | null) ?? null,
     completionTokens: (row.completion_tokens as number | null) ?? null,
+    cachedTokens: (row.cached_tokens as number | null) ?? null,
+    totalTokens: (row.total_tokens as number | null) ?? null,
+    totalCost: (row.total_cost as number | null) ?? null,
     attachments: json<NodeAttachment[]>(row.attachments, []),
     chatParametersId: (row.chat_parameters_id as string | null) ?? null,
     position: (row.position as number | null) ?? null,
@@ -227,8 +236,8 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', default_model_id TEXT, chat_parameters_id TEXT, default_system_prompt TEXT DEFAULT '', icon TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS topic_projects (topic_id TEXT NOT NULL, project_id TEXT NOT NULL, PRIMARY KEY(topic_id, project_id));
       CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT NOT NULL, description TEXT DEFAULT '', avatar TEXT DEFAULT '', main_topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, node_number INTEGER DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
       CREATE TABLE IF NOT EXISTS chat_parameters (id TEXT PRIMARY KEY, name TEXT DEFAULT '', temperature REAL, top_k INTEGER, top_m REAL, top_p REAL, stream INTEGER, thinking INTEGER, thinking_level TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -244,12 +253,20 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('chats', 'chat_parameters_id', 'TEXT');
     this.addColumn('chats', 'lore', 'TEXT');
     this.addColumn('chats', 'auto_exclude_directions', 'INTEGER DEFAULT 0');
+    this.addColumn('chats', 'prompt_tokens', 'INTEGER');
+    this.addColumn('chats', 'completion_tokens', 'INTEGER');
+    this.addColumn('chats', 'cached_tokens', 'INTEGER');
+    this.addColumn('chats', 'total_tokens', 'INTEGER');
+    this.addColumn('chats', 'total_cost', 'REAL');
     this.addColumn('chat_nodes', 'thinking', 'TEXT');
     this.addColumn('chat_nodes', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_nodes', 'deleted_at', 'TEXT');
     this.addColumn('chat_nodes', 'position', 'INTEGER');
     this.addColumn('chat_nodes', 'exclude_from_context', 'INTEGER DEFAULT 0');
     this.addColumn('chat_nodes', 'exclude_after_send', 'INTEGER DEFAULT 0');
+    this.addColumn('chat_nodes', 'cached_tokens', 'INTEGER');
+    this.addColumn('chat_nodes', 'total_tokens', 'INTEGER');
+    this.addColumn('chat_nodes', 'total_cost', 'REAL');
     // Backfill: existing sibling order = insertion (rowid) order.
     this.db.exec('UPDATE chat_nodes SET position = rowid WHERE position IS NULL');
     this.addColumn('models', 'catalog_json', 'TEXT');
@@ -509,11 +526,11 @@ export class SqlitePersistence implements PersistencePort {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          'INSERT INTO chats SELECT ?, title || ?, project_id, chat_parameters_id, node_number, ?, ? FROM chats WHERE id=?',
+          'INSERT INTO chats SELECT ?, title || ?, project_id, chat_parameters_id, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
         )
         .run(id, ' (copy)', ts, ts, chatId);
       const insert = this.db.prepare(
-        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,deleted_at,exclude_from_context,exclude_after_send) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,attachments,is_current,created_at,updated_at,chat_parameters_id,deleted_at,exclude_from_context,exclude_after_send) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const row of sourceNodes)
         insert.run(
@@ -529,6 +546,9 @@ export class SqlitePersistence implements PersistencePort {
           row.previous_version_id ? (ids.get(row.previous_version_id as string) ?? null) : null,
           row.prompt_tokens,
           row.completion_tokens,
+          row.cached_tokens,
+          row.total_tokens,
+          row.total_cost,
           row.attachments,
           row.is_current,
           ts,
@@ -631,8 +651,9 @@ export class SqlitePersistence implements PersistencePort {
     content: string,
     attachments?: NodeAttachment[],
     thinking?: string,
+    usage?: NodeUsageSummary,
   ): Promise<ChatNode> {
-    return this.versionNode(chatId, nodeId, 'assistant', content, attachments, thinking);
+    return this.versionNode(chatId, nodeId, 'assistant', content, attachments, thinking, usage);
   }
   async editUser(
     chatId: string,
@@ -660,6 +681,7 @@ export class SqlitePersistence implements PersistencePort {
     content: string,
     attachments?: NodeAttachment[],
     thinking?: string,
+    usage?: NodeUsageSummary,
   ): ChatNode {
     const old = this.node(chatId, nodeId);
     if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected)
@@ -671,11 +693,18 @@ export class SqlitePersistence implements PersistencePort {
       !this.rows('SELECT 1 FROM chat_nodes WHERE parent_id=? LIMIT 1', nodeId).length;
     if (isEmpty) {
       this.db
-        .prepare('UPDATE chat_nodes SET content=?,thinking=?,attachments=?,updated_at=? WHERE id=?')
+        .prepare(
+          'UPDATE chat_nodes SET content=?,thinking=?,attachments=?,prompt_tokens=?,completion_tokens=?,cached_tokens=?,total_tokens=?,total_cost=?,updated_at=? WHERE id=?',
+        )
         .run(
           content,
           thinking !== undefined ? thinking : old.thinking,
           JSON.stringify(attachments ?? oldAttachments),
+          usage?.input ?? old.prompt_tokens ?? null,
+          usage?.output ?? old.completion_tokens ?? null,
+          usage?.cached ?? old.cached_tokens ?? null,
+          usage?.total ?? old.total_tokens ?? null,
+          usage?.cost ?? old.total_cost ?? null,
           ts,
           nodeId,
         );
@@ -687,7 +716,7 @@ export class SqlitePersistence implements PersistencePort {
       this.db.prepare('UPDATE chat_nodes SET is_current=0,updated_at=? WHERE id=?').run(ts, nodeId);
       this.db
         .prepare(
-          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,attachments,is_current,created_at,updated_at,chat_parameters_id,position,exclude_from_context,exclude_after_send) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,?,?,?, ?,chat_parameters_id,position,exclude_from_context,exclude_after_send FROM chat_nodes WHERE id=?',
+          'INSERT INTO chat_nodes(id,chat_id,parent_id,role,content,thinking,model_id,provider_id,version,previous_version_id,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,attachments,is_current,created_at,updated_at,chat_parameters_id,position,exclude_from_context,exclude_after_send) SELECT ?,chat_id,parent_id,role,?,?,?,?,version+1,?,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,?,?,?, ?,chat_parameters_id,position,exclude_from_context,exclude_after_send FROM chat_nodes WHERE id=?',
         )
         .run(
           id,
@@ -705,12 +734,78 @@ export class SqlitePersistence implements PersistencePort {
       this.db
         .prepare('UPDATE chat_nodes SET parent_id=? WHERE parent_id=? AND id<>?')
         .run(id, nodeId, id);
+      // The versioned node keeps the source's usage (copied by the SELECT);
+      // a fresh LLM answer overrides it with the reported usage.
+      if (usage) {
+        this.db
+          .prepare(
+            'UPDATE chat_nodes SET prompt_tokens=?,completion_tokens=?,cached_tokens=?,total_tokens=?,total_cost=? WHERE id=?',
+          )
+          .run(
+            usage.input ?? null,
+            usage.output ?? null,
+            usage.cached ?? null,
+            usage.total ?? null,
+            usage.cost ?? null,
+            id,
+          );
+      }
       this.db
         .prepare('UPDATE chats SET node_number=node_number+1,updated_at=? WHERE id=?')
         .run(ts, chatId);
     });
     tx();
     return mapNode(this.row('SELECT * FROM chat_nodes WHERE id=?', id) as Row);
+  }
+
+  /**
+   * Persist per-node token usage / cost in place (NO versioning — this is a
+   * bookkeeping write, not an edit of the story) and recompute + store the
+   * chat's summed totals from its CURRENT nodes. Returns the updated chat.
+   */
+  async saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[],
+  ): Promise<Chat> {
+    this.chat(chatId);
+    const ts = now();
+    const stmt = this.db.prepare(
+      'UPDATE chat_nodes SET prompt_tokens=?,completion_tokens=?,cached_tokens=?,total_tokens=?,total_cost=?,updated_at=? WHERE id=? AND chat_id=?',
+    );
+    const tx = this.db.transaction(() => {
+      for (const { nodeId, usage } of nodes) {
+        if (!usage) continue;
+        stmt.run(
+          usage.input ?? null,
+          usage.output ?? null,
+          usage.cached ?? null,
+          usage.total ?? null,
+          usage.cost ?? null,
+          ts,
+          nodeId,
+          chatId,
+        );
+      }
+      const totals = this.row(
+        'SELECT SUM(prompt_tokens) AS prompt_tokens, SUM(completion_tokens) AS completion_tokens, SUM(cached_tokens) AS cached_tokens, SUM(total_tokens) AS total_tokens, SUM(total_cost) AS total_cost FROM chat_nodes WHERE chat_id=? AND is_current=1 AND deleted_at IS NULL',
+        chatId,
+      ) as Row;
+      this.db
+        .prepare(
+          'UPDATE chats SET prompt_tokens=?,completion_tokens=?,cached_tokens=?,total_tokens=?,total_cost=?,updated_at=? WHERE id=?',
+        )
+        .run(
+          totals.prompt_tokens ?? null,
+          totals.completion_tokens ?? null,
+          totals.cached_tokens ?? null,
+          totals.total_tokens ?? null,
+          totals.total_cost ?? null,
+          ts,
+          chatId,
+        );
+    });
+    tx();
+    return this.chat(chatId);
   }
   async patchNode(chatId: string, nodeId: string, data: PatchNodeRequest): Promise<ChatNode> {
     this.node(chatId, nodeId);

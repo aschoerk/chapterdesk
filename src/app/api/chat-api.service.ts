@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import {Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment} from '../models/chat';
+import {Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary} from '../models/chat';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { getServerConfig } from '../core/common/server-config';
 import {
@@ -114,16 +114,24 @@ export class ChatApiService {
     );
   }
 
-  editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined): Promise<ChatNode> {
+  editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string | undefined, usage?: NodeUsageSummary): Promise<ChatNode> {
     const body: any = { content };
     if (attachments !== undefined) body.attachments = attachments;
     if (thinking !== undefined) body.thinking = thinking;
+    if (usage !== undefined) body.usage = usage;
 
     return firstValueFrom(
       this.http.post<ChatNode>(
         this.api(`/chats/${chatId}/nodes/${nodeId}/edit-assistant`),
         body
       )
+    );
+  }
+
+  /** Persist per-node usage (in place, no versioning) + recompute chat totals. */
+  saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]): Promise<Chat> {
+    return firstValueFrom(
+      this.http.post<Chat>(this.api(`/chats/${chatId}/usage`), { nodes })
     );
   }
 

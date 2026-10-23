@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import {
-  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
+  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary
 } from '../models/chat';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import {
@@ -82,9 +82,9 @@ export class CompositeChatApiService implements ChatApiPort {
   }
   editAssistant(
     chatId: string, nodeId: string, content: string,
-    attachments?: NodeAttachment[], thinking?: string
+    attachments?: NodeAttachment[], thinking?: string, usage?: NodeUsageSummary
   ): Promise<ChatNode> {
-    return this.api('chats').editAssistant(chatId, nodeId, content, attachments, thinking);
+    return this.api('chats').editAssistant(chatId, nodeId, content, attachments, thinking, usage);
   }
   editUser(
     chatId: string, nodeId: string, content: string,
@@ -94,6 +94,12 @@ export class CompositeChatApiService implements ChatApiPort {
   }
   branchUser(chatId: string, nodeId: string, data: BranchQuestionRequest): Promise<ChatNode> {
     return this.api('chats').branchUser(chatId, nodeId, data);
+  }
+  saveChatUsage(
+    chatId: string,
+    nodes: { nodeId: string; usage?: NodeUsageSummary }[]
+  ): Promise<Chat> {
+    return this.api('chats').saveChatUsage(chatId, nodes);
   }
   reorderSiblings(chatId: string, parentId: string | null, orderedNodeIds: string[]): Promise<ChatNode[]> {
     return this.api('chats').reorderSiblings(chatId, parentId, orderedNodeIds);

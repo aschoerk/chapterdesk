@@ -738,23 +738,33 @@ export class SideBarComponent implements OnInit {
   }
 
   /**
-   * Persisted total cost label of a chat (e.g. "$0.0042"), or '' when no cost
-   * has been summed yet. Reads the reactive value first (set by the "Σ"
-   * button), falling back to the localStorage snapshot for reloads.
+   * Total cost label of a chat (e.g. "$0.0042"), or '' when no cost is known.
+   * Prefers the PERSISTED chat total (`chat.totalCost`, shared across
+   * browsers), falling back to the local snapshot from the "Σ" button or the
+   * localStorage record for legacy chats.
    */
   chatCostLabel(chatId: string): string {
+    const chat = this.chatService.chats().find(c => c.id === chatId);
+    const persisted = chat?.totalCost;
+    if (typeof persisted === 'number' && Number.isFinite(persisted) && persisted > 0) {
+      return this.formatCost(persisted);
+    }
     const totals = this.chatCosts()[chatId] ?? this.usage.storedTotals(chatId);
     if (!totals?.cost) return '';
     return this.formatCost(totals.cost);
   }
 
   /**
-   * The "Σ" button of a chat row: add up the chat's total cost from the LLM
-   * log, persist it (localStorage) and refresh the shown field.
+   * The "Σ" button of a chat row: add up the chat's token usage / cost from
+   * the browser LLM log, PERSIST the per-node usage + chat totals to the
+   * server (so they survive reloads and other browsers) and refresh the
+   * shown field.
    */
-  recomputeChatCost(chatId: string, event: Event) {
+  async recomputeChatCost(chatId: string, event: Event) {
     event.stopPropagation();
-    const totals = this.usage.refreshChat(chatId);
+    const nodes = this.usage.nodeUsagesForChat(chatId);
+    const chat = await this.chatService.saveChatUsage(chatId, nodes);
+    const totals = chat ? this.usage.usageFromNode(chat) : this.usage.chatTotals(chatId);
     const next = { ...this.chatCosts() };
     if (totals?.cost) next[chatId] = totals;
     else delete next[chatId];

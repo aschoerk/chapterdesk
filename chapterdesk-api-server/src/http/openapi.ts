@@ -85,6 +85,18 @@ const thinkingLevel: Schema = {
   enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 };
 
+/** Normalized token usage / cost of one LLM call (provider-agnostic). */
+const usageSchema = (): Schema => ({
+  type: 'object',
+  properties: {
+    input: { type: 'number', description: 'Prompt / input tokens' },
+    output: { type: 'number', description: 'Completion / output tokens' },
+    cached: { type: 'number', description: 'Cached input tokens (prompt cache hits)' },
+    total: { type: 'number', description: 'Total tokens' },
+    cost: { type: 'number', description: 'Total USD cost of the call' },
+  },
+});
+
 export const openApiSpec: OpenApiDocument = {
   openapi: '3.0.3',
   info: {
@@ -318,6 +330,33 @@ export const openApiSpec: OpenApiDocument = {
         responses: created(ref('Chat')),
       },
     },
+    '/api/chats/{id}/usage': {
+      post: {
+        tags: ['Chats'],
+        summary: 'Persist per-node token usage / cost and recompute chat totals',
+        operationId: 'saveChatUsage',
+        parameters: [idParam()],
+        requestBody: {
+          required: true,
+          content: json({
+            type: 'object',
+            properties: {
+              nodes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    nodeId: { type: 'string' },
+                    usage: { ...usageSchema() },
+                  },
+                },
+              },
+            },
+          }),
+        },
+        responses: ok(ref('Chat')),
+      },
+    },
     '/api/chats/{id}/nodes': {
       get: {
         tags: ['Nodes'],
@@ -359,6 +398,7 @@ export const openApiSpec: OpenApiDocument = {
               content: { type: 'string' },
               thinking: { type: 'string' },
               attachments: { type: 'array', items: ref('NodeAttachment') },
+              usage: usageSchema(),
             },
           }),
         },
@@ -838,6 +878,11 @@ export const openApiSpec: OpenApiDocument = {
           node_number: { type: 'number' },
           created_at: { type: 'string', format: 'date-time' },
           updated_at: { type: 'string', format: 'date-time' },
+          promptTokens: { type: 'number', nullable: true, description: 'Summed input tokens over current nodes' },
+          completionTokens: { type: 'number', nullable: true, description: 'Summed output tokens over current nodes' },
+          cachedTokens: { type: 'number', nullable: true, description: 'Summed cached input tokens over current nodes' },
+          totalTokens: { type: 'number', nullable: true, description: 'Summed total tokens over current nodes' },
+          totalCost: { type: 'number', nullable: true, description: 'Summed USD cost over current nodes' },
         },
       },
       PatchChatRequest: {
@@ -877,6 +922,9 @@ export const openApiSpec: OpenApiDocument = {
           deletedAt: { type: 'string', format: 'date-time', nullable: true },
           promptTokens: { type: 'number', nullable: true },
           completionTokens: { type: 'number', nullable: true },
+          cachedTokens: { type: 'number', nullable: true },
+          totalTokens: { type: 'number', nullable: true },
+          totalCost: { type: 'number', nullable: true },
           attachments: { type: 'array', items: ref('NodeAttachment') },
           chatParametersId: { type: 'string', nullable: true },
         },

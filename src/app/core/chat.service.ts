@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment } from '../models/chat';
+import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment, NodeUsageSummary } from '../models/chat';
 import { CHAT_API } from '../api/chat-api.token';
 import {NodeEditSession} from './node-edit-session';
 import { isImageMime, resolvedMime } from './llm/llm-message';
@@ -498,9 +498,10 @@ export class ChatService {
 
   async editAssistant(chatId: string, nodeId: string, content: string,
                       attachments?: NodeAttachment[],
-                      thinking?: string): Promise<ChatNode> {
+                      thinking?: string,
+                      usage?: NodeUsageSummary): Promise<ChatNode> {
     const body: any = {content};
-    const saved = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking);
+    const saved = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking, usage);
 
     this._nodes.update(list => {
       const retired = list.map(n =>
@@ -514,6 +515,13 @@ export class ChatService {
     this.setActiveChild(saved.parentId ?? null, saved.id);
     await this.ensureDraftAtLeaf(chatId);
     return saved;
+  }
+
+  /** Persist per-node usage (in place) + refresh the chat totals in the list. */
+  async saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]): Promise<Chat | null> {
+    const chat = await this.api.saveChatUsage(chatId, nodes);
+    this._chats.update(list => list.map(c => (c.id === chat.id ? chat : c)));
+    return chat;
   }
 
   async editUser(

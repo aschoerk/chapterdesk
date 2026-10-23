@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import {
-  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment
+  Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary
 } from '../models/chat';
 import {
   BranchQuestionRequest,
@@ -328,8 +328,8 @@ export class IdbChatApiService implements ChatApiPort {
     return row;
   }
 
-  async editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string): Promise<ChatNode> {
-    return this.editNodeVersion(nodeId, 'assistant', { content, attachments, thinking });
+  async editAssistant(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[], thinking?: string, usage?: NodeUsageSummary): Promise<ChatNode> {
+    return this.editNodeVersion(nodeId, 'assistant', { content, attachments, thinking, usage });
   }
 
   async editUser(chatId: string, nodeId: string, content: string, attachments?: NodeAttachment[]): Promise<ChatNode> {
@@ -650,7 +650,7 @@ export class IdbChatApiService implements ChatApiPort {
     return t;
   }
 
-  private async editNodeVersion(nodeId: string, expectedRole: 'system' | 'user' | 'assistant', data: { content: string; attachments?: NodeAttachment[]; thinking?: string }): Promise<ChatNode> {
+  private async editNodeVersion(nodeId: string, expectedRole: 'system' | 'user' | 'assistant', data: { content: string; attachments?: NodeAttachment[]; thinking?: string; usage?: NodeUsageSummary }): Promise<ChatNode> {
     return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
       const store = tx.objectStore('nodes');
       const old = await this.req<ChatNode>(store.get(nodeId));
@@ -664,6 +664,7 @@ export class IdbChatApiService implements ChatApiPort {
         && !(old.attachments && old.attachments.length);
       if (isEmptyPlaceholder) {
         const updated: ChatNode = { ...old, content: data.content, thinking: nextThinking, attachments: nextAttachments, updatedAt: this.now() };
+        this.applyUsageToNode(updated, data.usage);
         await this.req(store.put(updated));
         await this.touchChat(tx, old.chatId, 0);
         return updated;
@@ -673,11 +674,76 @@ export class IdbChatApiService implements ChatApiPort {
         version: (old.version || 1) + 1, previousVersionId: old.id, isCurrent: true,
         createdAt: this.now(), updatedAt: this.now(), deletedAt: null
       };
+      // A fresh LLM answer overrides the copied usage; a manual edit keeps it.
+      if (data.usage) {
+        next.promptTokens = data.usage.input ?? null;
+        next.completionTokens = data.usage.output ?? null;
+        next.cachedTokens = data.usage.cached ?? null;
+        next.totalTokens = data.usage.total ?? null;
+        next.totalCost = data.usage.cost ?? null;
+      }
       await this.req(store.put({ ...old, isCurrent: false }));
       await this.req(store.put(next));
       for (const child of children) await this.req(store.put({ ...child, parentId: next.id, updatedAt: this.now() }));
       await this.touchChat(tx, old.chatId, 1);
       return next;
+    });
+  }
+
+  /** Overwrite the usage fields of a node in place (keeps existing values when absent). */
+  private applyUsageToNode(node: ChatNode, usage?: NodeUsageSummary): void {
+    if (!usage) return;
+    node.promptTokens = usage.input ?? node.promptTokens ?? null;
+    node.completionTokens = usage.output ?? node.completionTokens ?? null;
+    node.cachedTokens = usage.cached ?? node.cachedTokens ?? null;
+    node.totalTokens = usage.total ?? node.totalTokens ?? null;
+    node.totalCost = usage.cost ?? node.totalCost ?? null;
+  }
+
+  /**
+   * Persist per-node token usage / cost in place (NO versioning) and recompute
+   * + store the chat's summed totals from its CURRENT nodes. Returns the chat.
+   */
+  async saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]): Promise<Chat> {
+    return this.tx(['nodes', 'chats'], 'readwrite', async tx => {
+      const store = tx.objectStore('nodes');
+      const ts = this.now();
+      for (const { nodeId, usage } of nodes) {
+        if (!usage) continue;
+        const row = await this.req<ChatNode | undefined>(store.get(nodeId));
+        if (!row || row.chatId !== chatId) continue;
+        const next: ChatNode = { ...row, updatedAt: ts };
+        this.applyUsageToNode(next, usage);
+        await this.req(store.put(next));
+      }
+      const all = await this.req<ChatNode[]>(store.index('by-chat').getAll(chatId));
+      const current = all.filter(n => n.isCurrent && !n.deletedAt);
+      const sum = (pick: (n: ChatNode) => number | null | undefined): number | null => {
+        let acc = 0;
+        let any = false;
+        for (const n of current) {
+          const v = pick(n);
+          if (v != null) {
+            acc += v;
+            any = true;
+          }
+        }
+        return any ? acc : null;
+      };
+      const chatStore = tx.objectStore('chats');
+      const chat = await this.req<Chat>(chatStore.get(chatId));
+      if (!chat) throw Object.assign(new Error('Chat not found'), { status: 404 });
+      const updated: Chat = {
+        ...chat,
+        promptTokens: sum(n => n.promptTokens),
+        completionTokens: sum(n => n.completionTokens),
+        cachedTokens: sum(n => n.cachedTokens),
+        totalTokens: sum(n => n.totalTokens),
+        totalCost: sum(n => n.totalCost),
+        updated_at: ts
+      };
+      await this.req(chatStore.put(updated));
+      return updated;
     });
   }
 
