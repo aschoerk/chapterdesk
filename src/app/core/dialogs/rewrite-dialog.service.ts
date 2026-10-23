@@ -1,6 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable } from '@angular/core';
 import { Chat, ChatNode } from '../../models/chat';
 import type { RewriteContextMode } from '../llm/orchestration';
+import { createModalState } from './modal-state';
 
 /**
  * State of the open "Rewrite selection" dialog: the marked fragment (editable),
@@ -25,8 +26,6 @@ export interface RewriteDialogState {
   modelId: string;
   /** Provider of the default model. */
   providerId: string;
-  /** Collect the modal result. Resolves the text or null on cancel. */
-  resolve: (value: string | null) => void;
 }
 
 /**
@@ -37,8 +36,10 @@ export interface RewriteDialogState {
  */
 @Injectable({ providedIn: 'root' })
 export class RewriteDialogService {
+  private readonly modal = createModalState<RewriteDialogState, string>();
+
   /** The dialog entry, or null when the dialog is closed. */
-  readonly current = signal<RewriteDialogState | null>(null);
+  readonly current = this.modal.current;
 
   /**
    * Open the dialog for a marked piece of text. Resolves with the text to
@@ -54,34 +55,25 @@ export class RewriteDialogService {
     modelId: string;
     providerId?: string;
   }): Promise<string | null> {
-    return new Promise(resolve => {
-      this.current.set({
-        fragment: opts.fragment,
-        directions: opts.directions ?? '',
-        contextMode: opts.contextMode ?? 'node',
-        selectionEnd: opts.selectionEnd,
-        node: opts.node,
-        chat: opts.chat,
-        modelId: opts.modelId,
-        providerId: opts.providerId ?? '',
-        resolve
-      });
+    return this.modal.open({
+      fragment: opts.fragment,
+      directions: opts.directions ?? '',
+      contextMode: opts.contextMode ?? 'node',
+      selectionEnd: opts.selectionEnd,
+      node: opts.node,
+      chat: opts.chat,
+      modelId: opts.modelId,
+      providerId: opts.providerId ?? ''
     });
   }
 
   /** Confirm with the chosen text (replaces the marked range). */
   close(text: string): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(text);
+    this.modal.close(text);
   }
 
   /** Cancel — close without changing anything. */
   cancel(): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(null);
+    this.modal.close(null);
   }
 }

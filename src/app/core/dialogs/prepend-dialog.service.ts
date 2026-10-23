@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable } from '@angular/core';
+import { createModalState } from './modal-state';
 
 /**
  * State of the open "Prepend director" dialog: the proposed (or existing)
@@ -10,8 +11,6 @@ export interface PrependDialogState {
   text: string;
   /** Whether a director instruction already exists for the current node. */
   hasExisting: boolean;
-  /** Collect the modal result. Resolves null when the user cancels. */
-  resolve: (value: string | null) => void;
 }
 
 /**
@@ -21,32 +20,26 @@ export interface PrependDialogState {
  */
 @Injectable({ providedIn: 'root' })
 export class PrependDialogService {
+  private readonly modal = createModalState<PrependDialogState, string>();
+
   /** The dialog entry, or null when the dialog is closed. */
-  readonly current = signal<PrependDialogState | null>(null);
+  readonly current = this.modal.current;
 
   /**
    * Open the dialog prefilled with `text`. Resolves with the (possibly
    * edited) director text, or null on cancel.
    */
   open(text: string, hasExisting: boolean): Promise<string | null> {
-    return new Promise(resolve => {
-      this.current.set({ text, hasExisting, resolve });
-    });
+    return this.modal.open({ text, hasExisting });
   }
 
   /** Confirm with the edited text. An empty text removes the director. */
   submit(text: string): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(text ?? '');
+    this.modal.close(text ?? '');
   }
 
   /** Cancel — close without changing the stored text. */
   cancel(): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(null);
+    this.modal.close(null);
   }
 }

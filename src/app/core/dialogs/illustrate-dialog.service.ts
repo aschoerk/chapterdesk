@@ -6,13 +6,9 @@ import {
   IllustrateOptions,
   isIllustrateHistoryMode
 } from '../../models/illustrate-options';
+import { createModalState } from './modal-state';
 
 const LS_KEY = 'chat.illustrateOptions.v1';
-
-interface IllustrateState extends IllustrateOptions {
-  /** Collect the modal result. Resolves null when the user cancels. */
-  resolve: (value: IllustrateOptions | null) => void;
-}
 
 function readLast(): IllustrateOptions {
   try {
@@ -55,8 +51,10 @@ function persist(opts: IllustrateOptions): void {
  */
 @Injectable({ providedIn: 'root' })
 export class IllustrateDialogService {
+  private readonly modal = createModalState<IllustrateOptions, IllustrateOptions>();
+
   /** The dialog entry, or null when the dialog is closed. */
-  readonly current = signal<IllustrateState | null>(null);
+  readonly current = this.modal.current;
   /** Last confirmed options (seeded from localStorage). */
   readonly last = signal<IllustrateOptions>(readLast());
 
@@ -72,15 +70,12 @@ export class IllustrateDialogService {
   open(seed: Partial<IllustrateOptions> = {}): Promise<IllustrateOptions | null> {
     const last = this.last();
     const seeded = { ...last, ...seed };
-    return new Promise(resolve => {
-      this.current.set({
-        ...seeded,
-        // Last-used model wins over the settings-default seed; the seed only
-        // fills the gap when no model was remembered yet.
-        modelId: last.modelId || seeded.modelId,
-        providerId: last.providerId || seeded.providerId,
-        resolve
-      });
+    return this.modal.open({
+      ...seeded,
+      // Last-used model wins over the settings-default seed; the seed only
+      // fills the gap when no model was remembered yet.
+      modelId: last.modelId || seeded.modelId,
+      providerId: last.providerId || seeded.providerId
     });
   }
 
@@ -102,17 +97,11 @@ export class IllustrateDialogService {
     };
     this.last.set(clamped);
     persist(clamped);
-    const cur = this.current();
-    if (!cur) return; // no dialog open — the values are just remembered
-    this.current.set(null);
-    cur.resolve(clamped);
+    this.modal.close(clamped);
   }
 
   /** Cancel: close and resolve with null. */
   cancel(): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(null);
+    this.modal.close(null);
   }
 }

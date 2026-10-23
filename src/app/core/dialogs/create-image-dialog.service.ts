@@ -1,7 +1,8 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable } from '@angular/core';
 import { Chat, ChatNode, NodeAttachment } from '../../models/chat';
 import { newId } from '../util/helpers';
 import { estimateDataUrlBytes } from '../llm/llm-message';
+import { createModalState } from './modal-state';
 
 /**
  * Per-chat persistence keys for the "Create image" dialog. The chat-specific
@@ -62,7 +63,7 @@ export interface CreateImageResult {
 }
 
 /** The open dialog state: the editable fields + the resolve callback. */
-export interface CreateImageState extends CreateImageResult {
+interface CreateImageData extends CreateImageResult {
   chatId: string;
   chat: Chat | null;
   /** The assistant node the picture will be attached to. */
@@ -71,8 +72,6 @@ export interface CreateImageState extends CreateImageResult {
    *  remembered model is no longer enabled. */
   defaultModelId: string;
   defaultProviderId: string;
-  /** Collect the modal result. Resolves null when the user cancels. */
-  resolve: (value: CreateImageResult | null) => void;
 }
 
 function readConstantMap(): Record<string, string> {
@@ -147,8 +146,10 @@ function writeImagesMap(map: Record<string, NodeAttachment[]>): void {
  */
 @Injectable({ providedIn: 'root' })
 export class CreateImageDialogService {
+  private readonly modal = createModalState<CreateImageData, CreateImageResult>();
+
   /** The dialog entry, or null when the dialog is closed. */
-  readonly current = signal<CreateImageState | null>(null);
+  readonly current = this.modal.current;
 
   /**
    * Open the dialog for the marked text of an assistant node. The chat-specific
@@ -169,22 +170,19 @@ export class CreateImageDialogService {
     const constants = readConstantMap();
     const imagesMap = readImagesMap();
     const remembered = readModel();
-    return new Promise(resolve => {
-      this.current.set({
-        chatId: opts.chatId,
-        chat: opts.chat,
-        node: opts.node,
-        script: opts.script,
-        constant: typeof constants[opts.chatId] === 'string' ? constants[opts.chatId] : '',
-        images: imagesMap[opts.chatId] ?? [],
-        // Remembered model wins; the caller default stays available as the
-        // fallback when the remembered model is no longer enabled.
-        modelId: remembered.modelId || opts.modelId,
-        providerId: remembered.providerId || opts.providerId,
-        defaultModelId: opts.modelId,
-        defaultProviderId: opts.providerId,
-        resolve
-      });
+    return this.modal.open({
+      chatId: opts.chatId,
+      chat: opts.chat,
+      node: opts.node,
+      script: opts.script,
+      constant: typeof constants[opts.chatId] === 'string' ? constants[opts.chatId] : '',
+      images: imagesMap[opts.chatId] ?? [],
+      // Remembered model wins; the caller default stays available as the
+      // fallback when the remembered model is no longer enabled.
+      modelId: remembered.modelId || opts.modelId,
+      providerId: remembered.providerId || opts.providerId,
+      defaultModelId: opts.modelId,
+      defaultProviderId: opts.providerId
     });
   }
 
@@ -214,15 +212,11 @@ export class CreateImageDialogService {
       providerId: (result.providerId ?? '').trim()
     });
 
-    this.current.set(null);
-    cur.resolve(result);
+    this.modal.close(result);
   }
 
   /** Cancel — close without creating the image. */
   cancel(): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(null);
+    this.modal.close(null);
   }
 }

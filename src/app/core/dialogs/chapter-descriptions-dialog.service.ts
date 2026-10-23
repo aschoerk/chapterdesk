@@ -1,5 +1,6 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable } from '@angular/core';
 import { Chat, ChatNode } from '../../models/chat';
+import { createModalState } from './modal-state';
 
 /**
  * Per-chat persistence for the "Create chapter descriptions" dialog. The
@@ -36,13 +37,11 @@ export interface ChapterDescriptionsResult extends ChapterDescriptionsParams {
 }
 
 /** The open dialog state: the prefilled fields + the resolve callback. */
-export interface ChapterDescriptionsState extends ChapterDescriptionsResult {
+interface ChapterDescriptionsData extends ChapterDescriptionsResult {
   chatId: string;
   chat: Chat | null;
   /** The empty leaf question where Continue lives (the current node). */
   node: ChatNode;
-  /** Collect the modal result. Resolves null when the user cancels. */
-  resolve: (value: ChapterDescriptionsResult | null) => void;
 }
 
 /** A remembered model choice (id + provider). */
@@ -117,8 +116,10 @@ function writeModel(model: RememberedModel): void {
  */
 @Injectable({ providedIn: 'root' })
 export class ChapterDescriptionsDialogService {
+  private readonly modal = createModalState<ChapterDescriptionsData, ChapterDescriptionsResult>();
+
   /** The dialog entry, or null when the dialog is closed. */
-  readonly current = signal<ChapterDescriptionsState | null>(null);
+  readonly current = this.modal.current;
 
   /**
    * Open the dialog for the empty leaf question. When a chapter description
@@ -139,22 +140,19 @@ export class ChapterDescriptionsDialogService {
     const remembered = readModel();
     const hadStored = !!stored;
 
-    return new Promise(resolve => {
-      this.current.set({
-        chatId: opts.chatId,
-        chat: opts.chat,
-        node: opts.node,
-        // Latest input parameters (first press: sensible defaults).
-        chapterCount: hadStored ? stored!.chapterCount : DEFAULT_CHAPTER_COUNT,
-        sentencesPerChapter: hadStored ? stored!.sentencesPerChapter : DEFAULT_SENTENCES_PER_CHAPTER,
-        // Default 1, or the last generated chapter + 1.
-        firstChapter: hadStored ? stored!.firstChapter + stored!.chapterCount : 1,
-        goal: hadStored ? stored!.goal : '',
-        // Remembered model wins; the current model stays the fallback.
-        modelId: remembered.modelId || opts.defaultModelId,
-        providerId: remembered.providerId || opts.defaultProviderId,
-        resolve
-      });
+    return this.modal.open({
+      chatId: opts.chatId,
+      chat: opts.chat,
+      node: opts.node,
+      // Latest input parameters (first press: sensible defaults).
+      chapterCount: hadStored ? stored!.chapterCount : DEFAULT_CHAPTER_COUNT,
+      sentencesPerChapter: hadStored ? stored!.sentencesPerChapter : DEFAULT_SENTENCES_PER_CHAPTER,
+      // Default 1, or the last generated chapter + 1.
+      firstChapter: hadStored ? stored!.firstChapter + stored!.chapterCount : 1,
+      goal: hadStored ? stored!.goal : '',
+      // Remembered model wins; the current model stays the fallback.
+      modelId: remembered.modelId || opts.defaultModelId,
+      providerId: remembered.providerId || opts.defaultProviderId
     });
   }
 
@@ -177,15 +175,11 @@ export class ChapterDescriptionsDialogService {
       providerId: (result.providerId ?? '').trim()
     });
 
-    this.current.set(null);
-    cur.resolve(result);
+    this.modal.close(result);
   }
 
   /** Cancel — close without generating. */
   cancel(): void {
-    const cur = this.current();
-    if (!cur) return;
-    this.current.set(null);
-    cur.resolve(null);
+    this.modal.close(null);
   }
 }
