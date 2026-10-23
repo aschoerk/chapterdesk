@@ -1,4 +1,6 @@
-export const DE_PAGES = {
+import { EN_PAGES } from './catalog-pages-en';
+
+export const DE_PAGES: typeof EN_PAGES = {
   personas: {
     new: '+ Neue Persona',
     search: 'Personas suchen…',

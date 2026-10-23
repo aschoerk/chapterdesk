@@ -1,4 +1,6 @@
-export const DE = {
+import { EN } from './catalog-en';
+
+export const DE: typeof EN = {
   common: {
     cancel: 'Abbrechen',
     save: 'Speichern',
@@ -716,6 +718,7 @@ export const DE = {
       appearance: 'Darstellung',
       providers: 'Anbieter / Modelle',
       tasks: 'Generierungsaufgaben',
+      prompts: 'Prompt-Vorgaben',
     },
     appearance: {
       title: 'Darstellung',

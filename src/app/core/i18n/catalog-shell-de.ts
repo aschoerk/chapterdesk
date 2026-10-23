@@ -1,4 +1,6 @@
-export const DE_SHELL = {
+import { EN_SHELL } from './catalog-shell-en';
+
+export const DE_SHELL: typeof EN_SHELL = {
   common: {
     cancel: 'Abbrechen',
     save: 'Speichern',

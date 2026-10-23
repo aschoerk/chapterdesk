@@ -1,4 +1,6 @@
-export const DE_WORK = {
+import { EN_WORK } from './catalog-work-en';
+
+export const DE_WORK: typeof EN_WORK = {
   sidebar: {
     stories: 'Geschichten',
     currentPersona: '{{name}} (aktuelle Persona)',
