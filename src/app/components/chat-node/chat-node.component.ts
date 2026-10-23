@@ -243,11 +243,18 @@ export class ChatNodeComponent implements OnDestroy {
     return !this.contentDraft().trim() && this.editAttachments().length === 0;
   }
 
-  /** Question that has not produced an answer yet — the in-thread composer. */
+  /**
+   * The in-thread composer: a direction (user) node with NO children yet.
+   * Only the pending terminal leaf is "unsent". A direction that is followed
+   * by ANY node — an answer, a following direction, an empty composer leaf
+   * created after "Delete Continuation"/"Remove (keep children)", a lore or
+   * structural node — is an existing direction, so editing it must offer
+   * Save (OK / Branch / Insert), not Send.
+   */
   isUnsentQuestion(): boolean {
     const n = this.node();
     if (n.role !== 'user') return false;
-    return !this.chatService.getChildren(n.id).some(child => child.role === 'assistant');
+    return this.chatService.getChildren(n.id).length === 0;
   }
 
   isQuestion(): boolean {

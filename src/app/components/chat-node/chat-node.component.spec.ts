@@ -1813,6 +1813,57 @@ describe('ChatNodeComponent', () => {
 
       expect(component.isEditing()).toBe(false);
     });
+
+    it('a direction followed ONLY by a non-assistant node is NOT unsent — editing saves', async () => {
+      // "Delete Continuation" shape: the direction's answer was removed, a
+      // fresh empty composer leaf was created UNDER the direction. The
+      // direction is an existing node (not the pending terminal composer), so
+      // editing it must offer Save — not Send.
+      const q1 = node({ id: 'q1', content: 'Real direction' });
+      const leaf = node({ id: 'leaf1', parentId: 'q1', role: 'user', content: '' });
+      await openChat([q1, leaf]);
+      createFixture(q1);
+
+      expect(component.isUnsentQuestion()).toBe(false);
+      expect(component.showClosedContinue()).toBe(false);
+
+      await startEditing(q1);
+      fixture.detectChanges();
+      // Editing allows saving: the OK (save-as-version) button is present and
+      // the Send button is not offered.
+      expect(findButton('OK')).not.toBeNull();
+      expect(findButton('Send')).toBeNull();
+    });
+
+    it('a direction whose answer was removed (children kept) is NOT unsent — editing saves', async () => {
+      // "Remove (keep children)" shape: q1's answer a1 was deleted, so a
+      // following direction q2 is now q1's (only, non-assistant) child.
+      const q1 = node({ id: 'q1', content: 'Earlier direction' });
+      const q2 = node({ id: 'q2', parentId: 'q1', role: 'user', content: 'Following direction' });
+      const a2 = node({ id: 'a2', parentId: 'q2', role: 'assistant', content: 'Answer' });
+      await openChat([q1, q2, a2]);
+      createFixture(q1);
+
+      expect(component.isUnsentQuestion()).toBe(false);
+
+      await startEditing(q1);
+      fixture.detectChanges();
+      expect(findButton('OK')).not.toBeNull();
+      expect(findButton('Send')).toBeNull();
+    });
+
+    it('an answered direction keeps the save behavior (regression guard)', async () => {
+      const q1 = node({ id: 'q1', content: 'Direction' });
+      const a1 = node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer' });
+      await openChat([q1, a1]);
+      createFixture(q1);
+
+      expect(component.isUnsentQuestion()).toBe(false);
+      await startEditing(q1);
+      fixture.detectChanges();
+      expect(findButton('OK')).not.toBeNull();
+      expect(findButton('Send')).toBeNull();
+    });
   });
 
   // ------------------------------------------------------------------
