@@ -13,7 +13,6 @@ import { NodeEditSession} from '../../core/chat/node-edit-session';
 import {ConfirmService} from '../../core/dialogs/confirm.service';
 import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import {
-  inferMimeType,
   isImageMime,
   isTextualMime,
   resolvedMime,
@@ -45,7 +44,16 @@ import { type LlmImagePart } from '../../core/llm/llm-message';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
-import { nearestScrollParent, textareaCharMetrics } from '../../core/util/dom-metrics';
+import { nearestScrollParent } from '../../core/util/dom-metrics';
+import { buildCtxMenuItems, type CtxMenuItem } from './context-menu';
+import { filesToAttachments as convertFilesToAttachments } from './attachments';
+import {
+  captureRoSourceOffset,
+  ensureEditorTopOnScreen,
+  followLiveScroll,
+  scrollTextareaToOffset,
+  scrollTopForOffset as draftScrollTopForOffset
+} from './editor-scroll';
 
 /**
  * Fallback when a rewrite's original range cannot be mapped back to the
@@ -55,20 +63,6 @@ import { nearestScrollParent, textareaCharMetrics } from '../../core/util/dom-me
 function appendRewriteFallback(source: string, rewrite: string): string {
   const tail = source.trimEnd();
   return tail.length ? tail + '\n\n' + rewrite : rewrite;
-}
-
-/** A single command shown in the node right-click (context) menu. */
-interface CtxMenuItem {
-  /** Translated display text. */
-  label: string;
-  /** Invoked when the item is chosen (the menu closes first). */
-  action: () => void;
-  /** Destructive styling (remove / delete). */
-  danger?: boolean;
-  /** Shown greyed-out and not clickable. */
-  disabled?: boolean;
-  /** Separator row, not an action. */
-  divider?: boolean;
 }
 
 @Component({
@@ -106,7 +100,6 @@ export class ChatNodeComponent implements OnDestroy {
 
   readonly editAttachments = signal<NodeAttachment[]>([]);
   readonly isEditorDragOver = signal(false);
-  private readonly MAX_ATTACHMENT_BYTES = 4_000_000;
 
   /** Client-side clipboard for moving/duplicating attachments between nodes. */
   readonly attachmentClipboard = inject(AttachmentClipboardService);
@@ -297,29 +290,16 @@ export class ChatNodeComponent implements OnDestroy {
    * The source offset of the text that is currently the FIRST visible one in
    * the read-only view (the sentence sitting at the top of the visible area).
    * Returns null when there is nothing to restore (no rendered content, nothing
-   * visible) — the editor then simply starts at the top.
+   * visible) — the editor then simply starts at the top. A delegate over the
+   * shared `editor-scroll` module helper (kept as a method so specs can stub
+   * the scroll-parent look-up).
    */
   private captureRoScrollOffset(): number | null {
-    const el = this.readContent()?.nativeElement;
-    if (!el) return null;
-    const source = this.node().content ?? '';
-    if (!source.trim()) return null;
-    const clip = this.roVisibleClip(el);
-    if (!clip) return null;
-    const fragment = firstVisibleRoText(el, clip);
-    if (!fragment) return null;
-    const loc = markFragmentInSource(source, fragment);
-    return loc ? loc.index : null;
-  }
-
-  /** The vertical band that counts as "visible" (scroll container, else viewport). */
-  private roVisibleClip(el: HTMLElement): { top: number; bottom: number } | null {
-    const scroller = this.scrollParentOf(el);
-    if (scroller) {
-      const r = scroller.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom };
-    }
-    return { top: 0, bottom: window.innerHeight };
+    return captureRoSourceOffset(
+      this.readContent()?.nativeElement,
+      this.node().content ?? '',
+      this.scrollParentOf.bind(this)
+    );
   }
 
   /**
@@ -335,10 +315,11 @@ export class ChatNodeComponent implements OnDestroy {
    * its first visible line (mirroring the ro view's top sentence). A hidden
    * mirror div reproduces the textarea's box + font metrics to measure the
    * vertical position of that character; the browser clamps the scrollTop.
+   * A delegate over the shared `editor-scroll` module helper (kept as a method
+   * so specs can stub the scroll — module functions aren't spyable).
    */
   private scrollTextareaToSourceOffset(textarea: HTMLTextAreaElement, offset: number): void {
-    const st = this.scrollTopForOffset(textarea, offset);
-    if (st != null) textarea.scrollTop = st;
+    scrollTextareaToOffset(textarea, offset, this.contentDraft());
   }
 
   /**
@@ -347,15 +328,11 @@ export class ChatNodeComponent implements OnDestroy {
    * (empty draft / no layout). A hidden mirror div that duplicates the
    * textarea's box + font metrics measures the vertical position of that
    * character; the textarea's scrollTop is relative to its CONTENT box, so the
-   * top padding is subtracted to land the line at the very top.
+   * top padding is subtracted to land the line at the very top. A delegate
+   * over the shared `editor-scroll` module helper.
    */
   private scrollTopForOffset(textarea: HTMLTextAreaElement, offset: number): number | null {
-    const text = this.contentDraft();
-    if (!text) return null;
-    const clamped = Math.max(0, Math.min(offset, text.length));
-    if (clamped === 0) return 0;
-    const metrics = textareaCharMetrics(textarea, clamped);
-    return metrics ? Math.max(0, metrics.contentTop) : null;
+    return draftScrollTopForOffset(textarea, offset, this.contentDraft());
   }
 
   private scheduleResize(): void {
@@ -404,30 +381,14 @@ export class ChatNodeComponent implements OnDestroy {
    * band. Only scrolls the OUTER container (the textarea's own scrollTop is
    * the scroll-continuity restore and is left untouched). A tiny top margin
    * keeps the first line from being flush with the very edge. Never scrolls
-   * when the top is already visible and on screen.
+   * when the top is already visible and on screen. A delegate over the shared
+   * `editor-scroll` module helper (kept as a method so specs can stub the
+   * scroll-parent look-up).
    */
   private ensureEditorTopVisible(): void {
     const textarea = this.editArea()?.nativeElement;
     if (!textarea) return;
-    const scroller = this.scrollParentOf(textarea);
-    if (!scroller) return;
-    const sRect = scroller.getBoundingClientRect();
-    // No real layout (jsdom/tests): nothing measurable, leave the container alone.
-    if (!sRect.width && !sRect.height) return;
-    const tRect = textarea.getBoundingClientRect();
-    if (!tRect.width && !tRect.height) return;
-    const TOP_MARGIN = 8;
-    const topTarget = sRect.top + TOP_MARGIN;
-    // Bring the top into view when it is above the visible band (scrolled past)
-    // OR the whole textarea is below it. Both collapse to one delta: a textarea
-    // at viewport Y `tRect.top` lands at `topTarget` after changing the scrollTop
-    // by `tRect.top - topTarget` (increasing scrollTop moves content UP, so a
-    // textarea hidden ABOVE the fold needs a NEGATIVE delta to pull it back down
-    // into view; one scrolled below the fold needs a positive delta). The browser
-    // clamps to the container's scroll range.
-    if (tRect.top < topTarget || tRect.top >= sRect.bottom) {
-      scroller.scrollTop += tRect.top - topTarget;
-    }
+    ensureEditorTopOnScreen(textarea, this.scrollParentOf.bind(this));
   }
 
   onContentClick(event: MouseEvent): void {
@@ -2355,91 +2316,40 @@ export class ChatNodeComponent implements OnDestroy {
     return Math.max(8, Math.min(menu.y, window.innerHeight - h - 8));
   }
 
-  /** Build the menu rows for the current node (role- and state-aware). */
+  /** Build the menu rows for the current node (role- and state-aware). A
+   *  pure delegate over the shared `context-menu` module builder — the node
+   *  state and action callbacks are supplied so the menu logic lives outside
+   *  the component. */
   ctxMenuItems(): CtxMenuItem[] {
     const n = this.node();
-    const busy = this.isLoading() || this.chatService.isGenerating(n.id);
-
-    // Common: every node can be copied / edited.
-    const common: CtxMenuItem[] = [
-      { label: this.i18n.t('node.ctxCopy'), action: () => void this.copyContent() },
-      { label: this.i18n.t('node.ctxEdit'), action: () => void this.startEdit() }
-    ];
-    if (n.content?.trim()) {
-      common.push({
-        label: this.i18n.t('node.ctxRewriteSelection'),
-        action: () => void this.openReadRewriteDialog()
-      });
-    }
-    if (this.priorVersions().length) {
-      common.push({
-        label: this.i18n.t('node.ctxPriorVersions'),
-        action: () => this.showPriorVersions.set(!this.showPriorVersions())
-      });
-    }
-
-    // Role-specific actions — mirror the toolbar buttons' availability.
-    const roleItems: CtxMenuItem[] = [];
-    if (n.role === 'user' || n.role === 'system') {
-      roleItems.push({
-        label: (n.excludeFromContext ? '✓ ' : '') + this.i18n.t('node.ctxExcludeFromContext'),
-        action: () => void this.toggleExcludeFromContext(),
-        disabled: busy
-      });
-    }
-    if (n.role === 'assistant') {
-      roleItems.push(
-        { label: this.i18n.t('node.ctxHeading'), action: () => void this.generateHeading(), disabled: busy },
-        { label: this.i18n.t('node.ctxRegenerate'), action: () => void this.regenerateAnswer(), disabled: busy },
-        { label: this.i18n.t('node.ctxRegenerateInPlace'), action: () => void this.regenerateInPlace(), disabled: busy },
-        { label: this.i18n.t('node.ctxIllustrate'), action: () => void this.illustrate(), disabled: busy || !this.canIllustrate() },
-        { label: this.i18n.t('node.ctxCreateImage'), action: () => void this.openReadCreateImageDialog(), disabled: busy || !n.content?.trim() }
-      );
-    } else if (n.role === 'user') {
-      if (this.showClosedContinue()) {
-        roleItems.push({
-          label: this.i18n.t('node.ctxContinue'),
-          action: () => void this.continueDraft(),
-          disabled: this.isLoading()
-        });
-        roleItems.push({
-          label: this.i18n.t('node.ctxSwitchCharacters'),
-          action: () => void this.switchCharactersDraft(),
-          disabled: this.isLoading()
-        });
-      }
-      roleItems.push({
-        label: this.i18n.t('node.ctxChapterDescriptions'),
-        action: () => void this.openChapterDescriptionsDialog(),
-        disabled: this.isLoading()
-      });
-      if (!this.isUnsentQuestion()) {
-        roleItems.push({
-          label: this.i18n.t('node.ctxPrepend'),
-          action: () => void this.openPrependDialog(),
-          disabled: this.isLoading()
-        });
-      }
-    }
-
-    // Destructive actions, always last.
-    const dangerItems: CtxMenuItem[] = [
-      { label: this.i18n.t('node.ctxRemove'), action: () => void this.deleteNodeOnly(), danger: true, disabled: busy },
-      { label: this.i18n.t('node.ctxDelete'), action: () => void this.deleteNode(), danger: true, disabled: busy }
-    ];
-
-    const result: CtxMenuItem[] = [];
-    const pushGroup = (items: CtxMenuItem[]) => {
-      if (!items.length) return;
-      if (result.length) {
-        result.push({ label: '', action: () => undefined, divider: true });
-      }
-      result.push(...items);
-    };
-    pushGroup(common);
-    pushGroup(roleItems);
-    pushGroup(dangerItems);
-    return result;
+    return buildCtxMenuItems({
+      node: n,
+      busy: this.isLoading() || this.chatService.isGenerating(n.id),
+      loading: this.isLoading(),
+      canIllustrate: this.canIllustrate(),
+      showClosedContinue: this.showClosedContinue(),
+      isUnsentQuestion: this.isUnsentQuestion(),
+      hasPriorVersions: this.priorVersions().length > 0,
+      t: (key, params) => this.i18n.t(key, params),
+      actions: {
+        copy: () => void this.copyContent(),
+        edit: () => void this.startEdit(),
+        rewrite: () => void this.openReadRewriteDialog(),
+        togglePriorVersions: () => this.showPriorVersions.set(!this.showPriorVersions()),
+        toggleExclude: () => void this.toggleExcludeFromContext(),
+        heading: () => void this.generateHeading(),
+        regenerate: () => void this.regenerateAnswer(),
+        regenerateInPlace: () => void this.regenerateInPlace(),
+        illustrate: () => void this.illustrate(),
+        createImage: () => void this.openReadCreateImageDialog(),
+        continueDraft: () => void this.continueDraft(),
+        switchCharacters: () => void this.switchCharactersDraft(),
+        chapterDescriptions: () => void this.openChapterDescriptionsDialog(),
+        prepend: () => void this.openPrependDialog(),
+        remove: () => void this.deleteNodeOnly(),
+        delete: () => void this.deleteNode(),
+      },
+    });
   }
 
   /** Close the menu, then run the chosen action (if it is enabled). */
@@ -2709,17 +2619,7 @@ export class ChatNodeComponent implements OnDestroy {
   private followLive(): void {
     const anchor = this.streamEnd()?.nativeElement;
     if (!anchor) return;
-    const scroller = this.scrollParentOf(anchor);
-    if (!scroller) {
-      anchor.scrollIntoView({ block: 'end', inline: 'nearest' });
-      return;
-    }
-    const a = anchor.getBoundingClientRect();
-    const s = scroller.getBoundingClientRect();
-    if (a.bottom > s.bottom - 12 || a.top < s.top + 12) {
-      const nextTop = scroller.scrollTop + (a.bottom - s.bottom) + 16;
-      scroller.scrollTop = Math.max(0, nextTop);
-    }
+    followLiveScroll(anchor, this.scrollParentOf.bind(this));
   }
 
   updateRendered(content: string): void {
@@ -2766,32 +2666,12 @@ export class ChatNodeComponent implements OnDestroy {
     this.chatService.requestGracefulStop();
   }
 
-  private readAsDataURL(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  }
-
+  /** Convert files into attachments via the shared `attachments` module helper,
+   *  surfacing per-file size alerts through i18n. */
   private async filesToAttachments(files: FileList | File[]): Promise<NodeAttachment[]> {
-    const result: NodeAttachment[] = [];
-    for (const file of Array.from(files)) {
-      if (file.size > this.MAX_ATTACHMENT_BYTES) {
-        alert(this.i18n.t('node.fileTooLarge', { name: file.name }));
-        continue;
-      }
-      const dataUrl = await this.readAsDataURL(file);
-      result.push({
-        id: newId(),
-        name: file.name,
-        mimeType: inferMimeType(file.name, file.type),
-        size: file.size,
-        dataUrl
-      });
-    }
-    return result;
+    return convertFilesToAttachments(files, {
+      onTooLarge: (name) => alert(this.i18n.t('node.fileTooLarge', { name })),
+    });
   }
 
   async onEditorFilesSelected(event: Event) {
@@ -3186,47 +3066,4 @@ export class ChatNodeComponent implements OnDestroy {
     }
     return parts.join('\n\n');
   }
-}
-
-/**
- * The text sitting at the top of `root`'s visible band, extended forward so it
- * is long enough to locate uniquely in the markdown source (see
- * `markFragmentInSource`). Returns null when no text node is visible.
- */
-function firstVisibleRoText(root: HTMLElement, clip: { top: number; bottom: number }): string | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let anchor: Node | null = null;
-  let n: Node | null;
-  while ((n = walker.nextNode())) {
-    if (!(n.textContent ?? '').trim()) continue;
-    const range = document.createRange();
-    range.selectNodeContents(n);
-    // jsdom exposes no layout metrics — getBoundingClientRect may be missing
-    // there; a missing/empty rect just means "not measurable → skip".
-    const rect = range.getBoundingClientRect?.();
-    if (!rect || (!rect.height && !rect.width)) continue;
-    if (rect.bottom <= clip.top) continue; // fully above the visible band
-    if (rect.top >= clip.bottom) break; // below the band — nothing visible
-    anchor = n;
-    break;
-  }
-  if (!anchor) return null;
-
-  // Extend the fragment from the anchor forward (~120 chars) so it maps back
-  // to the source unambiguously.
-  const parts: string[] = [];
-  let len = 0;
-  const collect = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let collecting = false;
-  let m: Node | null;
-  while ((m = collect.nextNode())) {
-    if (m === anchor) collecting = true;
-    if (!collecting) continue;
-    const t = (m.textContent ?? '').replace(/\s+/g, ' ').trim();
-    if (!t) continue;
-    parts.push(t);
-    len += t.length + 1;
-    if (len >= 120) break;
-  }
-  return parts.join(' ');
 }

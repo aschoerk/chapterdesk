@@ -1,4 +1,4 @@
-import {Component, computed, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
+import {Component, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
@@ -26,6 +26,9 @@ import { SearchReplaceComponent } from '../../components/search-replace/search-r
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
 import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-metrics';
+import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
+import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
+import { ChatElaborateDialogService } from '../../core/dialogs/chat-elaborate-dialog.service';
 
 /** One row of the navbar-node right-click context menu. */
 interface NavMenuEntry {
@@ -59,6 +62,9 @@ export class ChatComponent implements OnInit {
   private readonly confirm = inject(ConfirmService);
   private readonly editSession = inject(NodeEditSession);
   private readonly search = inject(SearchReplaceService);
+  private readonly navSelection = inject(ChatNavSelectionService);
+  private readonly layoutPrefs = inject(ChatLayoutPrefsService);
+  private readonly elaborateDialog = inject(ChatElaborateDialogService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -84,22 +90,16 @@ export class ChatComponent implements OnInit {
   // Navbar multi-selection (Ctrl+click / Ctrl+drag on the active path)
   // ------------------------------------------------------------------
 
-  /** Ordered ids of the nodes selected in the navbar (subset of the active path). */
-  readonly navSelectedIds = signal<string[]>([]);
-  readonly navHasSelection = computed(() => this.navSelectedIds().length > 0);
+  /** Ordered ids of the nodes selected in the navbar (subset of the active
+   *  path). Owned by ChatNavSelectionService — re-exported so the template /
+   *  tests keep reading `component.navSelectedIds()`. */
+  readonly navSelectedIds = this.navSelection.selectedIds;
+  readonly navHasSelection = this.navSelection.hasSelection;
   /** Navbar node currently under the pointer — target for Ctrl+V paste. */
-  readonly navClipboardTargetId = signal<string | null>(null);
-
-  private navDragActive = false;
-  private navDragMoved = false;
-  private navDragAnchor = -1;
-  private navDragBase = new Set<string>();
-  /** Marker for the chat + active-path the current selection refers to.
-   *  Any change (chat switch or a switched child) clears the selection. */
-  private navPathKey = '';
+  readonly navClipboardTargetId = this.navSelection.clipboardTargetId;
 
   isNavNodeSelected(id: string): boolean {
-    return this.navSelectedIds().includes(id);
+    return this.navSelection.isSelected(id);
   }
 
   isNavNodeBeingEdited(id: string): boolean {
@@ -128,89 +128,47 @@ export class ChatComponent implements OnInit {
     if (!(event.ctrlKey || event.metaKey)) return;
     if (this.isLastEmptyDirection(node.id)) return;
     event.preventDefault();
-    this.navDragActive = true;
-    this.navDragMoved = false;
-    this.navDragBase = new Set(this.navSelectedIds());
-    this.navDragAnchor = this.navNodeIndex(node.id);
+    this.navSelection.beginDrag();
+    this.navSelection.setDragAnchor(this.navNodeIndex(node.id));
   }
 
   /** Fires on pointer-entering a nav node — extends a ctrl+drag and tracks hover. */
   onNavPointerEnter(node: ChatNode): void {
-    this.navClipboardTargetId.set(node.id);
-    if (!this.navDragActive) return;
-    const i = this.navNodeIndex(node.id);
-    if (i < 0) return;
-    this.navDragMoved = true;
-    const path = this.getActivePath();
-    const lo = Math.min(this.navDragAnchor, i);
-    const hi = Math.max(this.navDragAnchor, i);
-    const range = new Set(path.slice(lo, hi + 1).map(n => n.id));
-    const merged = new Set(this.navDragBase);
-    for (const id of range) merged.add(id);
-    this.applyNavSelection(path.filter(n => merged.has(n.id)).map(n => n.id));
+    this.navSelection.enterNode(
+      node,
+      this.navNodeIndex(node.id),
+      this.getActivePath(),
+      (id) => this.isLastEmptyDirection(id)
+    );
   }
 
   onNavPointerLeave(): void {
-    this.navClipboardTargetId.set(null);
+    this.navSelection.leaveNode();
   }
 
   @HostListener('document:pointerup', ['$event'])
   onNavDocumentPointerUp(_event: PointerEvent): void {
-    if (!this.navDragActive) return;
-    this.navDragActive = false;
-    if (this.navDragMoved) return;
-    // Plain Ctrl+click (no drag) → toggle the anchor node.
-    const path = this.getActivePath();
-    const anchor = path[this.navDragAnchor];
-    if (anchor) this.toggleNavSelection(anchor.id);
+    this.navSelection.endDrag(
+      this.getActivePath(),
+      (id) => this.isLastEmptyDirection(id)
+    );
   }
 
   toggleNavSelection(id: string): void {
-    if (this.isLastEmptyDirection(id)) return;
-    const cur = this.navSelectedIds();
-    this.applyNavSelection(cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
+    this.navSelection.toggle(id, this.getActivePath(), (x) => this.isLastEmptyDirection(x));
   }
 
   clearNavSelection(): void {
-    this.navSelectedIds.set([]);
-  }
-
-  /** Keep the selection a contiguous chain of the active path: whatever
-   *  toggling/dragging produces is normalised to the minimal unbroken chain
-   *  covering the involved nodes, so copy/cut/delete always act on one
-   *  continuous run of visible nodes, kept in top-first (path) order. */
-  private applyNavSelection(ids: string[]): void {
-    if (!ids.length) {
-      this.navSelectedIds.set([]);
-      return;
-    }
-    const path = this.getActivePath();
-    const index = new Map(path.map((n, i) => [n.id, i]));
-    let lo = Number.POSITIVE_INFINITY;
-    let hi = Number.NEGATIVE_INFINITY;
-    for (const id of ids) {
-      const i = index.get(id);
-      if (i === undefined) continue;
-      if (i < lo) lo = i;
-      if (i > hi) hi = i;
-    }
-    if (hi < lo) {
-      this.navSelectedIds.set([]);
-      return;
-    }
-    this.navSelectedIds.set(
-      path
-        .slice(lo, hi + 1)
-        .filter(n => !this.isLastEmptyDirection(n.id))
-        .map(n => n.id)
-    );
+    this.navSelection.clear();
   }
 
   private selectedNavNodes(): ChatNode[] {
     // Always derive in active-path (top-first) order so cut/delete reparent
     // left-over children to the chain's topmost surviving ancestor.
-    const selected = new Set(this.navSelectedIds());
-    return this.getActivePath().filter(n => selected.has(n.id));
+    return this.navSelection.selectedNodes(
+      this.getActivePath(),
+      (id) => this.isLastEmptyDirection(id)
+    );
   }
 
   copyNavSelection(): void {
@@ -656,19 +614,14 @@ export class ChatComponent implements OnInit {
   }
 
   private readonly router = inject(Router);
-  private static readonly LS_SIDEBAR_WIDTH = 'chat-client.sidebar.width';
-  /** Initial sidebar width: wide enough to show ~15 characters of a chat
-   *  title plus all chat-row icon buttons (rename, unassign, reassign,
-   *  clone, delete) and the node count when chats are visible. */
-  private static readonly SIDEBAR_WIDTH_DEFAULT = 320;
-  private static readonly SIDEBAR_WIDTH_MIN = 200;
-  private static readonly SIDEBAR_WIDTH_MAX = 720;
 
-  /** Per-chat Elaborate continuation state (localStorage). */
-  private static readonly LS_ELABORATE = 'chat-client.elaborate.byChatId';
-
-  readonly sidebarWidth = signal(this.loadSidebarWidth());
-  readonly isResizing = signal(false);
+  /** Sidebar width + per-chat nav-bar height (drag persistence) live in
+   *  ChatLayoutPrefsService — re-exported so the template / tests keep
+   *  reading `component.sidebarWidth()`, `component.navBarHeight()`, … */
+  readonly sidebarWidth = this.layoutPrefs.sidebarWidth;
+  readonly isResizing = this.layoutPrefs.isResizing;
+  readonly navBarHeight = this.layoutPrefs.navBarHeight;
+  readonly isNavResizing = this.layoutPrefs.isNavResizing;
   readonly showChatParams = signal(false);
   readonly chatParamsOverride = signal(false);
   readonly chatParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
@@ -686,254 +639,66 @@ export class ChatComponent implements OnInit {
   readonly showTrash = signal(false);
   readonly trashLoading = signal(false);
 
-  /** Elaborate-dialog state: first/last chapter + comma-separated characters
-   *  + optional hints guiding the elaborations. */
-  readonly showElaborateDialog = signal(false);
+  /** Elaborate-dialog state (first/last chapter + names + prefix + hints +
+   *  stick-to-last + model + live preview) delegated to
+   *  ChatElaborateDialogService — re-exported so the template / tests keep
+   *  reading `component.elaborate*`. */
+  readonly showElaborateDialog = this.elaborateDialog.show;
   readonly isElaborating = signal(false);
-  readonly elaborateFirst = signal(1);
-  readonly elaborateLast = signal(1);
-  readonly elaborateNames = signal('');
-  readonly elaboratePrefix = signal('');
-  readonly elaborateHints = signal('');
-  /** When checked, the dialog ignores First/Last and re-elaborates the chapter
-   *  that was last elaborated, chaining onto its already generated text. */
-  readonly elaborateStickLast = signal(false);
-  /** Model used for every elaboration. Initialised to the model of the most
-   *  recent assistant answer; can be overridden in the dialog. */
-  readonly elaborateModelId = signal<string>('');
+  readonly elaborateFirst = this.elaborateDialog.first;
+  readonly elaborateLast = this.elaborateDialog.last;
+  readonly elaborateNames = this.elaborateDialog.names;
+  readonly elaboratePrefix = this.elaborateDialog.prefix;
+  readonly elaborateHints = this.elaborateDialog.hints;
+  readonly elaborateStickLast = this.elaborateDialog.stickLast;
+  readonly elaborateModelId = this.elaborateDialog.modelId;
+  readonly elaboratePreview = this.elaborateDialog.preview;
 
-  /**
-   * Live preview of the FIRST elaboration prompt that confirmElaborate() will
-   * send — mirrors its template/vars selection (topic-scoped), so the user
-   * sees the actual prompt before confirming. Reactive to every dialog input.
-   */
-  readonly elaboratePreview = computed<{
-    text: string;
-    templateLabel: string;
-    count: number;
-  } | null>(() => {
-    const chatId = this.currentChatId();
-    if (!chatId) return null;
-    const topicId = this.elaborateTopicId(chatId);
-    const prefix = this.elaboratePrefix().trim();
-    const hints = this.elaborateHintsText();
-    const names = this.elaborateNames()
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-
-    // Chapter actually used for the FIRST prompt ("stick to last" resolves to
-    // the stored last chapter of this chat, like confirmElaborate() does).
-    let first = Math.max(this.elaborateFirst(), 1);
-    let last = this.elaborateLast();
-    if (this.elaborateStickLast()) {
-      const state = this.loadElaborateState(chatId);
-      const stick = state.lastChapter > 0 ? state.lastChapter : Math.max(last, 1);
-      first = stick;
-      last = stick;
-    }
-
-    const template = names.length > 0 ? 'structure.elaborate-view' : 'structure.elaborate';
-    const vars = {
-      chapter: `${prefix}${first}`,
-      hints,
-      ...(names.length > 0 ? { name: names[0], isFirst: !this.elaborateStickLast() } : {})
-    };
-    const text = this.promptDefaults.render(template, vars, topicId);
-    const chapters = Math.max(last - first + 1, 1);
-    const count = names.length > 0 ? names.length * chapters : chapters;
-    return {
-      text,
-      templateLabel: this.promptDefaults.def(template)?.label ?? template,
-      count
-    };
-  });
-
-  private resizeStartX = 0;
-  private resizeStartWidth = 0;
-
-  private readonly onResizePointerMove = (event: PointerEvent) => {
-    if (!this.isResizing()) return;
-    event.preventDefault();
-    const delta = event.clientX - this.resizeStartX;
-    const max = Math.min(
-      ChatComponent.SIDEBAR_WIDTH_MAX,
-      Math.round(window.innerWidth * 0.6)
-    );
-    const next = Math.round(
-      Math.min(Math.max(this.resizeStartWidth + delta, ChatComponent.SIDEBAR_WIDTH_MIN), max)
-    );
-    this.sidebarWidth.set(next);
-  };
-
-  private readonly onResizePointerUp = () => this.endSidebarResize();
-
-  private loadSidebarWidth(): number {
-    const n = Number(localStorage.getItem('chat-client.sidebar.width'));
-    if (!Number.isFinite(n)) return ChatComponent.SIDEBAR_WIDTH_DEFAULT;
-    return Math.min(
-      ChatComponent.SIDEBAR_WIDTH_MAX,
-      Math.max(ChatComponent.SIDEBAR_WIDTH_MIN, n)
-    );
-  }
-
+  /** Sidebar drag — state + persistence live in ChatLayoutPrefsService. */
   startSidebarResize(event: PointerEvent) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-
-    this.isResizing.set(true);
-    this.resizeStartX = event.clientX;
-    this.resizeStartWidth = this.sidebarWidth();
-
-    document.body.classList.add('sidebar-resizing');
-    document.addEventListener('pointermove', this.onResizePointerMove);
-    document.addEventListener('pointerup', this.onResizePointerUp);
-    document.addEventListener('pointercancel', this.onResizePointerUp);
+    this.layoutPrefs.startSidebarResize(event);
   }
 
   endSidebarResize() {
-    if (!this.isResizing()) return;
-    this.isResizing.set(false);
-    document.body.classList.remove('sidebar-resizing');
-    document.removeEventListener('pointermove', this.onResizePointerMove);
-    document.removeEventListener('pointerup', this.onResizePointerUp);
-    document.removeEventListener('pointercancel', this.onResizePointerUp);
-    localStorage.setItem('chat-client.sidebar.width', String(this.sidebarWidth()));
+    this.layoutPrefs.endSidebarResize();
   }
 
   resetSidebarWidth() {
-    this.sidebarWidth.set(ChatComponent.SIDEBAR_WIDTH_DEFAULT);
-    localStorage.setItem(
-      'chat-client.sidebar.width',
-      String(ChatComponent.SIDEBAR_WIDTH_DEFAULT)
-    );
+    this.layoutPrefs.resetSidebarWidth();
   }
 
   // ------------------------------------------------------------------
   // Node-nav-bar height (vertical separator between the nav bar and the tree)
   // ------------------------------------------------------------------
 
-  private static readonly NAV_BAR_HEIGHT_MIN = 40;
-  private static readonly NAV_BAR_HEIGHT_MAX = 320;
-  /** Per-chat storage prefix: `chat-client.navbar.height.<chatId>`. The
-   *  vertical nav-bar size is a PER-CHAT preference — switching chats applies
-   *  the new chat's size, so another chat's tall manual height never leaves
-   *  empty lines in the bar of a short path. */
-  private static readonly LS_NAV_BAR_HEIGHT_PREFIX = 'chat-client.navbar.height.';
-  /** Legacy (pre-per-chat) key — one-time migration source. */
-  private static readonly LS_NAV_BAR_HEIGHT_LEGACY = 'chat-client.navbar.height';
-
-  /** Explicit height (px) of the node-nav-bar for the CURRENT chat, or null =
-   *  DEFAULT handling: content-sized, capped at 4 lines with a scrollbar, and
-   *  auto-scrolled to the marked node's line. Re-applied on every chat switch. */
-  readonly navBarHeight = signal<number | null>(null);
-  readonly isNavResizing = signal(false);
-
   /** The node-nav-bar element — measured at drag start for the baseline height. */
   private readonly nodeNavBar = viewChild<ElementRef<HTMLElement>>('nodeNavBar');
 
-  private navResizeStartY = 0;
-  private navResizeStartHeight = 0;
-  /** Chat the nav-bar height was last applied for (undefined = not yet applied). */
-  private navHeightChatId: string | null | undefined = undefined;
+  /** Nav-bar pointer-move delegate — a property so the resize specs can drive
+   *  it directly (like the pre-extraction component). */
+  private readonly onNavResizePointerMove =
+    (e: { clientY: number; preventDefault: () => void }) => this.layoutPrefs.onNavResizePointerMove(e);
 
-  private navBarHeightKey(chatId: string | null): string | null {
-    return chatId ? `${ChatComponent.LS_NAV_BAR_HEIGHT_PREFIX}${chatId}` : null;
-  }
-
-  private loadNavBarHeight(chatId: string | null): number | null {
-    // `getItem` returns null (→ Number(null) === 0) when never persisted —
-    // distinguish "absent" from a stored 0 so auto-sizing stays the default.
-    const key = this.navBarHeightKey(chatId);
-    let raw: string | null = null;
-    if (key) {
-      raw = localStorage.getItem(key);
-      // One-time migration from the old single global key (pre-per-chat).
-      if (raw == null) raw = this.migrateLegacyNavBarHeight();
-    }
-    if (raw == null) return null;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return this.clampNavHeight(n);
-  }
-
-  private migrateLegacyNavBarHeight(): string | null {
-    const raw = localStorage.getItem(ChatComponent.LS_NAV_BAR_HEIGHT_LEGACY);
-    if (raw != null) {
-      try { localStorage.removeItem(ChatComponent.LS_NAV_BAR_HEIGHT_LEGACY); } catch { /* non-fatal */ }
-    }
-    return raw;
-  }
-
-  private clampNavHeight(h: number | null): number | null {
-    if (h == null) return null;
-    return Math.min(
-      ChatComponent.NAV_BAR_HEIGHT_MAX,
-      Math.max(ChatComponent.NAV_BAR_HEIGHT_MIN, Math.round(h))
-    );
-  }
-
-  private readonly onNavResizePointerMove = (event: PointerEvent) => {
-    if (!this.isNavResizing()) return;
-    event.preventDefault();
-    const delta = event.clientY - this.navResizeStartY;
-    const next = Math.round(
-      Math.min(
-        Math.max(this.navResizeStartHeight + delta, ChatComponent.NAV_BAR_HEIGHT_MIN),
-        ChatComponent.NAV_BAR_HEIGHT_MAX
-      )
-    );
-    this.navBarHeight.set(next);
-  };
-
-  private readonly onNavResizePointerUp = () => this.endNavResize();
+  private readonly onNavResizePointerUp = () => this.layoutPrefs.endNavResize();
 
   startNavResize(event: PointerEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-
     // Baseline = the currently rendered height (auto-size or last explicit one).
     const el = this.nodeNavBar()?.nativeElement;
     const base = el?.offsetHeight ?? this.navBarHeight() ?? 140;
-    this.isNavResizing.set(true);
-    this.navResizeStartY = event.clientY;
-    this.navResizeStartHeight = base;
-
-    document.body.classList.add('nav-resizing');
-    document.addEventListener('pointermove', this.onNavResizePointerMove);
-    document.addEventListener('pointerup', this.onNavResizePointerUp);
-    document.addEventListener('pointercancel', this.onNavResizePointerUp);
+    this.layoutPrefs.startNavResize(event, base);
   }
 
   endNavResize() {
-    if (!this.isNavResizing()) return;
-    this.isNavResizing.set(false);
-    document.body.classList.remove('nav-resizing');
-    document.removeEventListener('pointermove', this.onNavResizePointerMove);
-    document.removeEventListener('pointerup', this.onNavResizePointerUp);
-    document.removeEventListener('pointercancel', this.onNavResizePointerUp);
-    const h = this.navBarHeight();
-    const key = h != null ? this.navBarHeightKey(this.chatService.currentChatId()) : null;
-    if (key) {
-      try { localStorage.setItem(key, String(h)); } catch { /* non-fatal */ }
-    }
+    this.layoutPrefs.endNavResize();
   }
 
   /** Double-click on the separator → restore the DEFAULT handling for the
    *  current chat (auto height: content-sized, max 4 lines, scroll to marked). */
   resetNavBarHeight() {
-    this.navBarHeight.set(null);
-    this.isNavResizing.set(false);
-    document.body.classList.remove('nav-resizing');
-    document.removeEventListener('pointermove', this.onNavResizePointerMove);
-    document.removeEventListener('pointerup', this.onNavResizePointerUp);
-    document.removeEventListener('pointercancel', this.onNavResizePointerUp);
-    const key = this.navBarHeightKey(this.chatService.currentChatId());
-    if (key) {
-      try { localStorage.removeItem(key); } catch { /* non-fatal */ }
-    }
+    this.layoutPrefs.resetNavBarHeight();
   }
 
   /** Default handling — keep the marked node's line visible inside the nav
@@ -959,7 +724,7 @@ export class ChatComponent implements OnInit {
   }
 
   ngOnDestroy() {
-    this.endSidebarResize();
+    this.layoutPrefs.endSidebarResize();
     // Leaving the chat page must not leave a stale edit session behind —
     // otherwise re-entering a node editor later would start out "dirty" even
     // though nothing was changed.
@@ -1148,28 +913,17 @@ export class ChatComponent implements OnInit {
       // Navbar selection only ever refers to the currently visible chain: it
       // is cleared as soon as the chat changes OR a child is switched (the
       // active path no longer matches what was selected).
-      const chatId = this.chatService.currentChatId();
-      const pathIds = this.chatService.getActivePath().map(n => n.id).join('\u0000');
-      const key = `${chatId ?? ''}::${pathIds}`;
-      if (key !== this.navPathKey) {
-        this.navPathKey = key;
-        if (this.navSelectedIds().length > 0) {
-          this.navSelectedIds.set([]);
-          this.navClipboardTargetId.set(null);
-        }
-      }
+      this.navSelection.syncWithPath(
+        this.chatService.currentChatId(),
+        this.chatService.getActivePath().map(n => n.id)
+      );
     });
     // Nav-bar height is a PER-CHAT preference. On any chat switch, apply the
     // saved height for the new chat (or null = default when it was never
     // manually resized), so a previous chat's tall manual height never leaves
     // empty lines in the bar of a short path.
     effect(() => {
-      const chatId = this.chatService.currentChatId();
-      const applied = chatId ?? null;
-      if (applied !== this.navHeightChatId) {
-        this.navHeightChatId = applied;
-        this.navBarHeight.set(chatId ? this.loadNavBarHeight(chatId) : null);
-      }
+      this.layoutPrefs.applyChat(this.chatService.currentChatId());
     });
     // Default handling — keep the marked node's line visible inside the
     // nav bar while it is capped at 4 lines with a scrollbar. Dependencies:
@@ -1631,44 +1385,6 @@ export class ChatComponent implements OnInit {
   // Elaborate — extend the chat with per-chapter elaborations
   // ------------------------------------------------------------------
 
-  /** Per-chat continuation state for the Elaborate dialog. */
-  private loadElaborateState(chatId: string): { lastChapter: number; characters: string; hints: string; prefix: string } {
-    try {
-      const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
-      const map = raw ? JSON.parse(raw) : {};
-      const entry = map?.[chatId];
-      if (entry && typeof entry.lastChapter === 'number' && Number.isFinite(entry.lastChapter)) {
-        return {
-          lastChapter: Math.max(0, Math.floor(entry.lastChapter)),
-          characters: typeof entry.characters === 'string' ? entry.characters : '',
-          hints: typeof entry.hints === 'string' ? entry.hints : '',
-          prefix: typeof entry.prefix === 'string' ? entry.prefix : '',
-        };
-      }
-    } catch {
-      /* corrupted / blocked storage — start fresh */
-    }
-    return { lastChapter: 0, characters: '', hints: '', prefix: '' };
-  }
-
-  private saveElaborateState(chatId: string, state: { lastChapter: number; characters: string; hints: string; prefix: string }): void {
-    try {
-      const raw = localStorage.getItem(ChatComponent.LS_ELABORATE);
-      const map = raw ? JSON.parse(raw) : {};
-      map[chatId] = state;
-      localStorage.setItem(ChatComponent.LS_ELABORATE, JSON.stringify(map));
-    } catch {
-      /* best-effort; never block elaboration on storage failure */
-    }
-  }
-
-  /** The dialog hints formatted for the `{{hints}}` template placeholder
-   *  (empty string when no hints were given, so empty templates stay clean). */
-  private elaborateHintsText(): string {
-    const hints = this.elaborateHints().trim();
-    return hints ? `\nFollow these hints from the user: ${hints}` : '';
-  }
-
   /** Last assistant answer ON THE CURRENTLY VISIBLE TREE (the active path),
    *  not the most recent one in the whole chat — a newer branch the user has
    *  navigated away from must never become the elaborate attach point. */
@@ -1720,7 +1436,7 @@ export class ChatComponent implements OnInit {
     // Continue where the last elaboration for THIS chat left off:
     //   First chapter = previous Last chapter + 1, characters = last used.
     // Each chat keeps its own state (not a global default).
-    const state = this.loadElaborateState(chatId);
+    const state = this.elaborateDialog.loadState(chatId);
     const next = state.lastChapter + 1;
     this.elaborateFirst.set(next);
     this.elaborateLast.set(next);
@@ -1736,42 +1452,14 @@ export class ChatComponent implements OnInit {
   }
 
   cancelElaborate(): void {
-    this.showElaborateDialog.set(false);
+    this.elaborateDialog.close();
   }
 
   /** Toggle "stick to last chapter". While checked the First/Last fields are
    *  disabled and shown as the single chapter last elaborated for this chat;
    *  unchecking restores the default continuation (= last elaborated + 1). */
   onStickLastToggle(checked: boolean): void {
-    this.elaborateStickLast.set(!!checked);
-    const chatId = this.currentChatId();
-    if (!chatId) return;
-    const state = this.loadElaborateState(chatId);
-    if (checked) {
-      const stick = state.lastChapter > 0
-        ? state.lastChapter
-        : Math.max(this.elaborateLast(), 1);
-      this.elaborateFirst.set(stick);
-      this.elaborateLast.set(stick);
-      // Sticking to the last chapter re-elaborates existing text, so any
-      // characters/hints only make sense for fresh chapters — clear them.
-      this.elaborateNames.set('');
-      this.elaborateHints.set('');
-    } else {
-      const next = Math.max(state.lastChapter + 1, 1);
-      this.elaborateFirst.set(next);
-      this.elaborateLast.set(next);
-    }
-  }
-
-  /** Topic-scoped prompt versions apply to the chat's environment topic. */
-  private elaborateTopicId(chatId: string | null): string | null {
-    const chat = chatId ? this.chatService.chats().find(c => c.id === chatId) ?? null : null;
-    const project = chat?.projectId
-      ? this.projectService.getProject(chat.projectId) ?? null
-      : null;
-    return this.projectService
-      .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
+    this.elaborateDialog.onStickLastToggle(checked, this.chatService.currentChatId());
   }
 
   /** Confirm the dialog and run the sequential elaborations. */
@@ -1790,7 +1478,7 @@ export class ChatComponent implements OnInit {
     // already generated text of that chapter), so the model continues it in
     // context.
     if (this.elaborateStickLast()) {
-      const state = this.loadElaborateState(chatId);
+      const state = this.elaborateDialog.loadState(chatId);
       last = state.lastChapter > 0 ? state.lastChapter : Math.max(last, 1);
       first = last;
     }
@@ -1801,7 +1489,7 @@ export class ChatComponent implements OnInit {
       .map(s => s.trim())
       .filter(Boolean);
     const prefix = this.elaboratePrefix().trim();
-    const hints = this.elaborateHintsText();
+    const hints = this.elaborateDialog.hintsText();
 
     const anchor = this.activeTreeAssistantNode();
     if (!anchor) return;
@@ -1814,7 +1502,7 @@ export class ChatComponent implements OnInit {
     const { model, provider } = resolved;
 
     // Remember what was used, per chat, for the next dialog opening.
-    this.saveElaborateState(chatId, {
+    this.elaborateDialog.saveState(chatId, {
       lastChapter: last,
       characters: this.elaborateNames(),
       hints: this.elaborateHints(),
@@ -1826,7 +1514,7 @@ export class ChatComponent implements OnInit {
     // One Stop press cancels the whole chain (all chapters / views).
     this.chatService.beginOperation('elaborate');
     try {
-      const topicId = this.elaborateTopicId(chatId);
+      const topicId = this.elaborateDialog.topicId(chatId);
       let parentId: string | null = anchor.id;
       for (let chapter = first; chapter <= last; chapter++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
