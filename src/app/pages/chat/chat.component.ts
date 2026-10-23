@@ -1521,6 +1521,12 @@ export class ChatComponent implements OnInit {
     this.chatService.stopGeneration();
   }
 
+  /** Finish the current stream / step, then stop anything that would follow
+   *  it — the answer currently being created is preserved and saved. */
+  gracefulStop(): void {
+    this.chatService.requestGracefulStop();
+  }
+
   /** Generate a title for the whole story (context = all assistant nodes). */
   async generateTitle(): Promise<void> {
     await this.runStructureGeneration('title');
@@ -1823,7 +1829,10 @@ export class ChatComponent implements OnInit {
       const topicId = this.elaborateTopicId(chatId);
       let parentId: string | null = anchor.id;
       for (let chapter = first; chapter <= last; chapter++) {
-        if (this.chatService.isOperationCancelled()) break;
+        // Hard Stop aborts the operation; a graceful "Finish & stop" also
+        // ends the chain, but only AFTER the current chapter's answer has
+        // streamed to completion and been saved.
+        if (this.chatService.shouldStopAfterCurrentStep()) break;
         // No names → one generic elaboration per chapter.
         // With names → one elaboration per name, in first person; only the very
         // first view is "first" — the template renders the non-repetition
@@ -1840,7 +1849,7 @@ export class ChatComponent implements OnInit {
           : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
 
         for (const prompt of prompts) {
-          if (this.chatService.isOperationCancelled()) break;
+          if (this.chatService.shouldStopAfterCurrentStep()) break;
           // The anchor for each step is the answer node of the previous one
           // (the first anchor is the visible tree's last assistant answer).
           const parentNode = parentId

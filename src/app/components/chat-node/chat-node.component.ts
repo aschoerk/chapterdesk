@@ -716,7 +716,10 @@ export class ChatNodeComponent implements OnDestroy {
     this.chatService.batchProgress.set({ current: 1, total: count });
     try {
       for (let i = 1; i <= count; i++) {
-        if (this.chatService.isOperationCancelled()) break;
+        // Hard Stop aborts the operation; a graceful "Finish & stop"
+        // (requestGracefulStop) also ends the batch, but only AFTER the
+        // current stream has finished and been saved.
+        if (this.chatService.shouldStopAfterCurrentStep()) break;
         this.chatService.batchProgress.set({ current: i, total: count });
 
         // Make sure the active path ends on an empty draft question to send on.
@@ -2751,6 +2754,11 @@ export class ChatNodeComponent implements OnDestroy {
 
   stopGeneration(): void {
     this.chatService.stopGeneration();
+  }
+
+  /** Finish the current answer stream, then stop (results are preserved). */
+  gracefulStop(): void {
+    this.chatService.requestGracefulStop();
   }
 
   private readAsDataURL(file: File): Promise<string> {

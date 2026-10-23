@@ -31,13 +31,27 @@
     }
 
     @if (chatService.isGenerating(node().id)) {
-      <button class="btn-icon danger stop-btn" type="button"
-              [title]="i18n.t('node.stopTitle')" (click)="stopGeneration()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <rect x="6" y="6" width="12" height="12" rx="1"/>
-        </svg>
-        <span>{{ i18n.t('node.stop') }}</span>
-      </button>
+      <span class="gen-stop-actions">
+        <button class="btn-icon danger stop-btn" type="button"
+                [title]="i18n.t('node.stopTitle')" (click)="stopGeneration()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="6" y="6" width="12" height="12" rx="1"/>
+          </svg>
+          <span>{{ i18n.t('node.stop') }}</span>
+        </button>
+        <button class="btn-icon stop-btn stop-soft" type="button"
+                [class.stopping]="chatService.gracefulStop()"
+                [disabled]="chatService.gracefulStop()"
+                [title]="chatService.gracefulStop() ? i18n.t('node.stopSoftFinishingTitle') : i18n.t('node.stopSoftTitle')"
+                (click)="gracefulStop()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 4h12v16H6z"/>
+            <path d="M10 4v16"/>
+          </svg>
+          <span>{{ chatService.gracefulStop() ? i18n.t('node.stopSoftFinishing') : i18n.t('node.stopSoft') }}</span>
+        </button>
+      </span>
     }
 
     @if (hasSiblings) {

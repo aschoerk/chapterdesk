@@ -139,6 +139,13 @@
                       [title]="i18n.t('node.stopTitle')">
                 <span>{{ i18n.t('node.stop') }}</span>
               </button>
+              <button class="btn small stop-soft" type="button"
+                      [class.stopping]="chatService.gracefulStop()"
+                      [disabled]="chatService.gracefulStop()"
+                      [title]="chatService.gracefulStop() ? i18n.t('node.stopSoftFinishingTitle') : i18n.t('node.stopSoftTitle')"
+                      (click)="gracefulStop()">
+                <span>{{ chatService.gracefulStop() ? i18n.t('node.stopSoftFinishing') : i18n.t('node.stopSoft') }}</span>
+              </button>
               @if (chatService.batchProgress(); as bp) {
                 <span class="batch-progress-toolbar" [title]="i18n.t('node.batchProgressTitle')">
                   <span class="spinner"></span>

@@ -214,6 +214,33 @@ describe('Chat', () => {
     chatService.setActiveChild('q1', 'a1');
   }
 
+  it('shows a "Finish & stop" toolbar button while generating and gives feedback once pressed', async () => {
+    await openStory();
+    fixture.detectChanges();
+    chatService.startGeneration('a1');
+    fixture.detectChanges();
+
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    );
+    const soft = buttons.find((b) => b.getAttribute('title') ===
+      'Finish the current answer, keep what was generated so far, and stop any following generation');
+    expect(soft).not.toBeNull();
+    expect(soft!.disabled).toBe(false);
+
+    soft!.click();
+    fixture.detectChanges();
+
+    // Feedback that the press took effect: disabled + "Finishing…" + state.
+    expect(soft!.disabled).toBe(true);
+    expect(soft!.textContent).toContain('Finishing…');
+    expect(soft!.classList.contains('stopping')).toBe(true);
+    expect(chatService.gracefulStop()).toBe(true);
+    // The in-flight stream keeps running (results preserved).
+    expect(chatService.generatingNodeId()).toBe('a1');
+    expect(chatService.isOperationCancelled()).toBe(false);
+  });
+
   it('passes the currently visible node when opening the reader', async () => {
     await openStory();
     component.visibleNodeId.set('q1');

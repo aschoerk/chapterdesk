@@ -1793,13 +1793,45 @@ describe('ChatNodeComponent', () => {
       createFixture(q1);
 
       component.repeatCount.set(5);
-      // Cancel before the first send: the loop must not run.
-      vi.spyOn(chatService, 'isOperationCancelled').mockReturnValue(true);
+      // Cancel before the first send: the loop must not run. The loop now
+      // consults shouldStopAfterCurrentStep() — true for a hard Stop (aborted
+      // operation signal) as well as a graceful "Finish & stop" request.
+      vi.spyOn(chatService, 'shouldStopAfterCurrentStep').mockReturnValue(true);
       await component.continueDraft();
 
       expect(chatService.nodes().some((n) => n.content === 'continue')).toBe(false);
       expect(chatService.batchProgress()).toBeNull();
       expect(component.isLoading()).toBe(false);
+    });
+
+    it('continueDraft batch finishes the CURRENT stream then stops, preserving its result', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      component.repeatCount.set(3);
+      // A graceful stop is requested while the first send is in flight: the
+      // first between-step check proceeds, every later one breaks the loop.
+      const stopSpy = vi.spyOn(chatService, 'shouldStopAfterCurrentStep')
+        .mockReturnValueOnce(false)
+        .mockReturnValue(true);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      // Exactly ONE "continue" send ran to completion — and its streamed
+      // answer was saved (results preserved) instead of being discarded.
+      const continues = chatService.nodes().filter(
+        (n) => n.role === 'user' && n.content === 'continue'
+      );
+      expect(continues).toHaveLength(1);
+      const answers = chatService.nodes().filter(
+        (n) => n.role === 'assistant' && n.content === 'Generated' && n.isCurrent
+      );
+      expect(answers).toHaveLength(1);
+      // The batch cleared its progress state as usual.
+      expect(chatService.batchProgress()).toBeNull();
+      expect(component.isLoading()).toBe(false);
+      expect(stopSpy).toHaveBeenCalled();
     });
 
     it('the closed continue button triggers continueDraft without opening the editor', async () => {
@@ -4051,6 +4083,32 @@ describe('ChatNodeComponent', () => {
       expect(stop).not.toBeNull();
       stop!.click();
       expect(chatService.generatingNodeId()).toBeNull();
+    });
+
+    it('shows a "Finish & stop" button that keeps the current stream alive', () => {
+      chatService.startGeneration('n1');
+      createFixture(node({ id: 'n1', content: 'Hello' }));
+
+      const soft = titleButton(
+        'Finish the current answer, keep what was generated so far, and stop any following generation'
+      );
+      expect(soft).not.toBeNull();
+      expect(soft!.disabled).toBe(false);
+      soft!.click();
+      fixture.detectChanges();
+
+      // The graceful stop is requested, but the in-flight stream is NOT
+      // aborted — its (still being created) results are preserved.
+      expect(chatService.gracefulStop()).toBe(true);
+      expect(chatService.generatingNodeId()).toBe('n1');
+      expect(chatService.isOperationCancelled()).toBe(false);
+      expect(chatService.shouldStopAfterCurrentStep()).toBe(true);
+
+      // Clear feedback that the press took effect: the button is disabled
+      // and now reports "Finishing…" (and carries the .stopping class).
+      expect(soft!.disabled).toBe(true);
+      expect(soft!.textContent).toContain('Finishing…');
+      expect(soft!.classList.contains('stopping')).toBe(true);
     });
   });
 

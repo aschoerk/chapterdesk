@@ -211,6 +211,25 @@ body.sidebar-resizing * {
   background: var(--panel);
 }
 
+/* Graceful “Finish & stop” button — accent-tinted so it reads as the
+   “keep what is being written” alternative to the danger Stop button. */
+.btn.stop-soft {
+  color: var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #3b82f6);
+}
+
+/* Feedback that a graceful stop was requested: the button is inert
+   (disabled) and gently pulses until the current step has finished. */
+.btn.stop-soft.stopping {
+  opacity: 0.7;
+  animation: stop-soft-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes stop-soft-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .branch-switcher {
   display: flex;
   align-items: center;

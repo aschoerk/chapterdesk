@@ -804,7 +804,11 @@ const structureHeadings: FlowController = async env => {
   const createdIds: string[] = [];
 
   for (const assistant of assistants) {
-    if (env.signal?.aborted) break;
+    // BOTH stop signals end the run between chapters: the hard Stop abort
+    // (signal) and the graceful “Finish & stop” (checked before a chapter's
+    // request), so the heading of the chapter that is CURRENTLY being
+    // generated is still fetched and persisted.
+    if (env.signal?.aborted || chatService.shouldStopAfterCurrentStep()) break;
     const parent = assistant.parentId ? nodeById.get(assistant.parentId) : undefined;
     if (parent?.role === 'structural') {
       previous.push({ node: assistant, heading: parent });
@@ -818,6 +822,9 @@ const structureHeadings: FlowController = async env => {
 
     const slots = await textCompletion(env,
       `${instruction}\n\nThe following chapters are listed in story order. Every chapter already has a heading EXCEPT the LAST one.\nGenerate the heading for the LAST chapter only; use the earlier chapters to match the style.\n\n${blocks.join('\n\n')}\n\nReturn only the heading text.`);
+    // Hard abort only here: the heading text was already fetched, and a
+    // graceful stop must still PERSIST it (preserve the result) before the
+    // next loop iteration stops the run.
     if (env.signal?.aborted) break;
     const headingContent = (slots.text?.value ?? '').trim();
     if (!headingContent) return { ...slots, error: makeSlot('error', 'http', 'No heading generated.', {}) };

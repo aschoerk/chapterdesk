@@ -427,4 +427,64 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       expect((await api.getNodes(chatId)).some(n => n.id === t.a1.id)).toBe(false);
     });
   });
+
+  describe('graceful stop (finish current stream, then stop)', () => {
+    it('requestGracefulStop does NOT abort the running generation or the operation', () => {
+      const signal = chat.beginOperation('continue');
+      expect(signal.aborted).toBe(false);
+
+      chat.requestGracefulStop();
+
+      // The current stream must keep running — nothing is aborted.
+      expect(chat.generatingNodeId()).toBe('freeze-drafts');
+      expect(chat.isOperationCancelled()).toBe(false);
+      expect(signal.aborted).toBe(false);
+      // … but the between-step guard fires: the run must end after this step.
+      expect(chat.gracefulStop()).toBe(true);
+      expect(chat.shouldStopAfterCurrentStep()).toBe(true);
+    });
+
+    it('hard Stop still aborts the operation and satisfies the between-step guard', () => {
+      chat.beginOperation('continue');
+      chat.stopGeneration();
+
+      expect(chat.isOperationCancelled()).toBe(true);
+      expect(chat.shouldStopAfterCurrentStep()).toBe(true);
+      expect(chat.gracefulStop()).toBe(false);
+    });
+
+    it('a graceful stop is cleared when a new operation begins', () => {
+      const first = chat.beginOperation('continue');
+      chat.requestGracefulStop();
+      expect(chat.shouldStopAfterCurrentStep()).toBe(true);
+
+      const second = chat.beginOperation('elaborate');
+      expect(first.aborted).toBe(true); // beginOperation aborts the previous op
+      expect(chat.gracefulStop()).toBe(false);
+      expect(chat.shouldStopAfterCurrentStep()).toBe(false);
+      expect(second.aborted).toBe(false);
+    });
+
+    it('a graceful stop is cleared when the operation ends', async () => {
+      chat.beginOperation('headings');
+      chat.requestGracefulStop();
+      expect(chat.shouldStopAfterCurrentStep()).toBe(true);
+
+      chat.endOperation();
+
+      expect(chat.gracefulStop()).toBe(false);
+      expect(chat.shouldStopAfterCurrentStep()).toBe(false);
+      expect(chat.isOperationCancelled()).toBe(false);
+    });
+
+    it('graceful stop does not leak into a later plain send (no operation)', () => {
+      // A graceful stop requested during a single stream (no multi-call
+      // operation) is inert for a later send: beginOperation clears it.
+      chat.requestGracefulStop();
+      expect(chat.gracefulStop()).toBe(true);
+
+      chat.beginOperation('continue');
+      expect(chat.gracefulStop()).toBe(false);
+    });
+  });
 });
