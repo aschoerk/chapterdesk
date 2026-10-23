@@ -53,11 +53,9 @@ export class ProjectService {
     this._projects.update(list => list.filter(p => p.id !== id));
 
     if (deleteChats) {
-      this.chatService._chats.update(list => list.filter(c => c.projectId !== id));
+      this.chatService.applyProjectDelete(id, true);
     } else {
-      this.chatService._chats.update(list =>
-        list.map(c => (c.projectId === id ? {...c, projectId: null} : c))
-      );
+      this.chatService.applyProjectDelete(id, false);
     }
   }
 

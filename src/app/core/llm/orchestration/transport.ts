@@ -108,6 +108,90 @@ function defaultModalities(model: ModelEntry): string[] {
 export class LlmTransportService {
   private readonly llmLog = inject(LlmLogService);
 
+  // ------------------------------------------------------------------
+  // Transport scaffolding — shared by the completion + images calls.
+  // ------------------------------------------------------------------
+
+  /**
+   * Wire up the per-call hard timeout and the forwarding of the caller's
+   * abort signal. Returns the controller plus a cleanup (clear the timer,
+   * detach the abort listener) that the caller MUST run in `finally`.
+   */
+  private withAbort(req: { timeoutMs?: number; signal?: AbortSignal }): {
+    controller: AbortController;
+    cleanup: () => void;
+  } {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? TIMEOUT_MS);
+    const forwardAbort = (): void => controller.abort();
+    if (req.signal) {
+      if (req.signal.aborted) controller.abort();
+      else req.signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      if (req.signal) req.signal.removeEventListener('abort', forwardAbort);
+    };
+    return { controller, cleanup };
+  }
+
+  /** POST a JSON payload to `url` under the provider's headers. */
+  private async postJson(
+    url: string,
+    provider: ProviderRef,
+    payload: Record<string, unknown>,
+    controller: AbortController,
+  ): Promise<Response> {
+    const config = getServerConfig();
+    return fetch(`${config.proxyBase}${url}`, {
+      method: 'POST',
+      headers: this.headers(provider),
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  }
+
+  /**
+   * Guard a response: pass it through unchanged when `ok`; otherwise read the
+   * error body, record it in the log, and throw it as a TransportError.
+   */
+  private async ensureOk(
+    response: Response,
+    logEntry: import('../llm-log.service').LlmLogEntry,
+    controller: AbortController,
+  ): Promise<Response> {
+    if (response.ok) return response;
+    const text = await response.text();
+    this.llmLog.complete(logEntry, { error: { status: response.status, text } });
+    throw { status: response.status, text, aborted: controller.signal.aborted } as TransportError;
+  }
+
+  /**
+   * Normalize a thrown non-TransportError into a TransportError — a hard
+   * timeout or caller abort gets descriptive text — record it in the log,
+   * and re-throw it. Already-typed TransportErrors are re-thrown unchanged.
+   */
+  private throwTransportError(
+    err: unknown,
+    controller: AbortController,
+    req: { timeoutMs?: number; signal?: AbortSignal },
+    logEntry: import('../llm-log.service').LlmLogEntry,
+  ): never {
+    if ((err as TransportError).status !== undefined) throw err as TransportError;
+    const aborting = controller.signal.aborted;
+    const tErr: TransportError = {
+      status: 0,
+      text: aborting
+        ? (req.signal?.aborted ? 'aborted' : `timed out after ${(req.timeoutMs ?? TIMEOUT_MS) / 1000}s`)
+        : String((err as Error)?.message ?? err),
+      aborted: aborting,
+    };
+    if (!logEntry.completed) {
+      this.llmLog.complete(logEntry, { error: { status: 0, text: tErr.text } });
+    }
+    throw tErr;
+  }
+
   /**
    * One raw chat-completions call (stream or non-stream). Returns parsed JSON
    * for non-stream, or a `{choices:[{message:{content}}]}` lookalike for
@@ -115,7 +199,6 @@ export class LlmTransportService {
    * failure. Streaming fires `onChunk` per raw SSE chunk.
    */
   private async rawCompletion(req: CompletionRequest): Promise<CompletionResult> {
-    const config = getServerConfig();
     const payloadMessages = normalizeChatMessages([...req.messages]);
     const stream = req.extras?.['stream'] !== false;
     const payload: Record<string, unknown> = {
@@ -148,25 +231,13 @@ export class LlmTransportService {
       extras: { ...(req.extras ?? {}), ...(req.imageCapable ? { modalities: payload['modalities'] } : {}) }
     });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? TIMEOUT_MS);
-    const forwardAbort = (): void => controller.abort();
-    if (req.signal) {
-      if (req.signal.aborted) controller.abort();
-      else req.signal.addEventListener('abort', forwardAbort, { once: true });
-    }
+    const { controller, cleanup } = this.withAbort(req);
     try {
-      const response = await fetch(`${config.proxyBase}/chat/completions`, {
-        method: 'POST',
-        headers: this.headers(req.provider),
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        this.llmLog.complete(logEntry, { error: { status: response.status, text } });
-        throw { status: response.status, text, aborted: controller.signal.aborted } as TransportError;
-      }
+      const response = await this.ensureOk(
+        await this.postJson('/chat/completions', req.provider, payload, controller),
+        logEntry,
+        controller,
+      );
 
       if (stream) {
         // A provider may ignore `stream: true` (a model/endpoint that cannot
@@ -227,23 +298,10 @@ export class LlmTransportService {
       this.llmLog.complete(logEntry, { response: raw });
       const usage = (raw as Record<string, unknown>)['usage'];
       return { content: '', thinking: '', raw, usage, logEntry, streamed: false };
-    } catch (err: any) {
-      if ((err as TransportError).status !== undefined) throw err;
-      const aborting = controller.signal.aborted;
-      const tErr: TransportError = {
-        status: 0,
-        text: aborting
-          ? (req.signal?.aborted ? 'aborted' : `timed out after ${(req.timeoutMs ?? TIMEOUT_MS) / 1000}s`)
-          : String(err?.message ?? err),
-        aborted: aborting
-      };
-      if (!logEntry.completed) {
-        this.llmLog.complete(logEntry, { error: { status: 0, text: tErr.text } });
-      }
-      throw tErr;
+    } catch (err: unknown) {
+      this.throwTransportError(err, controller, req, logEntry);
     } finally {
-      clearTimeout(timer);
-      if (req.signal) req.signal.removeEventListener('abort', forwardAbort);
+      cleanup();
     }
   }
 
@@ -380,7 +438,6 @@ export class LlmTransportService {
 
   /** OpenRouter-Images endpoint: `{ model, prompt, n }`. Returns raw JSON. */
   async images(req: ImagesRequest): Promise<ImagesResult> {
-    const config = getServerConfig();
     const payload = {
       model: req.model.modelId,
       prompt: req.prompt,
@@ -400,45 +457,20 @@ export class LlmTransportService {
       extras: req.n && req.n > 1 ? { n: req.n } : {}
     });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? TIMEOUT_MS);
-    const forwardAbort = (): void => controller.abort();
-    if (req.signal) {
-      if (req.signal.aborted) controller.abort();
-      else req.signal.addEventListener('abort', forwardAbort, { once: true });
-    }
+    const { controller, cleanup } = this.withAbort(req);
     try {
-      const response = await fetch(`${config.proxyBase}/images`, {
-        method: 'POST',
-        headers: this.headers(req.provider),
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        this.llmLog.complete(logEntry, { error: { status: response.status, text } });
-        throw { status: response.status, text, aborted: controller.signal.aborted } as TransportError;
-      }
+      const response = await this.ensureOk(
+        await this.postJson('/images', req.provider, payload, controller),
+        logEntry,
+        controller,
+      );
       const raw = await response.json();
       this.llmLog.complete(logEntry, { response: raw });
       return { raw };
-    } catch (err: any) {
-      if ((err as TransportError).status !== undefined) throw err;
-      const aborting = controller.signal.aborted;
-      const tErr: TransportError = {
-        status: 0,
-        text: aborting
-          ? (req.signal?.aborted ? 'aborted' : `timed out after ${(req.timeoutMs ?? TIMEOUT_MS) / 1000}s`)
-          : String(err?.message ?? err),
-        aborted: aborting
-      };
-      if (!logEntry.completed) {
-        this.llmLog.complete(logEntry, { error: { status: 0, text: tErr.text } });
-      }
-      throw tErr;
+    } catch (err: unknown) {
+      this.throwTransportError(err, controller, req, logEntry);
     } finally {
-      clearTimeout(timer);
-      if (req.signal) req.signal.removeEventListener('abort', forwardAbort);
+      cleanup();
     }
   }
 

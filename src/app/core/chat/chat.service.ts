@@ -1,846 +1,119 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
-import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment, NodeUsageSummary } from '../../models/chat';
-import { CHAT_API } from '../../api/chat-api.token';
-import {NodeEditSession} from './node-edit-session';
-import { isImageMime, resolvedMime } from '../llm/llm-message';
-
-const LS_CHAT  = 'chat.currentChatId';
-const LS_SCROLL = 'chat.scrollByChatId';
-
-/**
- * Markers that wrap the raw chat-lore text when it is materialized as a node,
- * so the model unmistakably treats it as LORE/canon rather than story prose.
- */
-const LORE_NODE_PREFIX =
-  '[Current chat-lore — fixed canon that must be respected and never contradicted]';
-const LORE_NODE_SUFFIX = '[/End of chat-lore]';
+import { Injectable, inject } from '@angular/core';
+import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary } from '../../models/chat';
+import { NodeEditSession } from './node-edit-session';
+import { ChatViewPrefsService } from './chat-view-prefs.service';
+import { ChatOperationService } from './chat-operation.service';
+import { ChatTreeStateService } from './chat-tree-state.service';
+import { ChatTreeReaderService } from './chat-tree-reader.service';
+import { ChatTreeWriterService } from './chat-tree-writer.service';
+import { ChatLoreService } from './chat-lore.service';
 
 /**
- * Build the lore node content: the raw lore text wrapped in a prefix AND a
- * suffix, so the LLM accepts it as current chat-lore. Empty when no lore.
+ * Re-export the extracted module-level helpers so existing importers keep
+ * working (e.g. flows.spec imports `buildLoreNodeContent` / `isChatLoreNode`
+ * from `./chat.service`).
  */
-export function buildLoreNodeContent(lore: string | null | undefined): string {
-  const text = (lore ?? '').trim();
-  if (!text) return '';
-  return `${LORE_NODE_PREFIX}\n${text}\n${LORE_NODE_SUFFIX}`;
-}
+export { buildLoreNodeContent, isChatLoreNode } from './chat-lore.service';
+export { hasImageAttachment } from './chat-tree-writer.service';
 
-/** True when a node is one of our materialized chat-lore nodes. */
-export function isChatLoreNode(
-  node: Pick<ChatNode, 'role' | 'content'> | null | undefined
-): boolean {
-  return !!node &&
-    node.role === 'user' &&
-    typeof node.content === 'string' &&
-    node.content.includes(LORE_NODE_PREFIX) &&
-    node.content.includes(LORE_NODE_SUFFIX);
-}
+const LS_CHAT = 'chat.currentChatId';
 
-/** True when the node carries at least one real image attachment (e.g. a
- *  generated illustration). Used to treat an empty-text, image-only answer
- *  as an answered assistant chapter for draft-housekeeping. */
-export function hasImageAttachment(node: Pick<ChatNode, 'attachments'> | null | undefined): boolean {
-  return (node?.attachments ?? []).some(a => isImageMime(resolvedMime(a)));
-}
-
-@Injectable({
-  providedIn: 'root'
-})
+/**
+ * Application facade over the chat-tree domain.
+ *
+ * The implementation lives in small, single-responsibility services layered on
+ * top of `ChatTreeStateService` (the signal store):
+ *   – ChatTreeReaderService  — read-only navigation / queries
+ *   – ChatTreeWriterService  — node + chat mutations, draft housekeeping, trash
+ *   – ChatLoreService        — lore materialization + one-shot exclusion
+ *   – ChatViewPrefsService   — UI view preferences + scroll memory
+ *   – ChatOperationService   — generation + multi-call operation lifecycle
+ *
+ * ChatService keeps the SAME public surface it has always had, so every
+ * existing consumer (components, pages, orchestration flows — they all inject
+ * `ChatService` and call the same members) works unchanged. Only `selectChat`
+ * (which needs the `NodeEditSession` leave-guard) and `restoreCurrentChat`
+ * retain real logic; everything else is a one-line delegation to the owning
+ * service.
+ */
+@Injectable({ providedIn: 'root' })
 export class ChatService {
-  private readonly api = inject(CHAT_API);
-  private readonly editSession = inject(NodeEditSession)
+  private readonly editSession = inject(NodeEditSession);
+  private readonly viewPrefs = inject(ChatViewPrefsService);
+  private readonly operations = inject(ChatOperationService);
+  private readonly state = inject(ChatTreeStateService);
+  private readonly reader = inject(ChatTreeReaderService);
+  private readonly writer = inject(ChatTreeWriterService);
+  private readonly lore = inject(ChatLoreService);
 
-  /**
-   * True while a multi-step writer (e.g. Elaborate) is sequentially chaining
-   * new nodes. ensureDraftAtLeaf is skipped so it cannot re-point the active
-   * path to a stray draft under an intermediate answer mid-sequence.
-   */
-  elaborating = false;
+  // ------------------------------------------------------------- tree state
 
+  /** Writer-lock flag (state lives in the store). */
+  get elaborating(): boolean { return this.state.elaborating; }
+  set elaborating(v: boolean) { this.state.elaborating = v; }
 
-  readonly _chats = signal<Chat[]>([]);
-  private readonly _nodes = signal<ChatNode[]>([]);
-  private readonly _currentChatId = signal<string | null>(null);
+  /** The shared tree signals — SAME instances the store owns. */
+  readonly chats = this.state.chats;
+  readonly nodes = this.state.nodes;
+  readonly currentChatId = this.state.currentChatId;
+  readonly deletedNodes = this.state.deletedNodes;
+  readonly chatsByProject = this.reader.chatsByProject;
+  readonly currentNodes = this.reader.currentNodes;
 
-  readonly chats = computed(() => this._chats());
-  readonly nodes = computed(() => this._nodes());
-  readonly currentChatId = computed(() => this._currentChatId());
+  // --------------------------------------------------- read-only navigation
 
-
-  readonly chatsByProject = computed(() => {
-    const map = new Map<string | null, Chat[]>();
-    for (const chat of this._chats()) {
-      const key = chat.projectId ?? null;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(chat);
-    }
-    return map;
-  });
-
-  /** All nodes of the currently selected chat as a flat list */
-  readonly currentNodes = computed(() => {
-    const chatId = this._currentChatId();
-    if (!chatId) return [];
-    return this._nodes().filter(n => n.chatId === chatId);
-  });
-
-  /** Deleted branch roots (trash) of the currently selected chat. */
-  private readonly _deletedNodes = signal<ChatNode[]>([]);
-  readonly deletedNodes = computed(() => this._deletedNodes());
-
-  private loadViewPref(key: string, fallback: boolean): boolean {
-    const raw = localStorage.getItem(key);
-    if (raw === '1') return true;
-    if (raw === '0') return false;
-    return fallback;
+  getActiveChildId(parentId: string | null): string | null {
+    return this.reader.getActiveChildId(parentId);
+  }
+  getActiveChild(parentId: string | null): ChatNode | null {
+    return this.reader.getActiveChild(parentId);
+  }
+  getActivePath(): ChatNode[] {
+    return this.reader.getActivePath();
+  }
+  getPathToNode(nodeId: string): ChatNode[] {
+    return this.reader.getPathToNode(nodeId);
+  }
+  getChildren(parentId: string | null): ChatNode[] {
+    return this.reader.getChildren(parentId);
+  }
+  getSiblingsOf(node: ChatNode): ChatNode[] {
+    return this.reader.getSiblingsOf(node);
+  }
+  getPriorVersions(node: ChatNode): ChatNode[] {
+    return this.reader.getPriorVersions(node);
+  }
+  newestChild(parentId: string | null): ChatNode | null {
+    return this.reader.newestChild(parentId);
+  }
+  isDraftQuestion(node: ChatNode): boolean {
+    return this.reader.isDraftQuestion(node);
   }
 
-  readonly followStreaming = signal(this.loadViewPref('chat.view.followStreaming', true));
-  readonly followThinking = signal(this.loadViewPref('chat.view.followThinking', true));
-  readonly alwaysOpenAtLeaf = signal(this.loadViewPref('chat.view.alwaysOpenAtLeaf', false));
-
-  setFollowStreaming(on: boolean) {
-    this.followStreaming.set(on);
-    localStorage.setItem('chat.view.followStreaming', on ? '1' : '0');
-  }
-
-  setFollowThinking(on: boolean) {
-    this.followThinking.set(on);
-    localStorage.setItem('chat.view.followThinking', on ? '1' : '0');
-  }
-
-  setAlwaysOpenAtLeaf(on: boolean) {
-    this.alwaysOpenAtLeaf.set(on);
-    localStorage.setItem('chat.view.alwaysOpenAtLeaf', on ? '1' : '0');
-  }
-
-  /** After the LLM finishes, keep revealing leftover text at streamSpeed. */
-  readonly paceAfterComplete = signal(this.loadViewPref('chat.view.paceAfterComplete', true));
-
-  setPaceAfterComplete(on: boolean) {
-    this.paceAfterComplete.set(on);
-    localStorage.setItem('chat.view.paceAfterComplete', on ? '1' : '0');
-  }
-
-  readonly streamSpeedUnit = signal<'char' | 'word'>(
-    this.loadViewPrefStr('chat.view.streamSpeedUnit', 'char') as 'char' | 'word'
-  );
-  /** Units per second. 0 = instant (current behavior). */
-  readonly streamSpeed = signal(this.loadViewPrefNum('chat.view.streamSpeed', 0));
-
-  private loadViewPrefStr(key: string, fallback: string): string {
-    return localStorage.getItem(key) || fallback;
-  }
-
-  private loadViewPrefNum(key: string, fallback: number): number {
-    const n = Number(localStorage.getItem(key));
-    return Number.isFinite(n) ? n : fallback;
-  }
-
-  private static readonly CHARS_PER_WORD = 5;
-  private static readonly CHAR_MAX = 160;
-  private static readonly WORD_MAX = 30;
-
-  setStreamSpeedUnit(unit: 'char' | 'word') {
-    const from = this.streamSpeedUnit();
-    if (unit === from) return;
-
-    const rate = this.streamSpeed();
-    let next = rate;
-
-    if (rate > 0) {
-      next = from === 'char'
-        ? rate / ChatService.CHARS_PER_WORD
-        : rate * ChatService.CHARS_PER_WORD;
-    }
-
-    const max = unit === 'word' ? ChatService.WORD_MAX : ChatService.CHAR_MAX;
-    const step = unit === 'word' ? 1 : 5;
-    next = rate === 0 ? 0 : Math.min(max, Math.max(step, Math.round(next / step) * step));
-
-    this.streamSpeedUnit.set(unit);
-    localStorage.setItem('chat.view.streamSpeedUnit', unit);
-    this.setStreamSpeed(next);
-  }
-
-  setStreamSpeed(rate: number) {
-    const n = Math.max(0, rate);
-    this.streamSpeed.set(n);
-    localStorage.setItem('chat.view.streamSpeed', String(n));
-  }
-
-  private readScrollMap(): Record<string, number> {
-    try {
-      const raw = localStorage.getItem(LS_SCROLL);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  getSavedScroll(chatId: string | null | undefined): number | null {
-    if (!chatId) return null;
-    const value = this.readScrollMap()[chatId];
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-  }
-
-  saveScroll(chatId: string | null | undefined, top: number): void {
-    if (!chatId) return;
-    const map = this.readScrollMap();
-    map[chatId] = Math.max(0, Math.round(top));
-    localStorage.setItem(LS_SCROLL, JSON.stringify(map));
-  }
-
-  scrollToNode(nodeId: string) {
-    const el = document.querySelector(`[data-node-id="${nodeId}"]`) as HTMLElement | null;
-    if (!el) return;
-
-    el.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-      inline: 'nearest'
-    });
-  }
+  // ---------------------------------------------------------- tree writes
 
   updateNodes(updateFn: (value: ChatNode[]) => ChatNode[]): void {
-    this._nodes?.update?.(updateFn);
+    this.writer.updateNodes(updateFn);
   }
-
-
-  // ---------- Chats ----------
-
-  async loadChats(): Promise<void> {
-    this._chats.set(await this.api.getChats());
-  }
-
-  async createChat(title = 'New Chat', projectId: string | null = null): Promise<Chat> {
-    const chat = await this.api.createChat(title, projectId);
-    this._chats.update(list => [chat, ...list]);
-    return chat;
-  }
-
-  /** Clone a story including the full node tree (parents, siblings, versions). */
-  async cloneChat(chatId: string): Promise<Chat> {
-    const chat = await this.api.cloneChat(chatId);
-    this._chats.update(list => [chat, ...list]);
-    return chat;
-  }
-
-  async deleteChat(id: string): Promise<void> {
-    await this.api.deleteChat(id);
-    this._chats.update(list => list.filter(c => c.id !== id));
-
-    if (this._currentChatId() === id) {
-      this._currentChatId.set(null);
-      this._nodes.set([]);
-      this._deletedNodes.set([]);
-    }
-  }
-
-  async reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
-    const chat = await this.api.patchChat(chatId, {projectId});
-    this._chats.update(list =>
-      list.map(c => (c.id === chatId ? chat : c))
-    );
-    return chat;
-  }
-
-  async reassignChatParams(chatId: string, chatParametersId: string | null): Promise<Chat> {
-    const chat = await this.api.patchChat(chatId, { chatParametersId });
-    this._chats.update(list =>
-      list.map(c => (c.id === chatId ? chat : c))
-    );
-    return chat;
-  }
-
-  /** Patch per-chat meta (lore text, auto-exclude-directions mode) and refresh the local list. */
-  async patchChatMeta(
-    chatId: string,
-    changes: { lore?: string | null; autoExcludeDirections?: boolean }
-  ): Promise<Chat> {
-    const chat = await this.api.patchChat(chatId, changes);
-    this._chats.update(list =>
-      list.map(c => (c.id === chatId ? chat : c))
-    );
-    return chat;
-  }
-
-  /**
-   * Insert a fresh chat-lore node IN FRONT OF a direction node (as its new
-   * parent) right before that direction is sent, so the model sees the lore
-   * immediately before the direction. The node is materialized with
-   * `excludeAfterSend` — it is sent with that ONE direction, then flipped to
-   * `excludeFromContext` by `markSentOnceExcluded` (deactivated). The next
-   * direction gets a NEW lore node generated in front of it.
-   *
-   * Content = `buildLoreNodeContent` (prefix + lore + suffix, so the LLM
-   * accepts it as lore). The lore is read live from `chat.lore`, so editing
-   * it updates upcoming lore nodes. No-op when `chat.lore` is empty.
-   * Idempotent: a direction that already sits behind a pending lore node with
-   * the current text is left untouched (a re-send of the same direction
-   * re-arms that node with the up-to-date text).
-   */
-  async ensureLoreNodeBefore(chatId: string, directionNodeId: string): Promise<void> {
-    const chat = this.chats().find(c => c.id === chatId);
-    const content = buildLoreNodeContent(chat?.lore ?? null);
-    const direction = this.nodes().find(n => n.id === directionNodeId);
-    if (!direction) return;
-    const dirParentId = direction.parentId ?? null;
-    const parent = dirParentId ? this.nodes().find(n => n.id === dirParentId) : null;
-    const existingLore = isChatLoreNode(parent) ? parent : null;
-
-    if (!content) {
-      // Lore cleared/empty: deactivate a pending (not-yet-sent) lore node so
-      // no stale lore is ever sent.
-      if (existingLore && existingLore.excludeAfterSend && !existingLore.excludeFromContext) {
-        await this.patchNode(chatId, existingLore.id, {
-          excludeFromContext: true,
-          excludeAfterSend: false
-        });
-      }
-      return;
-    }
-
-    if (existingLore) {
-      // Already materialized in front of this direction: keep the current
-      // text and (re-)arm it so the send carries the up-to-date lore.
-      if (
-        existingLore.content !== content ||
-        existingLore.excludeFromContext ||
-        !existingLore.excludeAfterSend
-      ) {
-        await this.patchNode(chatId, existingLore.id, {
-          content,
-          excludeFromContext: false,
-          excludeAfterSend: true
-        });
-      }
-      return;
-    }
-
-    // Materialize a fresh lore node as the direction's new parent, so the
-    // active path flows … → lore → direction → (answer).
-    const created = await this.addNode(chatId, {
-      parentId: dirParentId,
-      role: 'user',
-      content,
-      excludeAfterSend: true
-    });
-    await this.patchNode(chatId, direction.id, { parentId: created.id });
-    this._activeChildMap.update(m => {
-      const next = { ...m };
-      next[dirParentId ?? 'root'] = created.id;
-      next[created.id] = direction.id;
-      return next;
-    });
-  }
-
-
-  /** Walk root → leaf, choosing the newest child at every fork. */
-  restoreMostRecentPath(): void {
-    const map: Record<string, string> = {};
-    let parentId: string | null = null;
-    while (true) {
-      const child = this.newestChild(parentId);
-      if (!child) break;
-      map[parentId ?? 'root'] = child.id;
-      parentId = child.id;
-    }
-    this._activeChildMap.set(map);
-  }
-
-  async selectChat(chatId: string): Promise<void> {
-    if (chatId === this._currentChatId()) return;
-
-    if (!(await this.editSession.canLeaveChat(chatId))) {
-      return; // tree, path, localStorage untouched
-    }
-    if (chatId) {
-      localStorage.setItem(LS_CHAT, chatId);
-    } else {
-      localStorage.removeItem(LS_CHAT);
-    }
-    this._currentChatId.set(chatId);
-    this._activeChildMap.set({});
-    await this.loadNodes(chatId);
-    await this.loadDeletedNodes(chatId);
-    this.restoreMostRecentPath();
-    await this.ensureDraftAtLeaf(chatId);
-    await this.ensureDraftUnderUserLeaf(chatId);
-  }
-
-  // ---------- Nodes ----------
-
-  async loadNodes(chatId: string): Promise<void> {
-    this._nodes.set(await this.api.getNodes(chatId));
-  }
-
-  /** Refresh the trash list (deleted branch roots) for a chat. */
-  async loadDeletedNodes(chatId: string): Promise<void> {
-    if (!chatId) {
-      this._deletedNodes.set([]);
-      return;
-    }
-    this._deletedNodes.set(await this.api.getDeletedNodes(chatId));
-  }
-
-  /** Restore a soft-deleted branch back into the live tree. */
-  async restoreBranch(chatId: string, nodeId: string): Promise<void> {
-    await this.api.restoreNode(chatId, nodeId);
-    await this.loadNodes(chatId);
-    await this.loadDeletedNodes(chatId);
-    // Re-point the active path so the restored branch is visible right away.
-    for (const node of this.getPathToNode(nodeId)) {
-      this.setActiveChild(node.parentId ?? null, node.id);
-    }
-  }
-
-  /** Permanently remove a soft-deleted branch. */
-  async purgeBranch(chatId: string, nodeId: string): Promise<void> {
-    await this.api.purgeNode(chatId, nodeId);
-    await this.loadDeletedNodes(chatId);
-  }
-
-  async addNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
-    const node = await this.api.createNode(chatId, data);
-    this._nodes.update(list => [...list, node]);
-    return node;
-  }
-
-  /** Create a node during bundle import without polluting another chat's in-memory list. */
-  async createNodeForImport(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
-    const node = await this.api.createNode(chatId, data);
-    if (this._currentChatId() === chatId) {
-      this._nodes.update(list => [...list, node]);
-    }
-    return node;
-  }
-
-  async deleteNode(
-    chatId: string,
-    nodeId: string,
-    options?: { keepChildren?: boolean }
-  ): Promise<void> {
-    const snapshot = this._nodes();
-    const target = snapshot.find(n => n.id === nodeId);
-    const parentId = target?.parentId ?? null;
-    const keepChildren = !!options?.keepChildren;
-
-    await this.api.deleteNode(chatId, nodeId, options);
-
-    if (keepChildren) {
-      this._nodes.update(list =>
-        list
-          .filter(n => n.id !== nodeId)
-          .map(n => (n.parentId === nodeId ? { ...n, parentId } : n))
-      );
-
-      this._activeChildMap.update(m => {
-        const next: Record<string, string> = {};
-        const promoted = m[nodeId];
-        for (const [k, v] of Object.entries(m)) {
-          if (k === nodeId) continue;
-          if (v === nodeId) {
-            if (promoted) next[k] = promoted;
-            continue;
-          }
-          next[k] = v;
-        }
-        const parentKey = parentId ?? 'root';
-        if (promoted && !(parentKey in next)) {
-          next[parentKey] = promoted;
-        }
-        return next;
-      });
-    } else {
-      const toDelete = new Set<string>();
-      const collect = (id: string) => {
-        toDelete.add(id);
-        snapshot.filter(n => n.parentId === id).forEach(child => collect(child.id));
-      };
-      collect(nodeId);
-
-      this._nodes.update(list => list.filter(n => !toDelete.has(n.id)));
-
-      this._activeChildMap.update(m => {
-        const next: Record<string, string> = {};
-        for (const [k, v] of Object.entries(m)) {
-          if (toDelete.has(k) || toDelete.has(v)) continue;
-          next[k] = v;
-        }
-        return next;
-      });
-    }
-
-    const remaining = this.getChildren(parentId);
-    if (remaining.length > 0) {
-      this.setActiveChild(parentId, this.newestChild(parentId)!.id);
-    }
-
-    await this.ensureDraftAtLeaf(chatId);
-    await this.loadDeletedNodes(chatId);
-  }
-
-  private adoptSubtree(oldId: string, newId: string): void {
-    if (oldId === newId) return;
-
-    this._nodes.update(list =>
-      list.map(n => n.parentId === oldId ? { ...n, parentId: newId } : n)
-    );
-
-    this._activeChildMap.update(m => {
-      if (!(oldId in m)) return m;
-      const { [oldId]: childId, ...rest } = m;
-      return { ...rest, [newId]: childId };
-    });
-  }
-
-  async editAssistant(chatId: string, nodeId: string, content: string,
-                      attachments?: NodeAttachment[],
-                      thinking?: string,
-                      usage?: NodeUsageSummary): Promise<ChatNode> {
-    const body: any = {content};
-    const saved = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking, usage);
-
-    this._nodes.update(list => {
-      const retired = list.map(n =>
-        n.id === nodeId && saved.id !== nodeId ? { ...n, isCurrent: false } : n
-      );
-      const withoutDup = retired.filter(n => n.id !== saved.id);
-      return [...withoutDup, saved];
-    });
-
-    this.adoptSubtree(nodeId, saved.id);
-    this.setActiveChild(saved.parentId ?? null, saved.id);
-    await this.ensureDraftAtLeaf(chatId);
-    return saved;
-  }
-
-  /** Persist per-node usage (in place) + refresh the chat totals in the list. */
-  async saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]): Promise<Chat | null> {
-    const chat = await this.api.saveChatUsage(chatId, nodes);
-    this._chats.update(list => list.map(c => (c.id === chat.id ? chat : c)));
-    return chat;
-  }
-
-  async editUser(
-    chatId: string,
-    nodeId: string,
-    content: string,
-    attachments?: NodeAttachment[]
-  ): Promise<ChatNode> {
-    const saved = await this.api.editUser(chatId, nodeId, content, attachments);
-
-    this._nodes.update(list => {
-      const retired = list.map(n =>
-        n.id === nodeId && saved.id !== nodeId ? { ...n, isCurrent: false } : n
-      );
-      const withoutDup = retired.filter(n => n.id !== saved.id);
-      return [...withoutDup, saved];
-    });
-
-    this.adoptSubtree(nodeId, saved.id);
-    this.setActiveChild(saved.parentId ?? null, saved.id);
-    return saved;
-  }
-
-  /** Edit a question → creates a new branch */
-  async branchQuestion(
-    chatId: string,
-    nodeId: string,
-    content: string,
-    modelId?: string,
-    providerId?: string,
-    attachments?: NodeAttachment[]
-  ): Promise<ChatNode> {
-    const body: any = {content, modelId, providerId};
-    if (attachments !== undefined) body.attachments = attachments;
-    const node = await this.api.branchUser(chatId, nodeId, {
-      content,
-      modelId,
-      providerId,
-      attachments
-    });
-    this._nodes.update(list => [...list, node]);
-    return node;
-  }
-
-  /** Move existing nodes under a new parent and keep local state in sync. */
-  async reparentNodes(chatId: string, nodeIds: string[], newParentId: string | null): Promise<void> {
-    const ids = [...new Set(nodeIds)].filter(id => id && id !== newParentId);
-    if (ids.length === 0) return;
-
-    for (const id of ids) {
-      const saved = await this.api.patchNode(chatId, id, { parentId: newParentId });
-      this._nodes.update(list => list.map(n => n.id === id ? { ...n, ...saved } : n));
-    }
-
-    this._activeChildMap.update(m => {
-      const next: Record<string, string> = { ...m };
-      const parentKey = newParentId ?? 'root';
-      if (!(parentKey in next) && ids.length > 0) {
-        next[parentKey] = ids[0];
-      }
-      return next;
-    });
-  }
-
-
-  async updateChatTitle(id: string, title: string): Promise<void> {
-    const updated = await this.api.patchChat(id, {title});
-
-    this._chats.update(list =>
-      list.map(c => (c.id === id ? updated : c))
-    );
-  }
-
-  // Currently generating answer
-  readonly generatingNodeId = signal<string | null>(null);
-
-  /** Label of a running multi-call operation
-   *  ('title' | 'overview' | 'headings' | 'elaborate' | 'illustrate'), or null. */
-  readonly operationLabel = signal<string | null>(null);
-
-  /** True while an illustration STORYBOARD use case (planned-enblock /
-   *  planned-scenes / storyboard-direct) is running — surfaces the Stop
-   *  button in the chat toolbar, mirroring the elaborate flow. */
-  readonly isIllustrating = signal(false);
-
-  /** Progress of a batched Continue / Switch characters run, or null. The
-   *  current repetition index is shown below the answer node's spinner. */
-  readonly batchProgress = signal<{ current: number; total: number } | null>(null);
-
-  /**
-   * True once the user asked to “stop after the current stream / step
-   * completes”. The in-flight generation is deliberately NOT aborted (its
-   * results are preserved and saved), but everything that would otherwise run
-   * AFTER it (the next batch iteration, a further elaborate chapter, the next
-   * headings call, …) stops. Lifecycle: set by requestGracefulStop(), cleared
-   * when the next multi-call operation begins or the current one ends. Never
-   * cleared by clearGeneration() — a batch finishes its current send through
-   * clearGeneration() and must STILL see the flag on the next
-   * shouldStopAfterCurrentStep() check.
-   */
-  readonly gracefulStop = signal(false);
-
-  private currentAbortController: AbortController | null = null;
-  private operationAbort: AbortController | null = null;
-
-  /** Begin a multi-call operation (structure generation / elaborate).
-   *  Returns an AbortSignal that aborts the WHOLE remaining process when the
-   *  user presses Stop — not just the current in-flight LLM call. Any
-   *  previously requested graceful stop belongs to an older operation and is
-   *  dropped. */
-  beginOperation(label: string): AbortSignal {
-    this.operationAbort?.abort();
-    this.operationLabel.set(label);
-    this.gracefulStop.set(false);
-    this.operationAbort = new AbortController();
-    return this.operationAbort.signal;
-  }
-
-  /** Finish a multi-call operation (success / error / completion). */
-  endOperation(): void {
-    this.operationAbort = null;
-    this.operationLabel.set(null);
-    this.gracefulStop.set(false);
-  }
-
-  /** True if the running multi-call operation was HARD-cancelled by the user
-   *  (Stop). A graceful stop does NOT satisfy this — callers that would
-   *  DISCARD an in-progress result on cancellation must keep using this. */
-  isOperationCancelled(): boolean {
-    return !!this.operationAbort?.signal.aborted;
-  }
-
-  /** Between-step guard for multi-call loops: true when the CURRENT step
-   *  should be the last one executed — either the user pressed Stop (abort
-   *  immediately) or asked to finish the current step first
-   *  (requestGracefulStop). Loops check this BETWEEN transactions, so the
-   *  currently running one always completes and its results are kept. */
-  shouldStopAfterCurrentStep(): boolean {
-    return this.gracefulStop() || !!this.operationAbort?.signal.aborted;
-  }
-
-  /**
-   * Graceful stop: let the CURRENT stream / transaction run to completion —
-   * the answer being created is preserved and saved — then stop whatever
-   * would have followed it (further batch iterations, elaborate chapters,
-   * headings, storyboard scenes). Unlike stopGeneration() this does NOT abort
-   * the in-flight LLM call: the operation loops consult
-   * shouldStopAfterCurrentStep() BETWEEN steps, so the current one always
-   * finishes first.
-   */
-  requestGracefulStop(): void {
-    this.gracefulStop.set(true);
-  }
-
-  /** Cancel any in-flight single-answer generation. Used between generations
-   *  and when an answer finishes — it does NOT cancel a running multi-call
-   *  operation. */
-  clearGeneration(): void {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort();
-      this.currentAbortController = null;
-    }
-    this.generatingNodeId.set(null);
-  }
-
-  startGeneration(nodeId: string): AbortSignal {
-    this.clearGeneration(); // cancel any previous single-answer generation
-    this.currentAbortController = new AbortController();
-    this.generatingNodeId.set(nodeId);
-    return this.currentAbortController.signal;
-  }
-
-  /** User-facing STOP: cancels the current answer generation AND any running
-   *  multi-call operation (headings / elaborate / title / summary). */
-  stopGeneration(): void {
-    this.clearGeneration();
-    this.operationAbort?.abort();
-  }
-
-  isGenerating(nodeId: string): boolean {
-    return this.generatingNodeId() === nodeId;
-  }
-
-  /** parentId → currently active childId */
-  private readonly _activeChildMap = signal<Record<string, string>>({});
-
-// ---------- Public API ----------
-
-  /** Currently chosen child under a parent (null parent = root level) */
-  getActiveChildId(parentId: string | null): string | null {
-    const key = parentId ?? 'root';
-    return this._activeChildMap()[key] ?? null;
-  }
-
-  /** Switch the active sibling under a parent */
   setActiveChild(parentId: string | null, childId: string): void {
-    const key = parentId ?? 'root';
-    this._activeChildMap.update(m => ({...m, [key]: childId}));
+    this.writer.setActiveChild(parentId, childId);
   }
-
-  private nodeTimestamp(n: ChatNode): number {
-    const raw = n.updatedAt || n.createdAt || '';
-    const t = Date.parse(raw);
-    return Number.isFinite(t) ? t : 0;
+  restoreMostRecentPath(): void {
+    this.writer.restoreMostRecentPath();
   }
-
-  newestChild(parentId: string | null): ChatNode | null {
-    const siblings = this.getChildren(parentId);
-    if (siblings.length === 0) return null;
-    return siblings.reduce((a, b) =>
-      this.nodeTimestamp(a) >= this.nodeTimestamp(b) ? a : b
-    );
+  loadNodes(chatId: string): Promise<void> {
+    return this.writer.loadNodes(chatId);
   }
-
-  getActiveChild(parentId: string | null): ChatNode | null {
-    const siblings = this.getChildren(parentId);
-    if (siblings.length === 0) return null;
-
-    const activeId = this.getActiveChildId(parentId);
-    const found = siblings.find(s => s.id === activeId);
-    return found ?? this.newestChild(parentId);
+  fetchNodes(chatId: string): Promise<ChatNode[]> {
+    return this.writer.fetchNodes(chatId);
   }
-
-  /** Linear path from root following the active-child map */
-  getActivePath(): ChatNode[] {
-    const path: ChatNode[] = [];
-    let current = this.getActiveChild(null);
-    while (current) {
-      path.push(current);
-      current = this.getActiveChild(current.id);
-    }
-    return path;
+  addNode(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
+    return this.writer.addNode(chatId, data);
   }
-
-
-  /** Path from root down to (and including) a given node */
-  getPathToNode(nodeId: string): ChatNode[] {
-    const map = new Map(this._nodes().map(n => [n.id, n]));
-    const path: ChatNode[] = [];
-    let cur: ChatNode | undefined = map.get(nodeId);
-    while (cur) {
-      path.unshift(cur);
-      cur = cur.parentId ? map.get(cur.parentId) : undefined;
-    }
-    return path;
+  createNodeForImport(chatId: string, data: CreateNodeRequest): Promise<ChatNode> {
+    return this.writer.createNodeForImport(chatId, data);
   }
-
-
-  private nodePosition(n: ChatNode): number {
-    return typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
-  }
-
-  getChildren(parentId: string | null): ChatNode[] {
-    return this._nodes()
-      .filter(n =>
-        (n.parentId ?? null) === (parentId ?? null) &&
-        n.isCurrent
-      )
-      .sort((a, b) => this.nodePosition(a) - this.nodePosition(b));
-  }
-
-  /** Reorder siblings under a parent (assigns persistent positions) and apply locally. */
-  async reorderSiblings(
-    chatId: string,
-    parentId: string | null,
-    orderedNodeIds: string[],
-  ): Promise<void> {
-    const updated = await this.api.reorderSiblings(chatId, parentId, orderedNodeIds);
-    const byId = new Map(updated.map(n => [n.id, n]));
-    this._nodes.update(list => list.map(n => byId.get(n.id) ?? n));
-  }
-
-  /** All siblings of a given node (including the node itself) */
-  getSiblingsOf(node: ChatNode): ChatNode[] {
-    return this.getChildren(node.parentId ?? null);
-  }
-
-  /**
-   * Retired versions of `node`, newest first, walking previousVersionId.
-   * These are not on getActivePath() and are not sent to the LLM.
-   */
-  getPriorVersions(node: ChatNode): ChatNode[] {
-    const byId = new Map(this._nodes().map(n => [n.id, n]));
-    const out: ChatNode[] = [];
-    const seen = new Set<string>([node.id]);
-    let id = node.previousVersionId ?? null;
-    while (id && !seen.has(id)) {
-      seen.add(id);
-      const prev = byId.get(id);
-      if (!prev) break;
-      out.push(prev);
-      id = prev.previousVersionId ?? null;
-    }
-    return out;
-  }
-
-
-
-
-// on startup (e.g. inside loadChats / init)
-  restoreCurrentChat(): void {
-    const saved = localStorage.getItem(LS_CHAT);
-    if (saved && this._chats().some(c => c.id === saved)) {
-      this.selectChat(saved);
-    } else {
-      localStorage.removeItem(LS_CHAT);
-    }
-  }
-
-  private ensuringDraft = false;
-  private ensureDraftPromise: Promise<void> | null = null;
-
-  isDraftQuestion(node: ChatNode): boolean {
-    return node.role === 'user'
-      && !node.content?.trim()
-      && !(node.attachments?.length);
-  }
-
-  async persistQuestion(
+  persistQuestion(
     chatId: string,
     nodeId: string,
     content: string,
@@ -848,17 +121,9 @@ export class ChatService {
     modelId?: string,
     providerId?: string
   ): Promise<ChatNode> {
-    const node = await this.api.patchNode(chatId, nodeId, {
-      content,
-      attachments,
-      modelId,
-      providerId
-    });
-    this._nodes.update(list => list.map(n => (n.id === nodeId ? {...n, ...node} : n)));
-    return this._nodes().find(n => n.id === nodeId) ?? node;
+    return this.writer.persistQuestion(chatId, nodeId, content, attachments, modelId, providerId);
   }
-
-  async patchNode(
+  patchNode(
     chatId: string,
     nodeId: string,
     data: {
@@ -872,175 +137,188 @@ export class ChatService {
       excludeAfterSend?: boolean;
     }
   ): Promise<ChatNode> {
-    const node = await this.api.patchNode(chatId, nodeId, data);
-    this._nodes.update(list => list.map(n => (n.id === nodeId ? { ...n, ...node } : n)));
-    return this._nodes().find(n => n.id === nodeId) ?? node;
+    return this.writer.patchNode(chatId, nodeId, data);
+  }
+  branchQuestion(
+    chatId: string,
+    nodeId: string,
+    content: string,
+    modelId?: string,
+    providerId?: string,
+    attachments?: NodeAttachment[]
+  ): Promise<ChatNode> {
+    return this.writer.branchQuestion(chatId, nodeId, content, modelId, providerId, attachments);
+  }
+  editAssistant(chatId: string, nodeId: string, content: string,
+                attachments?: NodeAttachment[],
+                thinking?: string,
+                usage?: NodeUsageSummary): Promise<ChatNode> {
+    return this.writer.editAssistant(chatId, nodeId, content, attachments, thinking, usage);
+  }
+  editUser(
+    chatId: string,
+    nodeId: string,
+    content: string,
+    attachments?: NodeAttachment[]
+  ): Promise<ChatNode> {
+    return this.writer.editUser(chatId, nodeId, content, attachments);
+  }
+  deleteNode(
+    chatId: string,
+    nodeId: string,
+    options?: { keepChildren?: boolean }
+  ): Promise<void> {
+    return this.writer.deleteNode(chatId, nodeId, options);
+  }
+  reparentNodes(chatId: string, nodeIds: string[], newParentId: string | null): Promise<void> {
+    return this.writer.reparentNodes(chatId, nodeIds, newParentId);
+  }
+  reorderSiblings(
+    chatId: string,
+    parentId: string | null,
+    orderedNodeIds: string[],
+  ): Promise<void> {
+    return this.writer.reorderSiblings(chatId, parentId, orderedNodeIds);
+  }
+  saveChatUsage(chatId: string, nodes: { nodeId: string; usage?: NodeUsageSummary }[]): Promise<Chat | null> {
+    return this.writer.saveChatUsage(chatId, nodes);
   }
 
-  /**
-   * After a send completed, flip any one-shot `excludeAfterSend` nodes on the
-   * question's path to `excludeFromContext` (clearing `excludeAfterSend`). A
-   * lore node therefore reaches the model exactly once, then documents itself
-   * in history without re-shipping. Best effort — never throws.
-   */
-  async markSentOnceExcluded(chatId: string, nodeId: string): Promise<void> {
-    try {
-      const map = new Map(this._nodes().map(n => [n.id, n]));
-      const path: ChatNode[] = [];
-      let cur: ChatNode | undefined = map.get(nodeId);
-      while (cur) {
-        path.unshift(cur);
-        cur = cur.parentId ? map.get(cur.parentId) : undefined;
-      }
-      for (const n of path) {
-        if (n.excludeAfterSend && !n.excludeFromContext) {
-          await this.patchNode(chatId, n.id, {
-            excludeFromContext: true,
-            excludeAfterSend: false
-          });
-        }
-      }
-    } catch {
-      // Best effort — a failed flag flip must not surface as an error.
+  // ------------------------------------------------------- draft housekeeping
+
+  ensureDraftAtLeaf(chatId: string): Promise<void> {
+    return this.writer.ensureDraftAtLeaf(chatId);
+  }
+  ensureDraftUnderUserLeaf(chatId: string): Promise<void> {
+    return this.writer.ensureDraftUnderUserLeaf(chatId);
+  }
+
+  // ------------------------------------------------------------------ lore
+
+  ensureLoreNodeBefore(chatId: string, directionNodeId: string): Promise<void> {
+    return this.lore.ensureLoreNodeBefore(chatId, directionNodeId);
+  }
+  markSentOnceExcluded(chatId: string, nodeId: string): Promise<void> {
+    return this.lore.markSentOnceExcluded(chatId, nodeId);
+  }
+
+  // ------------------------------------------------------------------ trash
+
+  loadDeletedNodes(chatId: string): Promise<void> {
+    return this.writer.loadDeletedNodes(chatId);
+  }
+  restoreBranch(chatId: string, nodeId: string): Promise<void> {
+    return this.writer.restoreBranch(chatId, nodeId);
+  }
+  purgeBranch(chatId: string, nodeId: string): Promise<void> {
+    return this.writer.purgeBranch(chatId, nodeId);
+  }
+
+  // ------------------------------------------------------------------ chats
+
+  loadChats(): Promise<void> {
+    return this.writer.loadChats();
+  }
+  createChat(title = 'New Chat', projectId: string | null = null): Promise<Chat> {
+    return this.writer.createChat(title, projectId);
+  }
+  cloneChat(chatId: string): Promise<Chat> {
+    return this.writer.cloneChat(chatId);
+  }
+  deleteChat(id: string): Promise<void> {
+    return this.writer.deleteChat(id);
+  }
+  reassignChat(chatId: string, projectId: string | null): Promise<Chat> {
+    return this.writer.reassignChat(chatId, projectId);
+  }
+  reassignChatParams(chatId: string, chatParametersId: string | null): Promise<Chat> {
+    return this.writer.reassignChatParams(chatId, chatParametersId);
+  }
+  patchChatMeta(
+    chatId: string,
+    changes: { lore?: string | null; autoExcludeDirections?: boolean }
+  ): Promise<Chat> {
+    return this.writer.patchChatMeta(chatId, changes);
+  }
+  updateChatTitle(id: string, title: string): Promise<void> {
+    return this.writer.updateChatTitle(id, title);
+  }
+  applyProjectDelete(projectId: string, deleteChats: boolean): void {
+    this.writer.applyProjectDelete(projectId, deleteChats);
+  }
+
+  // -------------------------------------------------- view preferences
+
+  readonly followStreaming = this.viewPrefs.followStreaming;
+  readonly followThinking = this.viewPrefs.followThinking;
+  readonly alwaysOpenAtLeaf = this.viewPrefs.alwaysOpenAtLeaf;
+  readonly paceAfterComplete = this.viewPrefs.paceAfterComplete;
+  readonly streamSpeedUnit = this.viewPrefs.streamSpeedUnit;
+  readonly streamSpeed = this.viewPrefs.streamSpeed;
+
+  setFollowStreaming(on: boolean) { this.viewPrefs.setFollowStreaming(on); }
+  setFollowThinking(on: boolean) { this.viewPrefs.setFollowThinking(on); }
+  setAlwaysOpenAtLeaf(on: boolean) { this.viewPrefs.setAlwaysOpenAtLeaf(on); }
+  setPaceAfterComplete(on: boolean) { this.viewPrefs.setPaceAfterComplete(on); }
+  setStreamSpeedUnit(unit: 'char' | 'word') { this.viewPrefs.setStreamSpeedUnit(unit); }
+  setStreamSpeed(rate: number) { this.viewPrefs.setStreamSpeed(rate); }
+
+  getSavedScroll(chatId: string | null | undefined): number | null {
+    return this.viewPrefs.getSavedScroll(chatId);
+  }
+  saveScroll(chatId: string | null | undefined, top: number): void {
+    this.viewPrefs.saveScroll(chatId, top);
+  }
+  scrollToNode(nodeId: string) {
+    this.viewPrefs.scrollToNode(nodeId);
+  }
+
+  // ------------------------------------------- generation + operation lifecycle
+
+  readonly generatingNodeId = this.operations.generatingNodeId;
+  readonly operationLabel = this.operations.operationLabel;
+  readonly isIllustrating = this.operations.isIllustrating;
+  readonly batchProgress = this.operations.batchProgress;
+  readonly gracefulStop = this.operations.gracefulStop;
+
+  beginOperation(label: string): AbortSignal { return this.operations.beginOperation(label); }
+  endOperation(): void { this.operations.endOperation(); }
+  isOperationCancelled(): boolean { return this.operations.isOperationCancelled(); }
+  shouldStopAfterCurrentStep(): boolean { return this.operations.shouldStopAfterCurrentStep(); }
+  requestGracefulStop(): void { this.operations.requestGracefulStop(); }
+  clearGeneration(): void { this.operations.clearGeneration(); }
+  startGeneration(nodeId: string): AbortSignal { return this.operations.startGeneration(nodeId); }
+  stopGeneration(): void { this.operations.stopGeneration(); }
+  isGenerating(nodeId: string): boolean { return this.operations.isGenerating(nodeId); }
+
+  // ------------------------------------------------------------- selection
+
+  async selectChat(chatId: string): Promise<void> {
+    if (chatId === this.state.currentChatId()) return;
+
+    if (!(await this.editSession.canLeaveChat(chatId))) {
+      return; // tree, path, localStorage untouched
     }
-  }
-
-  /**
-   * Guarantee the active path ends on an empty question the user can type into.
-   * - empty chat → root draft question
-   * - leaf answer with generated text and no child question → child draft
-   *
-   * Re-entrancy: the chat-page housekeeping effect AND the Continue / Switch
-   * characters batch loop both call this after every send. A single
-   * `ensuringDraft` boolean guard made a second caller return early while the
-   * first was mid-flight (its `addNode` is async), so a caller then read a
-   * stale leaf and the batch broke after one round (most visible when chat
-   * lore exists — `markSentOnceExcluded` adds real async gaps that let the
-   * effect grab the guard first). Concurrent callers now await the SAME
-   * in-flight promise, so nobody returns early with a half-created draft.
-   */
-  async ensureDraftAtLeaf(chatId: string): Promise<void> {
-    if (!chatId || this.generatingNodeId()) return;
-    if (this.elaborating) return;
-    if (this._currentChatId() !== chatId) return;
-    if (!this.ensureDraftPromise) {
-      this.ensureDraftPromise = this.doEnsureDraftAtLeaf(chatId).finally(() => {
-        this.ensureDraftPromise = null;
-      });
+    if (chatId) {
+      localStorage.setItem(LS_CHAT, chatId);
+    } else {
+      localStorage.removeItem(LS_CHAT);
     }
-    return this.ensureDraftPromise;
+    this.state.currentChatId.set(chatId);
+    this.state.activeChildMap.set({});
+    await this.writer.loadNodes(chatId);
+    await this.writer.loadDeletedNodes(chatId);
+    this.writer.restoreMostRecentPath();
+    await this.writer.ensureDraftAtLeaf(chatId);
+    await this.writer.ensureDraftUnderUserLeaf(chatId);
   }
 
-  private async doEnsureDraftAtLeaf(chatId: string): Promise<void> {
-    this.ensuringDraft = true;
-    try {
-      if (this._nodes().every(n => n.chatId !== chatId)) {
-        await this.loadNodes(chatId);
-      }
-
-      if (!this.getActivePath().length) {
-        this.restoreMostRecentPath();
-      }
-
-      let leaf = this.getActivePath().at(-1) ?? null;
-
-      if (!leaf) {
-        const roots = this.getChildren(null).filter(n => n.role === 'user');
-        if (roots.length > 0) {
-          this.setActiveChild(null, this.newestChild(null)!.id);
-          return;
-        }
-        const draft = await this.addNode(chatId, {
-          parentId: null,
-          role: 'user',
-          content: ''
-        });
-        this.setActiveChild(null, draft.id);
-        return;
-      }
-
-      // If the leaf is already an empty draft question (the composer), the
-      // path is in the right shape — nothing to do.
-      if (this.isDraftQuestion(leaf)) return;
-
-      // Composer leaves are only ever created under ANSWERED ASSISTANT
-      // chapters. Deliberately NOT under a childless user/system node with
-      // content: the chat-page housekeeping effect runs this method on every
-      // node/path change, and during a send a question briefly has content
-      // but no answer yet (between persistQuestion and the answer node
-      // appearing) — creating a draft there would spawn a spurious extra leaf
-      // on every Continue/send. The "Delete Continuation" and "new chat"
-      // cases are handled explicitly by ensureDraftUnderUserLeaf from the
-      // stable entry points (chat-node delete / selectChat).
-      if (leaf.role !== 'assistant') return;
-      // An empty-text assistant chapter with real image attachments is still
-      // an ANSWERED chapter (an image-capable model answered the direction
-      // with ONLY a picture — the illustration was attached, no text came
-      // back). It needs the next composer leaf too, so only bail when the
-      // leaf has neither text nor an image.
-      if (!leaf.content?.trim() && !hasImageAttachment(leaf)) return;
-
-      const existing = this.getChildren(leaf.id).filter(n => n.role === 'user');
-      if (existing.length > 0) {
-        const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
-        this.setActiveChild(leaf.id, draft.id);
-        return;
-      }
-
-      const draft = await this.addNode(chatId, {
-        parentId: leaf.id,
-        role: 'user',
-        content: '',
-        modelId: leaf.modelId || undefined,
-        providerId: leaf.providerId || undefined
-      });
-      this.setActiveChild(leaf.id, draft.id);
-    } finally {
-      this.ensuringDraft = false;
+  restoreCurrentChat(): void {
+    const saved = localStorage.getItem(LS_CHAT);
+    if (saved && this.state.chats().some(c => c.id === saved)) {
+      void this.selectChat(saved);
+    } else {
+      localStorage.removeItem(LS_CHAT);
     }
-  }
-
-  /**
-   * Create an empty composer leaf under the ACTIVE path's leaf when it is a
-   * childless user/system node with content — the "Delete Continuation" case
-   * (the answer was removed, so the remaining question needs a composer) and a
-   * newly created chat whose seeds end on a user node (no greeting).
-   *
-   * Deliberately NOT part of ensureDraftAtLeaf: that method is called by the
-   * chat-page housekeeping effect on every node/path change, and during a send
-   * a question briefly has content but no answer yet — creating a draft there
-   * would spawn a spurious sibling leaf on every send. This helper is called
-   * only from stable points (delete / selectChat) where no generation is in
-   * flight, so the extra composer is exactly the intended one.
-   */
-  async ensureDraftUnderUserLeaf(chatId: string): Promise<void> {
-    if (this.generatingNodeId()) return;
-    if (this.elaborating) return;
-    if (this._currentChatId() !== chatId) return;
-
-    const leaf = this.getActivePath().at(-1) ?? null;
-    if (!leaf) return;
-    if (leaf.role === 'assistant') return; // answered chapters: ensureDraftAtLeaf handles them
-    if (!leaf.content?.trim()) return;     // already an empty draft → nothing to do
-    if (this.isDraftQuestion(leaf)) return;
-
-    const existing = this.getChildren(leaf.id).filter(n => n.role === 'user');
-    if (existing.length > 0) {
-      const draft = existing.find(n => this.isDraftQuestion(n)) ?? existing[0];
-      this.setActiveChild(leaf.id, draft.id);
-      return;
-    }
-
-    const draft = await this.addNode(chatId, {
-      parentId: leaf.id,
-      role: 'user',
-      content: '',
-      modelId: leaf.modelId || undefined,
-      providerId: leaf.providerId || undefined
-    });
-    this.setActiveChild(leaf.id, draft.id);
-  }
-  async fetchNodes(chatId: string): Promise<ChatNode[]> {
-    return this.api.getNodes(chatId);
   }
 }
