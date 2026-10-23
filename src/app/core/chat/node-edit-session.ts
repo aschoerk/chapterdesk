@@ -1,7 +1,7 @@
-import {NodeAttachment} from '../models/chat';
+import {NodeAttachment} from '../../models/chat';
 import {computed, inject, Injectable, signal} from '@angular/core';
-import {ConfirmDialogComponent} from '../components/confirm-dialog/confirm-dialog.component';
-import {ConfirmService} from './confirm.service';
+import {ConfirmDialogComponent} from '../../components/confirm-dialog/confirm-dialog.component';
+import {ConfirmService} from '../dialogs/confirm.service';
 
 type EditorState = {
   chatId: string;

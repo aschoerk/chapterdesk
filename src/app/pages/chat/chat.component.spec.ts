@@ -19,13 +19,13 @@ import {
 } from '../../models/chat';
 import { ProviderConfig, ModelEntry } from '../../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../../models/chat-parameters';
-import { ChatService } from '../../core/chat.service';
-import { SettingsService } from '../../core/settings.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { NodeClipboardService } from '../../core/node-clipboard.service';
-import { NodeEditSession } from '../../core/node-edit-session';
-import { ConfirmService } from '../../core/confirm.service';
+import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
+import { NodeEditSession } from '../../core/chat/node-edit-session';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { seedApi } from '../../../../test-helpers/factories';
 
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api'

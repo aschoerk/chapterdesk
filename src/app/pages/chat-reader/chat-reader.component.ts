@@ -14,11 +14,11 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ChatService } from '../../core/chat.service';
-import { MarkdownService } from '../../core/markdown.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { MarkdownService } from '../../core/chat/markdown.service';
 import { ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { enumerateStoryDocuments, isUsableNode, storyNodeTimestamp } from '../../core/story-paths';
+import { enumerateStoryDocuments, isUsableNode, storyNodeTimestamp } from '../../core/chat/story-paths';
 import { isPromptRecordAttachment } from '../../core/llm/llm-message';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
@@ -324,12 +324,12 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   // ------------------------------------------------------------------
-  // Documents — shared algorithm in core/story-paths
+  // Documents — shared algorithm in core/chat/story-paths
   // ------------------------------------------------------------------
 
   /**
    * All story documents as root→leaf paths. Delegates to the SHARED
-   * enumerator (core/story-paths) so the reader and the DOCX/Markdown
+   * enumerator (core/chat/story-paths) so the reader and the DOCX/Markdown
    * exporters always agree:
    *   - youngest version per family only (older versions ignored),
    *   - plain DFS that CLONES the path from the root at every fork,

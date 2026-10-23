@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { CHAT_API } from '../api/chat-api.token';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
-import { makeProvider, makeModel } from '../../../test-helpers/factories';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
+import { makeProvider, makeModel } from '../../../../test-helpers/factories';
 import { SettingsService } from './settings.service';
 import { GenerationSettingsService } from './generation-settings.service';
-import { GenerationTaskKind } from '../models/generation-task';
+import { GenerationTaskKind } from '../../models/generation-task';
 
 const LS_KEY = 'chat.generationTasks';
 const ALL_KINDS: GenerationTaskKind[] = ['default', 'title', 'headings', 'overview', 'image-create', 'image-interpret', 'language-check'];

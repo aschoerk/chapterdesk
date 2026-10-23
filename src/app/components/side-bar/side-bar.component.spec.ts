@@ -5,12 +5,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { SideBarComponent } from './side-bar.component';
 import { CHAT_API } from '../../api/chat-api.token';
-import { ChatService } from '../../core/chat.service';
-import { ProjectService } from '../../core/project.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { ProjectService } from '../../core/settings/project.service';
 import { PersonaService } from '../../core/persona.service';
-import { ConfirmService } from '../../core/confirm.service';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SortPreferencesService } from '../../core/sort-preferences.service';
+import { SortPreferencesService } from '../../core/settings/sort-preferences.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import {
   makeChat, makeModel, makePersona, makeProject, makeTopic

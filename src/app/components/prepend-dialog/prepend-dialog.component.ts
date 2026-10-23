@@ -1,7 +1,7 @@
 import { Component, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { PrependDialogService } from '../../core/prepend-dialog.service';
+import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 
 @Component({
   selector: 'app-prepend-dialog',

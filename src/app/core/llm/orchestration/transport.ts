@@ -1,8 +1,8 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage } from '../../../models/chat';
 import { canGenerateImages, ModelEntry, type ProviderConfig } from '../../../models/chat-config';
-import { getServerConfig } from '../../common/server-config';
-import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../provider-url';
+import { getServerConfig } from '../../util/server-config';
+import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../util/provider-url';
 import { LlmLogService } from '../llm-log.service';
 import { normalizeChatMessages, type MessagePart, type LlmImagePart } from '../llm-message';
 import { readSseStream, type LlmChunk } from '../llm-sse';

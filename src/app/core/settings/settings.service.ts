@@ -1,18 +1,18 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
-import { getServerConfig } from './common/server-config';
-import { localPricing } from './model-pricing';
-import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from './provider-url';
-import { CHAT_API } from '../api/chat-api.token';
-import { ChatApiPort } from '../api/chat-api.port';
+import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../models/chat-config';
+import { getServerConfig } from '../util/server-config';
+import { localPricing } from '../prompts/model-pricing';
+import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../util/provider-url';
+import { CHAT_API } from '../../api/chat-api.token';
+import { ChatApiPort } from '../../api/chat-api.port';
 import {
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateModelRequest,
   UpdateModelRequest
-} from '../api/chat-api.types';
+} from '../../api/chat-api.types';
 
 const VALID_MODALITIES = new Set(['text', 'image', 'audio', 'video', 'file']);
 

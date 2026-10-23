@@ -1,8 +1,8 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { SettingsService } from '../../../core/settings.service';
-import { GenerationSettingsService } from '../../../core/generation-settings.service';
+import { SettingsService } from '../../../core/settings/settings.service';
+import { GenerationSettingsService } from '../../../core/settings/generation-settings.service';
 import { ModelEntry, canGenerateImages, canDescribeImages } from '../../../models/chat-config';
 import { GenerationTaskKind, GENERATION_TASK_KINDS } from '../../../models/generation-task';
 import { I18nService } from '../../../core/i18n/i18n.service';

@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatService } from './chat.service';
+import { ChatService } from '../chat/chat.service';
 
 export type StoryClipboardAction = 'copy' | 'cut';
 

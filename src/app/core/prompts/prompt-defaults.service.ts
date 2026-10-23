@@ -4,7 +4,7 @@ import {
   promptDefaultById,
   type PromptDefaultCategory,
   type PromptDefaultDef
-} from '../models/prompt-default';
+} from '../../models/prompt-default';
 import {
   PromptApiService
 } from './prompt-api.service';
@@ -12,7 +12,7 @@ import type {
   PromptScope,
   PromptSelection,
   PromptVersion
-} from '../models/prompt-version';
+} from '../../models/prompt-version';
 
 /** Values that template variables may hold. Booleans allow `{{#if}}` blocks. */
 export type PromptVars = Record<string, string | number | boolean>;

@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
-import { Chat, ChatNode, NodeAttachment } from '../models/chat';
-import { newId } from './common/helpers';
-import { estimateDataUrlBytes } from './llm/llm-message';
+import { Chat, ChatNode, NodeAttachment } from '../../models/chat';
+import { newId } from '../util/helpers';
+import { estimateDataUrlBytes } from '../llm/llm-message';
 
 /**
  * Per-chat persistence keys for the "Create image" dialog. The chat-specific

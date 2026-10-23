@@ -1,4 +1,4 @@
-import type { ProviderType } from '../models/chat-config';
+import type { ProviderType } from '../../models/chat-config';
 
 /**
  * Google's Generative Language API hosts:

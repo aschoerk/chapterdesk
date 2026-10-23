@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { PrependDialogService } from '../../core/prepend-dialog.service';
+import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 import { PrependDialogComponent } from './prepend-dialog.component';
 
 describe('PrependDialogComponent', () => {

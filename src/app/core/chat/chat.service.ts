@@ -1,8 +1,8 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment, NodeUsageSummary } from '../models/chat';
-import { CHAT_API } from '../api/chat-api.token';
+import { Chat, ChatNode, CreateNodeRequest,  NodeAttachment, NodeUsageSummary } from '../../models/chat';
+import { CHAT_API } from '../../api/chat-api.token';
 import {NodeEditSession} from './node-edit-session';
-import { isImageMime, resolvedMime } from './llm/llm-message';
+import { isImageMime, resolvedMime } from '../llm/llm-message';
 
 const LS_CHAT  = 'chat.currentChatId';
 const LS_SCROLL = 'chat.scrollByChatId';

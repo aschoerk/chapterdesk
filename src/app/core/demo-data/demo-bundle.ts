@@ -2,7 +2,7 @@ import {
   BUNDLE_FORMAT,
   BUNDLE_VERSION,
   ChatBundle
-} from '../bundle.service';
+} from '../import-export/bundle.service';
 
 /**
  * Built-in demo workspace, embedded as a normal chapterdesk bundle.

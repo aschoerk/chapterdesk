@@ -1,4 +1,4 @@
-import { getServerConfig } from '../common/server-config';
+import { getServerConfig } from '../util/server-config';
 
 /**
  * The built-in, key-free "Mock (no key)" provider.

@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { LightboxService } from '../../core/lightbox.service';
+import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { ImageLightboxComponent } from './image-lightbox.component';
 
 describe('ImageLightboxComponent', () => {

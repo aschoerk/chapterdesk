@@ -1,14 +1,14 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage, ChatNode, NodeAttachment } from '../../../models/chat';
 import { canGenerateImages } from '../../../models/chat-config';
-import { ChatService } from '../../chat.service';
+import { ChatService } from '../../chat/chat.service';
 import { LlmLogService } from '../llm-log.service';
 import { UsecaseContextFactory, type BuildContext, type ModelRef } from './context';
 import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import type { EvalSlots, FlowResult, UsecaseContext, UsecaseKind, UsecaseVars } from './types';
 import { makeSlot, okSlot } from './slots';
 import { imagePartToAttachment, isGeneratedImageAttachment, type LlmImagePart } from '../llm-message';
-import { newId } from '../../common/helpers';
+import { newId } from '../../util/helpers';
 
 /**
  * Structural text-send flows.

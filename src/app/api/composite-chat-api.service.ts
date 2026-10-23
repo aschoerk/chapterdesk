@@ -22,7 +22,7 @@ import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 import { ChatApiPort } from './chat-api.port';
 import { ChatApiService } from './chat-api.service';
 import { IdbChatApiService } from './idb-chat-api.service';
-import { EnvironmentService, StorageKind } from '../core/environment.service';
+import { EnvironmentService, StorageKind } from '../core/settings/environment.service';
 
 /**
  * Storage split comes from GET /api/environment.

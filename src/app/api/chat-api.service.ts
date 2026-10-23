@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, NodeAttachment, NodeUsageSummary} from '../models/chat';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
-import { getServerConfig } from '../core/common/server-config';
+import { getServerConfig } from '../core/util/server-config';
 import {
   AskLlmOptions,
   BranchQuestionRequest,

@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { CHAT_API } from '../api/chat-api.token';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { CreateImageDialogService } from './create-image-dialog.service';
-import { makeNode } from '../../../test-helpers/factories';
-import { NodeAttachment } from '../models/chat';
+import { makeNode } from '../../../../test-helpers/factories';
+import { NodeAttachment } from '../../models/chat';
 
 const LS_CONSTANT = 'chat.createImage.constantByChatId';
 const LS_IMAGES = 'chat.createImage.imagesByChatId';

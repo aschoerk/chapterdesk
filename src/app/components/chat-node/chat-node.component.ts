@@ -4,14 +4,14 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ChatService } from '../../core/chat.service';
-import { SettingsService } from '../../core/settings.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { ChatNode, NodeAttachment, ChatMessage, Chat } from '../../models/chat';
-import { MarkdownService } from '../../core/markdown.service';
-import { markFragmentInSource } from '../../core/mark-fragment';
-import { NodeEditSession} from '../../core/node-edit-session';
-import {ConfirmService} from '../../core/confirm.service';
-import { ChatParametersService } from '../../core/chat-parameters.service';
+import { MarkdownService } from '../../core/chat/markdown.service';
+import { markFragmentInSource } from '../../core/util/mark-fragment';
+import { NodeEditSession} from '../../core/chat/node-edit-session';
+import {ConfirmService} from '../../core/dialogs/confirm.service';
+import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import {
   inferMimeType,
   isImageMime,
@@ -23,19 +23,19 @@ import {
   PREPEND_MAX_TOKENS
 } from '../../core/llm/llm-message';
 import { formatParametersSummary } from '../../models/chat-parameters';
-import {ProjectService} from '../../core/project.service';
+import {ProjectService} from '../../core/settings/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { newId } from '../../core/common/helpers';
-import { GenerationSettingsService } from '../../core/generation-settings.service';
-import { PromptDefaultsService } from '../../core/prompt-defaults.service';
+import { newId } from '../../core/util/helpers';
+import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
+import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
 import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
-import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
-import { PrependDialogService } from '../../core/prepend-dialog.service';
-import { RewriteDialogService } from '../../core/rewrite-dialog.service';
-import { CreateImageDialogService } from '../../core/create-image-dialog.service';
-import { ChapterDescriptionsDialogService } from '../../core/chapter-descriptions-dialog.service';
+import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.service';
+import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
+import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
+import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
+import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
-import { LightboxService } from '../../core/lightbox.service';
+import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
 import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments, imageOnlyAnswerContent } from '../../core/llm/orchestration';
@@ -43,9 +43,9 @@ import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { LlmLogService } from '../../core/llm/llm-log.service';
-import { ChatUsageService } from '../../core/chat-usage.service';
-import { AttachmentClipboardService } from '../../core/attachment-clipboard.service';
-import { nearestScrollParent, textareaCharMetrics } from '../../core/dom-metrics';
+import { ChatUsageService } from '../../core/chat/chat-usage.service';
+import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
+import { nearestScrollParent, textareaCharMetrics } from '../../core/util/dom-metrics';
 
 /**
  * Fallback when a rewrite's original range cannot be mapped back to the

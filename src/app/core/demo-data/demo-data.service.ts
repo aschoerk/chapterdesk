@@ -1,9 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { BundleService } from '../bundle.service';
-import { ChatService } from '../chat.service';
-import { ProjectService } from '../project.service';
-import { SettingsService } from '../settings.service';
-import { GenerationSettingsService } from '../generation-settings.service';
+import { BundleService } from '../import-export/bundle.service';
+import { ChatService } from '../chat/chat.service';
+import { ProjectService } from '../settings/project.service';
+import { SettingsService } from '../settings/settings.service';
+import { GenerationSettingsService } from '../settings/generation-settings.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { DEMO_BUNDLE } from './demo-bundle';
 import {

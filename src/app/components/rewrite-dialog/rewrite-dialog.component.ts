@@ -1,10 +1,10 @@
 import { Component, computed, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SettingsService } from '../../core/settings.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { LlmUseCaseRunner, parseSuggestionVariants } from '../../core/llm/orchestration';
 import type { RewriteContextMode } from '../../core/llm/orchestration';
-import { RewriteDialogService } from '../../core/rewrite-dialog.service';
+import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
 
 /**
  * Suggestions longer than this (characters) are shown only as a short

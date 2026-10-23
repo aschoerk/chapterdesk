@@ -2,10 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { ChatService } from './chat.service';
 import { NodeEditSession } from './node-edit-session';
-import { ConfirmService } from './confirm.service';
-import { CHAT_API } from '../api/chat-api.token';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
-import { ChatNode, CreateNodeRequest } from '../models/chat';
+import { ConfirmService } from '../dialogs/confirm.service';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
+import { ChatNode, CreateNodeRequest } from '../../models/chat';
 
 /**
  * Chat-editing use cases (insert / remove / delete) on the Angular side.

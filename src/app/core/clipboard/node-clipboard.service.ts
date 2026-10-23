@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatNode, NodeAttachment, NodeRole } from '../models/chat';
-import { ChatService } from './chat.service';
+import { ChatNode, NodeAttachment, NodeRole } from '../../models/chat';
+import { ChatService } from '../chat/chat.service';
 
 /**
  * Client-side clipboard for ChatNodes.

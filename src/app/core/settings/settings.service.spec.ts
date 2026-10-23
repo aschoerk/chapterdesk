@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ProviderConfig } from '../models/chat-config';
-import { CHAT_API } from '../api/chat-api.token';
+import { ProviderConfig } from '../../models/chat-config';
+import { CHAT_API } from '../../api/chat-api.token';
 import { SettingsService } from './settings.service';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 
 describe('SettingsService.fetchModels', () => {
   let settings: SettingsService;

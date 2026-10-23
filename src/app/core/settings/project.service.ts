@@ -1,15 +1,15 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, ChatMessage, NodeAttachment } from '../models/chat';
-import { CHAT_API } from '../api/chat-api.token';
+import { Chat, ChatNode, CreateNodeRequest, Project, Persona, Topic, ChatMessage, NodeAttachment } from '../../models/chat';
+import { CHAT_API } from '../../api/chat-api.token';
 import {
   CreateProjectRequest,
   CreateTopicRequest,
   UpdateProjectRequest,
   UpdateTopicRequest
-} from '../api/chat-api.types';
-import {ChatService} from './chat.service';
-import {ResolvedChatParameters} from '../models/chat-parameters';
+} from '../../api/chat-api.types';
+import {ChatService} from '../chat/chat.service';
+import {ResolvedChatParameters} from '../../models/chat-parameters';
 
 @Injectable({
   providedIn: 'root'

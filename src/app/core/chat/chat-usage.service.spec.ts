@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ChatUsageService } from './chat-usage.service';
-import { LlmLogEntry, LlmLogService } from './llm/llm-log.service';
+import { LlmLogEntry, LlmLogService } from '../llm/llm-log.service';
 
 function usageEntry(usage: unknown): LlmLogEntry {
   return {

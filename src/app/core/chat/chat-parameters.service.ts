@@ -8,10 +8,10 @@ import {
   emptyParametersDraft,
   isDraftEmpty,
   mergeParameters
-} from '../models/chat-parameters';
-import { Chat, Project, Topic } from '../models/chat';
-import { ModelEntry } from '../models/chat-config';
-import { CHAT_API } from '../api/chat-api.token';
+} from '../../models/chat-parameters';
+import { Chat, Project, Topic } from '../../models/chat';
+import { ModelEntry } from '../../models/chat-config';
+import { CHAT_API } from '../../api/chat-api.token';
 
 @Injectable({ providedIn: 'root' })
 export class ChatParametersService {

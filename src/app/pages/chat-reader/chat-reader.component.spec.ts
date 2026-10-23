@@ -5,7 +5,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { ChatReaderComponent } from './chat-reader.component';
 import { CHAT_API } from '../../api/chat-api.token';
-import { ChatService } from '../../core/chat.service';
+import { ChatService } from '../../core/chat/chat.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeAttachment } from '../../../../test-helpers/factories';

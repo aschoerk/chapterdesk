@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { AttachmentClipboardService } from './attachment-clipboard.service';
-import { makeAttachment } from '../../../test-helpers/factories';
+import { makeAttachment } from '../../../../test-helpers/factories';
 
 describe('AttachmentClipboardService', () => {
   let service: AttachmentClipboardService;

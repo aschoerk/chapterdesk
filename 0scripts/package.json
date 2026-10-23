@@ -5,7 +5,8 @@
   "main": "electron/main.js",
   "scripts": {
     "electron:dev": "cd .. && npm run build:server && concurrently -k \"ng serve\" \"wait-on http://localhost:4200 && electron .\"",
-    "test": "cd .. && ng test"
+    "test": "cd .. && ng test",
+    "electron:build": "cd .. && npm run build:server && npm run build && electron-builder"
   }
   
 }

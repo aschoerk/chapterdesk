@@ -6,9 +6,9 @@ import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeNode } from '../../../../test-helpers/factories';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SettingsService } from '../../core/settings.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
-import { RewriteDialogService } from '../../core/rewrite-dialog.service';
+import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
 import { RewriteDialogComponent, REWRITE_MODEL_KEY } from './rewrite-dialog.component';
 
 describe('RewriteDialogComponent', () => {

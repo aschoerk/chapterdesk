@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
-import { Chat, ChatNode, Persona, Project, Topic } from '../models/chat';
-import { ChatService } from './chat.service';
-import { ProjectService } from './project.service';
-import { PersonaService } from './persona.service';
+import { Chat, ChatNode, Persona, Project, Topic } from '../../models/chat';
+import { ChatService } from '../chat/chat.service';
+import { ProjectService } from '../settings/project.service';
+import { PersonaService } from '../persona.service';
 
 export const BUNDLE_FORMAT = 'aschoerk.chat.bundle';
 export const BUNDLE_VERSION = 2;

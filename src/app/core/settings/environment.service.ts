@@ -1,8 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { getServerConfig } from './common/server-config';
-import { isElectron } from './common/electron';
+import { getServerConfig } from '../util/server-config';
+import { isElectron } from '../util/electron';
 
 export type RuntimeKind =
   | 'electron-sqlite'

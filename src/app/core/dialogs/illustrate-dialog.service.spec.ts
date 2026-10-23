@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { CHAT_API } from '../api/chat-api.token';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { IllustrateDialogService } from './illustrate-dialog.service';
 
 const LS_KEY = 'chat.illustrateOptions.v1';

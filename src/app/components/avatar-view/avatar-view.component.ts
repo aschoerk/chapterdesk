@@ -1,6 +1,6 @@
 import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { isImageRef } from '../../core/common/image-ref';
+import { isImageRef } from '../../core/util/image-ref';
 
 @Component({
   selector: 'app-avatar-view',

@@ -8,16 +8,16 @@ import {RewriteDialogComponent} from './components/rewrite-dialog/rewrite-dialog
 import {CreateImageDialogComponent} from './components/create-image-dialog/create-image-dialog.component';
 import {ChapterDescriptionsDialogComponent} from './components/chapter-descriptions-dialog/chapter-descriptions-dialog.component';
 import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox.component';
-import {ThemeService} from './core/theme.service';
-import {EnvironmentService} from './core/environment.service';
-import {SettingsService} from './core/settings.service';
-import {ChatService} from './core/chat.service';
-import {ProjectService} from './core/project.service';
+import {ThemeService} from './core/settings/theme.service';
+import {EnvironmentService} from './core/settings/environment.service';
+import {SettingsService} from './core/settings/settings.service';
+import {ChatService} from './core/chat/chat.service';
+import {ProjectService} from './core/settings/project.service';
 import {PersonaService} from './core/persona.service';
 import {DemoDataService} from './core/demo-data/demo-data.service';
 import {SetupWizardComponent} from './components/setup-wizard/setup-wizard.component';
-import {SetupWizardService} from './core/setup-wizard.service';
-import {PromptDefaultsService} from './core/prompt-defaults.service';
+import {SetupWizardService} from './core/dialogs/setup-wizard.service';
+import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 
 @Component({
   selector: 'app-root',

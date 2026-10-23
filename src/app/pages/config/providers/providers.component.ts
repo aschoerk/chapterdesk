@@ -1,10 +1,10 @@
 import { Component, inject, signal, computed, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { SettingsService } from '../../../core/settings.service';
+import { SettingsService } from '../../../core/settings/settings.service';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../../models/chat-config';
 import { I18nService } from '../../../core/i18n/i18n.service';
-import { ChatParametersService } from '../../../core/chat-parameters.service';
+import { ChatParametersService } from '../../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../../components/chat-parameters-editor/chat-parameters-editor.component';
 import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft } from '../../../models/chat-parameters';
 

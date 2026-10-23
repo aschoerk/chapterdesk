@@ -6,8 +6,8 @@ import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeNode } from '../../../../test-helpers/factories';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SettingsService } from '../../core/settings.service';
-import { CreateImageDialogService } from '../../core/create-image-dialog.service';
+import { SettingsService } from '../../core/settings/settings.service';
+import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { CreateImageDialogComponent } from './create-image-dialog.component';
 
 describe('CreateImageDialogComponent', () => {

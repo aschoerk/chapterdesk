@@ -1,5 +1,5 @@
 import { Component, HostListener, inject } from '@angular/core';
-import { LightboxService } from '../../core/lightbox.service';
+import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 
 @Component({

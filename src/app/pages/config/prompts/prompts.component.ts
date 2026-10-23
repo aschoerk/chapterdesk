@@ -1,7 +1,7 @@
 import { Component, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { PromptDefaultsService } from '../../../core/prompt-defaults.service';
+import { PromptDefaultsService } from '../../../core/prompts/prompt-defaults.service';
 import { PROMPT_DEFAULT_CATEGORIES } from '../../../models/prompt-default';
 import type {
   PromptDefaultCategory,
@@ -9,8 +9,8 @@ import type {
   PromptVar
 } from '../../../models/prompt-default';
 import type { PromptScope, PromptVersion } from '../../../models/prompt-version';
-import { ProjectService } from '../../../core/project.service';
-import { TopicSelectionService } from '../../../core/topic-selection.service';
+import { ProjectService } from '../../../core/settings/project.service';
+import { TopicSelectionService } from '../../../core/settings/topic-selection.service';
 
 /** English-only heading (per project decision — prompts stay in English). */
 const CATEGORY_TITLES: Record<PromptDefaultCategory, { title: string; hint: string }> = {

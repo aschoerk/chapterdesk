@@ -11,15 +11,15 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ChatService } from '../../core/chat.service';
+import { ChatService } from '../../core/chat/chat.service';
 import { PersonaService } from '../../core/persona.service';
-import { ProjectService } from '../../core/project.service';
-import { ConfirmService } from '../../core/confirm.service';
+import { ProjectService } from '../../core/settings/project.service';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { Persona } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
+import { SortPreferencesService, SortMode } from '../../core/settings/sort-preferences.service';
 
 /** localStorage-backed sort preference key for this (Personas) page. */
 const SORT_PAGE = 'personas';

@@ -5,7 +5,7 @@ import {
   defaultIllustrateOptions,
   IllustrateOptions,
   isIllustrateHistoryMode
-} from '../models/illustrate-options';
+} from '../../models/illustrate-options';
 
 const LS_KEY = 'chat.illustrateOptions.v1';
 

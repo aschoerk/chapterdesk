@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { NodeAttachment } from '../models/chat';
+import { NodeAttachment } from '../../models/chat';
 
 export type AttachmentClipboardAction = 'copy' | 'cut';
 

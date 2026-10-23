@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { getServerConfig } from '../../core/common/server-config';
+import { getServerConfig } from '../../core/util/server-config';
 import { I18nService } from '../../core/i18n/i18n.service';
 
 interface UserRow {

@@ -1,8 +1,8 @@
 import { Component, inject, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { ConfirmService } from '../../core/confirm.service';
-import { LightboxService } from '../../core/lightbox.service';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { extractLlmImages } from '../../core/llm/llm-message';
 import { LlmLogService, LlmLogEntry, LlmLogMessage, LLM_LOG_LIMIT } from '../../core/llm/llm-log.service';
 

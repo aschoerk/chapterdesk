@@ -17,8 +17,8 @@
  *  - Nodes whose parent is missing/ignored are treated as roots so no
  *    content silently vanishes.
  */
-import { ChatNode } from '../models/chat';
-import { isPromptRecordAttachment } from './llm/llm-message';
+import { ChatNode } from '../../models/chat';
+import { isPromptRecordAttachment } from '../llm/llm-message';
 
 export function isUsableNode(n: ChatNode): boolean {
   // Recorded image prompts (prompt-N.txt / refused-prompt-N.txt) are internal

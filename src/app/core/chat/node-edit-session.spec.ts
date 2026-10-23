@@ -1,9 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { ConfirmService, type ConfirmRequest } from './confirm.service';
+import { ConfirmService, type ConfirmRequest } from '../dialogs/confirm.service';
 import { NodeEditSession } from './node-edit-session';
-import { NodeAttachment } from '../models/chat';
-import { makeAttachment } from '../../../test-helpers/factories';
+import { NodeAttachment } from '../../models/chat';
+import { makeAttachment } from '../../../../test-helpers/factories';
 
 type BeginArgs = {
   chatId: string;

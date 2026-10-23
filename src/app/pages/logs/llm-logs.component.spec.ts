@@ -3,8 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { ConfirmService } from '../../core/confirm.service';
-import { LightboxService } from '../../core/lightbox.service';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { LlmLogsComponent } from './llm-logs.component';
 

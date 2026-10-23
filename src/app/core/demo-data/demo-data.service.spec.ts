@@ -5,10 +5,10 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeProject } from '../../../../test-helpers/factories';
-import { ChatService } from '../chat.service';
-import { ProjectService } from '../project.service';
-import { SettingsService } from '../settings.service';
-import { GenerationSettingsService } from '../generation-settings.service';
+import { ChatService } from '../chat/chat.service';
+import { ProjectService } from '../settings/project.service';
+import { SettingsService } from '../settings/settings.service';
+import { GenerationSettingsService } from '../settings/generation-settings.service';
 import { DemoDataService, DEMO_PROJECT_NAME } from './demo-data.service';
 import { MOCK_PROVIDER_NAME, MOCK_MODEL_ID } from '../mock-llm/mock-llm-config';
 

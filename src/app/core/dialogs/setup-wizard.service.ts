@@ -1,10 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { SettingsService } from './settings.service';
-import { GenerationSettingsService } from './generation-settings.service';
-import { DemoDataService } from './demo-data/demo-data.service';
-import { ProviderConfig, ModelEntry } from '../models/chat-config';
-import { GenerationTaskKind } from '../models/generation-task';
-import { MOCK_MODEL_ID, MOCK_PROVIDER_NAME } from './mock-llm/mock-llm-config';
+import { SettingsService } from '../settings/settings.service';
+import { GenerationSettingsService } from '../settings/generation-settings.service';
+import { DemoDataService } from '../demo-data/demo-data.service';
+import { ProviderConfig, ModelEntry } from '../../models/chat-config';
+import { GenerationTaskKind } from '../../models/generation-task';
+import { MOCK_MODEL_ID, MOCK_PROVIDER_NAME } from '../mock-llm/mock-llm-config';
 
 /** Result of a setup wizard run. */
 export type SetupResult = 'configured' | 'skipped';

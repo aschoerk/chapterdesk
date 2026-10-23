@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ChatNode } from '../models/chat';
-import { makeNode } from '../../../test-helpers/factories';
+import { ChatNode } from '../../models/chat';
+import { makeNode } from '../../../../test-helpers/factories';
 import {
   buildDocxBlob,
   buildMarkdown,

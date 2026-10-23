@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { SettingsService } from './settings.service';
-import {ChatService} from './chat.service';
+import {ChatService} from '../chat/chat.service';
 
 @Injectable({
   providedIn: 'root'

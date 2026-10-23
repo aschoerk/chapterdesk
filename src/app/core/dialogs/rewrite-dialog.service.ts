@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
-import { Chat, ChatNode } from '../models/chat';
-import type { RewriteContextMode } from './llm/orchestration';
+import { Chat, ChatNode } from '../../models/chat';
+import type { RewriteContextMode } from '../llm/orchestration';
 
 /**
  * State of the open "Rewrite selection" dialog: the marked fragment (editable),

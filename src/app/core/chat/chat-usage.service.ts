@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
-import { LlmLogService, LlmLogEntry } from './llm/llm-log.service';
-import { ParsedUsage, parseProviderUsage, sumUsage } from './llm/usage';
-import type { ChatNode } from '../models/chat';
+import { LlmLogService, LlmLogEntry } from '../llm/llm-log.service';
+import { ParsedUsage, parseProviderUsage, sumUsage } from '../llm/usage';
+import type { ChatNode } from '../../models/chat';
 
 /**
  * localStorage key prefix of the PERSISTED per-chat token/cost totals. The

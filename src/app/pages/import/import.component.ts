@@ -2,8 +2,8 @@ import { Component, inject, signal, computed, HostListener } from '@angular/core
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ChatService } from '../../core/chat.service';
-import { ProjectService } from '../../core/project.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { ProjectService } from '../../core/settings/project.service';
 import { PersonaService } from '../../core/persona.service';
 import { DemoDataService } from '../../core/demo-data/demo-data.service';
 import {
@@ -12,19 +12,19 @@ import {
   BundleService,
   ChatBundle,
   ImportPolicy,
-} from '../../core/bundle.service';
+} from '../../core/import-export/bundle.service';
 import { Project, ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { newId } from '../../core/common/helpers';
-import { TopicSelectionService } from '../../core/topic-selection.service';
-import { parseDocxBook } from '../../core/docx-import';
-import { parseEpubBook } from '../../core/epub-import';
+import { newId } from '../../core/util/helpers';
+import { TopicSelectionService } from '../../core/settings/topic-selection.service';
+import { parseDocxBook } from '../../core/import-export/docx-import';
+import { parseEpubBook } from '../../core/import-export/epub-import';
 import {
   buildDocxBlob,
   buildMarkdown,
   enumerateDocumentPaths,
   pickDocumentPath,
-} from '../../core/docx-export';
+} from '../../core/import-export/docx-export';
 
 export interface ParsedTurn {
   role: 'system' | 'user' | 'assistant' | 'other';

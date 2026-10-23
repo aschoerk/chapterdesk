@@ -5,9 +5,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeNode, makeModel, makeProvider, makeAttachment } from '../../../../../test-helpers/factories';
-import { SettingsService } from '../../settings.service';
-import { GenerationSettingsService } from '../../generation-settings.service';
-import { ChatService } from '../../chat.service';
+import { SettingsService } from '../../settings/settings.service';
+import { GenerationSettingsService } from '../../settings/generation-settings.service';
+import { ChatService } from '../../chat/chat.service';
 
 import {
   evaluateCompletion,

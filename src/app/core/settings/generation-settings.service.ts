@@ -5,8 +5,8 @@ import {
   GenerationTaskKind,
   GENERATION_TASK_KINDS,
   emptyGenerationTaskConfig
-} from '../models/generation-task';
-import { ModelEntry, ProviderConfig } from '../models/chat-config';
+} from '../../models/generation-task';
+import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 
 const LS_KEY = 'chat.generationTasks';
 

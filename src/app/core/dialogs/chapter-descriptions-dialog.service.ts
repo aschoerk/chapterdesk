@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { Chat, ChatNode } from '../models/chat';
+import { Chat, ChatNode } from '../../models/chat';
 
 /**
  * Per-chat persistence for the "Create chapter descriptions" dialog. The

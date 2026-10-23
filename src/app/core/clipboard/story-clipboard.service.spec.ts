@@ -3,10 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { StoryClipboardService } from './story-clipboard.service';
-import { CHAT_API } from '../api/chat-api.token';
-import { ChatService } from './chat.service';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
-import { makeChat, makeProject } from '../../../test-helpers/factories';
+import { CHAT_API } from '../../api/chat-api.token';
+import { ChatService } from '../chat/chat.service';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
+import { makeChat, makeProject } from '../../../../test-helpers/factories';
 
 const LS_KEY = 'chat.storyClipboard.v1';
 

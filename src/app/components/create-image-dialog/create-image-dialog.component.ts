@@ -1,12 +1,12 @@
 import { Component, computed, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SettingsService } from '../../core/settings.service';
-import { GenerationSettingsService } from '../../core/generation-settings.service';
-import { CreateImageDialogService } from '../../core/create-image-dialog.service';
+import { SettingsService } from '../../core/settings/settings.service';
+import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
+import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { canGenerateImages, ModelEntry } from '../../models/chat-config';
 import { NodeAttachment } from '../../models/chat';
-import { newId } from '../../core/common/helpers';
+import { newId } from '../../core/util/helpers';
 import { inferMimeType } from '../../core/llm/llm-message';
 
 @Component({

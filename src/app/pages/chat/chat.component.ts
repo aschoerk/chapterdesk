@@ -1,31 +1,31 @@
 import {Component, computed, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ChatService } from '../../core/chat.service';
-import { LastModelService } from '../../core/last-model.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { LastModelService } from '../../core/settings/last-model.service';
 import { Chat, ChatNode, NodeAttachment } from '../../models/chat';
-import { SettingsService } from '../../core/settings.service';
-import { ChatParametersService } from '../../core/chat-parameters.service';
+import { SettingsService } from '../../core/settings/settings.service';
+import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
 import { ChatParametersDraft, ResolvedChatParameters, draftFromParameters, emptyParametersDraft, formatParametersSummary } from '../../models/chat-parameters';
 import { ChatTitleEditorComponent } from '../../components/chat-title-editor/chat-title-editor.component';
 import { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 import {SideBarComponent} from '../../components/side-bar/side-bar.component';
 import {Router} from '@angular/router';
-import {ProjectService} from '../../core/project.service';
+import {ProjectService} from '../../core/settings/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { GenerationSettingsService } from '../../core/generation-settings.service';
-import { PromptDefaultsService } from '../../core/prompt-defaults.service';
+import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
+import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
 import { GenerationTaskKind } from '../../models/generation-task';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
-import { ConfirmService } from '../../core/confirm.service';
-import { NodeClipboardService } from '../../core/node-clipboard.service';
-import { NodeEditSession } from '../../core/node-edit-session';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
+import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
-import { textareaCharMetrics, TextareaCharMetrics } from '../../core/dom-metrics';
+import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-metrics';
 
 /** One row of the navbar-node right-click context menu. */
 interface NavMenuEntry {

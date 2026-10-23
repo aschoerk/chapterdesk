@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
-import { CHAT_API } from '../api/chat-api.token';
-import { InMemoryChatApi } from '../../../test-helpers/in-memory-chat-api';
-import { makeModel, makeProvider, seedApi } from '../../../test-helpers/factories';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
+import { makeModel, makeProvider, seedApi } from '../../../../test-helpers/factories';
 import { SetupWizardService } from './setup-wizard.service';
-import { SettingsService } from './settings.service';
-import { GenerationSettingsService } from './generation-settings.service';
-import { DemoDataService } from './demo-data/demo-data.service';
+import { SettingsService } from '../settings/settings.service';
+import { GenerationSettingsService } from '../settings/generation-settings.service';
+import { DemoDataService } from '../demo-data/demo-data.service';
 
 describe('SetupWizardService', () => {
   let api: InMemoryChatApi;

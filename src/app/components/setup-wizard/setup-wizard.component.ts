@@ -1,7 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { SetupWizardService, SetupWizardState } from '../../core/setup-wizard.service';
+import { SetupWizardService, SetupWizardState } from '../../core/dialogs/setup-wizard.service';
 import { ModelEntry } from '../../models/chat-config';
 
 const STEP_ORDER = ['welcome', 'provider', 'models', 'demo'] as const;

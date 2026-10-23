@@ -17,12 +17,12 @@
  *  - `buildDocxBlob` produces a Word .docx (OpenXML in a stored-entry ZIP).
  */
 import { marked, type Token } from 'marked';
-import { ChatNode, NodeAttachment } from '../models/chat';
+import { ChatNode, NodeAttachment } from '../../models/chat';
 import {
   enumerateStoryDocuments,
   isUsableNode,
   pickMostRecentDocument,
-} from './story-paths';
+} from '../chat/story-paths';
 
 // ---------------------------------------------------------------------------
 // Document enumeration & selection (shared algorithm, see ./story-paths)

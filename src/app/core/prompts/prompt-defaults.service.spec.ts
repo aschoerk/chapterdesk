@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { PromptDefaultsService } from './prompt-defaults.service';
 import { PromptApiService } from './prompt-api.service';
-import { PROMPT_DEFAULTS, promptDefaultById } from '../models/prompt-default';
-import { FakePromptApiService } from '../../../test-helpers/fake-prompt-api';
+import { PROMPT_DEFAULTS, promptDefaultById } from '../../models/prompt-default';
+import { FakePromptApiService } from '../../../../test-helpers/fake-prompt-api';
 
 describe('PromptDefaultsService', () => {
   let service: PromptDefaultsService;

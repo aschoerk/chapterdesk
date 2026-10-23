@@ -5,9 +5,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { seedApi } from '../../../../test-helpers/factories';
-import { SettingsService } from '../../core/settings.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { IllustrateDialogService } from '../../core/illustrate-dialog.service';
+import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.service';
 import { IllustrateDialogComponent } from './illustrate-dialog.component';
 
 describe('IllustrateDialogComponent', () => {

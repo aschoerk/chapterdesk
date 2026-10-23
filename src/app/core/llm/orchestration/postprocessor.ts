@@ -1,12 +1,12 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatNode, NodeAttachment } from '../../../models/chat';
-import { newId } from '../../common/helpers';
+import { newId } from '../../util/helpers';
 import {
   imagePartToAttachment,
   textPromptAttachment
 } from '../llm-message';
 import type { EvalSlots, ImageScene, UsecaseContext } from './types';
-import { ChatService } from '../../chat.service';
+import { ChatService } from '../../chat/chat.service';
 
 /**
  * Result of placing a use-case outcome — WHAT the chat should get. The

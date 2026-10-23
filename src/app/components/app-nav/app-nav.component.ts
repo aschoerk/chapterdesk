@@ -1,9 +1,9 @@
 import { Component, computed, effect, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { EnvironmentService } from '../../core/environment.service';
+import { EnvironmentService } from '../../core/settings/environment.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { ChatService } from '../../core/chat.service';
-import { APP_VERSION } from '../../core/version';
+import { ChatService } from '../../core/chat/chat.service';
+import { APP_VERSION } from '../../core/util/version';
 
 interface AppNavLink {
   path: string;

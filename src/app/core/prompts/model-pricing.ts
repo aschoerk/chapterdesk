@@ -1,4 +1,4 @@
-import type { ModelPricing } from '../models/chat-config';
+import type { ModelPricing } from '../../models/chat-config';
 
 /**
  * Local per-model pricing for providers whose catalog API does NOT expose

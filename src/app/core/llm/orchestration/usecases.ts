@@ -7,7 +7,7 @@ import { LlmOrchestratorService, type PrimitiveOptions } from './orchestrator';
 import { makeSlot, okSlot } from './slots';
 import { isFlowUsecase, LlmFlowRunner, prepareTextSend } from './flows';
 import { isImageMime, resolvedMime, type MessagePart } from '../llm-message';
-import { ChatService } from '../../chat.service';
+import { ChatService } from '../../chat/chat.service';
 
 /**
  * Runtime environment handed to every use-case controller: the static

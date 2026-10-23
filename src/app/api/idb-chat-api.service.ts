@@ -17,7 +17,7 @@ import {
   UpdateModelRequest,
   ToggleModelResponse
 } from './chat-api.types';
-import {newId} from '../core/common/helpers';
+import {newId} from '../core/util/helpers';
 import { ChatApiPort } from './chat-api.port';
 import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';

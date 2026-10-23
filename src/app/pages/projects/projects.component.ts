@@ -11,16 +11,16 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { ChatService } from '../../core/chat.service';
-import { ProjectService} from '../../core/project.service';
-import { ConfirmService } from '../../core/confirm.service';
-import { SettingsService } from '../../core/settings.service';
+import { ChatService } from '../../core/chat/chat.service';
+import { ProjectService} from '../../core/settings/project.service';
+import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { SettingsService } from '../../core/settings/settings.service';
 import { Project, Persona, Topic } from '../../models/chat';
-import { ChatParametersService } from '../../core/chat-parameters.service';
+import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
-import { isImageRef } from '../../core/common/image-ref';
+import { isImageRef } from '../../core/util/image-ref';
 import {
   ChatParametersDraft,
   ResolvedChatParameters,
@@ -29,8 +29,8 @@ import {
 } from '../../models/chat-parameters';
 import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
-import { TopicSelectionService } from '../../core/topic-selection.service';
-import { SortPreferencesService, SortMode } from '../../core/sort-preferences.service';
+import { TopicSelectionService } from '../../core/settings/topic-selection.service';
+import { SortPreferencesService, SortMode } from '../../core/settings/sort-preferences.service';
 
 /** localStorage-backed sort preference key for this (Projects) page. */
 const SORT_PAGE = 'projects';

@@ -6,7 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { ProvidersComponent } from './providers.component';
 import { CHAT_API } from '../../../api/chat-api.token';
-import { SettingsService } from '../../../core/settings.service';
+import { SettingsService } from '../../../core/settings/settings.service';
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
 

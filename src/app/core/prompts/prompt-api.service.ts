@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { getServerConfig } from './common/server-config';
+import { getServerConfig } from '../util/server-config';
 import type {
   CreatePromptVersionRequest,
   PromptScope,
@@ -9,7 +9,7 @@ import type {
   PromptVersion,
   SetPromptSelectionRequest,
   UpdatePromptVersionRequest,
-} from '../models/prompt-version';
+} from '../../models/prompt-version';
 
 /**
  * Thin HTTP client for the editable prompt-template endpoints

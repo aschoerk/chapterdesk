@@ -5,15 +5,15 @@ import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../../test-helpers/in-memory-chat-api';
 import { seedApi, makeNode, makeChat } from '../../../../../test-helpers/factories';
-import { SettingsService } from '../../settings.service';
-import { GenerationSettingsService } from '../../generation-settings.service';
-import { ChatService } from '../../chat.service';
+import { SettingsService } from '../../settings/settings.service';
+import { GenerationSettingsService } from '../../settings/generation-settings.service';
+import { ChatService } from '../../chat/chat.service';
 import { I18nService } from '../../i18n/i18n.service';
 import { LlmFlowRunner, isFlowUsecase } from './flows';
 import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
 import { LlmLogService } from '../llm-log.service';
-import { buildLoreNodeContent, isChatLoreNode } from '../../chat.service';
+import { buildLoreNodeContent, isChatLoreNode } from '../../chat/chat.service';
 
 /** Streaming SSE body (one `data:` line per chunk + [DONE]). */
 function sseResponse(chunks: string[]): Response {
