@@ -1248,6 +1248,44 @@ describe('Chat', () => {
     expect(component.navNodeMenu()).toBeNull();
   });
 
+  it('starts a parallel branch from the navbar-node menu (empty direction leaf beside the node)', async () => {
+    await openStory(); // path: q1 → a1 (active); a2 is a sibling of a1 under q1
+    fixture.detectChanges();
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    await component.runNavNodeAction(nodeMenuItem('Start branch here'));
+
+    // A new EMPTY direction leaf hangs beside a1 under the same parent (q1).
+    const siblings = chatService.getChildren('q1');
+    const draft = siblings.find(n => n.role === 'user' && !n.content?.trim());
+    expect(draft).toBeDefined();
+    expect(draft!.parentId).toBe(a1.parentId); // same parent → parallel to a1
+    expect(chatService.isDraftQuestion(draft!)).toBe(true);
+    // The active path now follows the new branch leaf.
+    expect(chatService.getActiveChildId('q1')).toBe(draft!.id);
+    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', draft!.id]);
+    // the menu closed itself after the action
+    expect(component.navNodeMenu()).toBeNull();
+  });
+
+  it('starts a parallel branch even from a nested navbar node', async () => {
+    await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges();
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    component.openNavNodeMenu(navMenuEvent(), a1);
+
+    await component.runNavNodeAction(nodeMenuItem('Start branch here'));
+
+    const draft = chatService
+      .getChildren('q1')
+      .find(n => n.role === 'user' && !n.content?.trim());
+    expect(draft).toBeDefined();
+    // same parent as a1 → branch sits in parallel, and the path picks it up
+    expect(draft!.parentId).toBe(a1.parentId);
+    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', draft!.id]);
+  });
+
   it('selects / unselects a navbar node from its context menu', async () => {
     await openStory();
     fixture.detectChanges();

@@ -413,11 +413,12 @@ export class ChatComponent implements OnInit {
 
   /**
    * Build the menu rows for the right-clicked navbar node. Grouped:
-   *  1. switch the active continuation to a sibling (prev/next)
-   *  2. selection (select/unselect this node, clear the selection)
-   *  3. clipboard (copy / cut / delete — the whole selection when the node
+   *  1. start a new branch here (empty direction leaf in parallel)
+   *  2. switch the active continuation to a sibling (prev/next)
+   *  3. selection (select/unselect this node, clear the selection)
+   *  4. clipboard (copy / cut / delete — the whole selection when the node
    *     is part of one, otherwise just this node)
-   *  4. paste in front / behind (insert into the active path)
+   *  5. paste in front / behind (insert into the active path)
    */
   navNodeMenuItems(): (NavMenuEntry & { divider?: boolean })[] {
     const menu = this.navNodeMenu();
@@ -427,6 +428,17 @@ export class ChatComponent implements OnInit {
     const busy = this.chatService.isGenerating(node.id);
 
     const groups: NavMenuEntry[][] = [];
+
+    // Start a NEW branch NEXT TO the clicked node: an empty direction leaf
+    // with the same parent, so the story forks in parallel right here.
+    groups.push([
+      {
+        label: this.i18n.t('node.branchHere'),
+        hint: this.i18n.t('node.branchHereTitle'),
+        action: () => this.startBranchAt(node),
+        disabled: busy,
+      },
+    ]);
 
     const siblings = this.getChildren(node.parentId);
     if (siblings.length > 1) {
@@ -523,6 +535,23 @@ export class ChatComponent implements OnInit {
     const target = siblings[(idx + dir + siblings.length) % siblings.length];
     if (!target) return;
     this.setActiveChild(node.parentId, target.id);
+  }
+
+  /** Start a branch next to `node`: materialize an empty direction leaf with
+   *  the SAME parent, so it sits in parallel with `node`. The active path
+   *  then picks up the new leaf as its next node — the navbar equivalent of
+   *  typing a fresh continuation beside the current one. */
+  async startBranchAt(node: ChatNode): Promise<void> {
+    const chatId = this.currentChatId();
+    if (!chatId) return;
+    const draft = await this.chatService.addNode(chatId, {
+      parentId: node.parentId,
+      role: 'user',
+      content: '',
+      modelId: node.modelId || undefined,
+      providerId: node.providerId || undefined,
+    });
+    this.setActiveChild(node.parentId, draft.id);
   }
 
   /** The nodes a navbar clipboard action targets: the whole selection when

@@ -242,6 +242,8 @@ export const EN = {
     stopTitle: 'Stop generation',
     prevBranch: 'Previous continuation',
     nextBranch: 'Next continuation',
+    branchHere: 'Start branch here',
+    branchHereTitle: 'Add an empty direction beside this section as a parallel leaf to begin a new branch',
     delete: 'Delete',
     deleteTitle: 'Delete this section and all following text',
     deleteBranch: 'Delete\nContinuation',
