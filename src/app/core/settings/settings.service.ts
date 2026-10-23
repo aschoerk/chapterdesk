@@ -1,157 +1,22 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../models/chat-config';
-import { getServerConfig } from '../util/server-config';
-import { localPricing } from '../prompts/model-pricing';
 import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../util/provider-url';
 import { CHAT_API } from '../../api/chat-api.token';
-import { ChatApiPort } from '../../api/chat-api.port';
 import {
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateModelRequest,
   UpdateModelRequest
 } from '../../api/chat-api.types';
-
-const VALID_MODALITIES = new Set(['text', 'image', 'audio', 'video', 'file']);
-
-/** Gemini catalog entries use `name: "models/gemini-2.5-flash"`; strip the prefix. */
-function geminiModelId(name: string | undefined): string {
-  return (name ?? '').replace(/^models\//, '');
-}
-
-/** Lowercase + filter the modality lists Gemini reports (e.g. ['TEXT','IMAGE']). */
-function lowerModalities(list: unknown): string[] {
-  if (!Array.isArray(list)) return [];
-  return (list as unknown[])
-    .map(m => String(m).toLowerCase())
-    .filter(m => VALID_MODALITIES.has(m));
-}
-
-/**
- * Gemini modalities, derived by UNIONING all available signals instead of
- * trusting one alone:
- *   - declared `inputModalities`/`outputModalities` (lowercased), AND
- *   - `supportedGenerationMethods` (authoritative when present), AND
- *   - the model id / display name: Google's image models (Nano Banana family,
- *     `gemini-*-image`) frequently do NOT list `generateImages` in the list
- *     endpoint's `supportedGenerationMethods` (and modern `models.list` no
- *     longer exposes `inputModalities`/`outputModalities` at all), so the
- *     stable `-image` / `nano-banana` naming is used as the fallback signal.
- */
-const GEMINI_IMAGE_MODEL_RE = /(^|[.-])(image)(\b)|nano[\s-]?banana/i;
-
-function isGeminiImageModel(name: string): boolean {
-  return GEMINI_IMAGE_MODEL_RE.test(name || '');
-}
-
-function geminiModalities(raw: any): { input: string[]; output: string[] } {
-  const methods: string[] = Array.isArray(raw.supportedGenerationMethods) ? raw.supportedGenerationMethods : [];
-  const input = new Set<string>(lowerModalities(raw.inputModalities));
-  const output = new Set<string>(lowerModalities(raw.outputModalities));
-  const has = (m: string) => methods.includes(m);
-
-  if (has('generateContent')) {
-    // Text in/out is the chat baseline.
-    input.add('text');
-    output.add('text');
-  }
-  if (has('generateImages')) output.add('image');
-  if (has('generateAudio')) output.add('audio');
-
-  // Name-based fallback: image-generation models signal image capability even
-  // when the list response omits `generateImages`.
-  const name = `${raw.name ?? ''} ${raw.displayName ?? ''}`;
-  if (isGeminiImageModel(name)) {
-    // These models accept image inputs (editing) and produce text + images.
-    input.add('image');
-    output.add('image');
-  }
-
-  return { input: [...input], output: [...output] };
-}
-
-function mapProviderModel(
-  raw: any,
-  providerId: string,
-  providerType: ProviderConfig['type']
-): Omit<ModelEntry, 'id' | 'enabled'> & { enabled?: boolean } {
-  const isGemini = providerType === 'gemini';
-  const rawId = isGemini ? geminiModelId(raw.name) : (raw.id ?? raw.name ?? '');
-  const displayName = raw.display_name || raw.displayName || raw.name || rawId;
-
-  let architecture: ModelArchitecture | undefined;
-  if (isGemini) {
-    const { input, output } = geminiModalities(raw);
-    if (input.length || output.length) {
-      architecture = {
-        modality: `${input.length ? input.join('+') : 'none'}->${output.length ? output.join('+') : 'none'}`,
-        input_modalities: input,
-        output_modalities: output
-      };
-    }
-  } else if (raw.architecture) {
-    architecture = {
-      modality: raw.architecture.modality,
-      input_modalities: raw.architecture.input_modalities ?? [],
-      output_modalities: raw.architecture.output_modalities ?? []
-    };
-  }
-
-  const rawPricing = raw.pricing;
-  const pricing = rawPricing
-    ? {
-      prompt: rawPricing.prompt,
-      completion: rawPricing.completion,
-      request: rawPricing.request,
-      image: rawPricing.image,
-      web_search: rawPricing.web_search,
-      internal_reasoning: rawPricing.internal_reasoning,
-      input_cache_read: rawPricing.input_cache_read,
-      input_cache_write: rawPricing.input_cache_write
-    }
-    : localPricing(rawId);
-
-  return {
-    displayName,
-    modelId: rawId,
-    providerId,
-    type: 'fetched',
-    contextLength: raw.inputTokenLimit ?? raw.context_length ?? raw.top_provider?.context_length ?? undefined,
-    description: raw.description ?? '',
-    architecture,
-    pricing,
-    topProvider: raw.top_provider
-      ? {
-        context_length: raw.top_provider.context_length,
-        max_completion_tokens: raw.top_provider.max_completion_tokens ?? null,
-        is_moderated: raw.top_provider.is_moderated
-      }
-      : undefined,
-    supportedParameters: raw.supported_parameters ?? [],
-    supported_parameters: raw.supported_parameters ?? [],
-    reasoning: raw.reasoning,
-    created: raw.created ?? raw.created_at,
-    ownedBy: raw.owned_by,
-    shutdownDate: raw.shutdown_date ?? null,
-    canonicalSlug: raw.canonical_slug,
-    knowledgeCutoff: raw.knowledge_cutoff ?? null,
-    expirationDate: raw.expiration_date ?? null,
-    perRequestLimits: raw.per_request_limits ?? null,
-    pricing_prompt: pricing?.prompt,
-    pricing_completion: pricing?.completion,
-    pricing_input_cache_read: pricing?.input_cache_read
-  };
-}
+import { mapProviderModel } from './catalog/model-catalog';
+import { ProviderCatalogService } from './catalog/provider-catalog.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class SettingsService {
-  private readonly http = inject(HttpClient);
-  private readonly serverConfig = getServerConfig();
   private readonly api = inject(CHAT_API);
+  private readonly catalog = inject(ProviderCatalogService);
 
   private readonly _providers = signal<ProviderConfig[]>([]);
   private readonly _models = signal<ModelEntry[]>([]);
@@ -167,14 +32,6 @@ export class SettingsService {
 
   constructor() {
     this.loadAll();
-  }
-
-  private get API_BASE(): string {
-    return this.serverConfig.apiBase;
-  }
-
-  private get PROXY_BASE(): string {
-    return this.serverConfig.proxyBase;
   }
 
   async loadAll(): Promise<void> {
@@ -293,132 +150,21 @@ export class SettingsService {
     );
   }
 
-  /** Headers sent to the backend /proxy for a provider, per connection kind.
-   *  The proxy forwards x-target-base + the auth header(s) to the upstream.
-   *  The base URL is normalized defensively (e.g. an AI Studio console URL),
-   *  and the AUTH scheme follows the EFFECTIVE kind — a Google base URL always
-   *  gets `x-goog-api-key`, even when the stored type predates the Gemini kind. */
-  private providerHeaders(provider: ProviderConfig): Record<string, string> {
-    const effectiveType = provider.type === 'gemini' || isGoogleGeminiUrl(provider.baseUrl)
-      ? 'gemini'
-      : provider.type;
-    const base = { 'x-target-base': normalizeProviderBaseUrl(effectiveType, provider.baseUrl) };
-    switch (effectiveType) {
-      case 'gemini':
-        // Google Generative Language API: API-key header, not Bearer.
-        return { ...base, 'x-goog-api-key': provider.apiKey };
-      case 'anthropic':
-        // Anthropic: x-api-key + pinned API version.
-        return { ...base, 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
-      default:
-        return { ...base, Authorization: `Bearer ${provider.apiKey}` };
-    }
+  /** Test that the provider's /models endpoint answers (connection check). */
+  testProvider(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+    return this.catalog.testProvider(provider);
   }
 
-  async testProvider(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
-    try {
-      await firstValueFrom(
-        this.http.get(`${this.PROXY_BASE}/models`, {
-          headers: this.providerHeaders(provider)
-        })
-      );
-      return { ok: true, message: 'Connection successful' };
-    } catch (err: any) {
-      return {
-        ok: false,
-        message: err?.error?.error?.message || err?.message || 'Connection failed'
-      };
-    }
-  }
-
-  async testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
-    try {
-      const response: any = await firstValueFrom(
-        this.http.post(
-          `${this.PROXY_BASE}/chat/completions`,
-          {
-            model: modelId,
-            messages: [{ role: 'user', content: 'Hi' }],
-            max_tokens: 5
-          },
-          {
-            headers: {
-              ...this.providerHeaders(provider),
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://chat-client.local',
-              'X-Title': 'ChapterDesk'
-            }
-          }
-        )
-      );
-
-      if (response?.choices?.length > 0) {
-        return { ok: true, message: `Model "${modelId}" works` };
-      }
-      return { ok: false, message: 'Unexpected response from model' };
-    } catch (err: any) {
-      return {
-        ok: false,
-        message: err?.error?.error?.message || err?.message || 'Test failed'
-      };
-    }
-  }
-
-  /**
-   * Fetch every model a provider advertises, through the backend proxy.
-   *
-   * OpenRouter keeps image-generation models (e.g. `x-ai/grok-imagine-image-2.0`)
-   * in a separate catalog served at `GET {baseUrl}/images/models`; they are NOT
-   * included in `GET {baseUrl}/models` (that list only contains chat-capable
-   * models). Without this merge those image-only models would never be fetched.
-   *
-   * Envelopes: OpenRouter/OpenAI/Anthropic return `{ data: [...] }`; Google's
-   * Gemini returns `{ models: [...] }`.
-   */
-  private async loadProviderCatalog(provider: ProviderConfig): Promise<any[]> {
-    const headers = this.providerHeaders(provider);
-
-    const load = async (path: string): Promise<any[]> => {
-      try {
-        const response: any = await firstValueFrom(
-          this.http.get(`${this.PROXY_BASE}${path}`, { headers })
-        );
-        return response?.data ?? response?.models ?? response ?? [];
-      } catch (err: any) {
-        // Providers that don't expose an image catalog respond 404 — not fatal,
-        // just skip that catalog.
-        if (err?.status === 404) return [];
-        throw err;
-      }
-    };
-
-    const chatModels = await load('/models');
-    if (provider.type !== 'openrouter') {
-      return chatModels;
-    }
-
-    const imageModels = await load('/images/models');
-    if (imageModels.length === 0) {
-      return chatModels;
-    }
-
-    // Merge, deduplicated by model id. The chat catalog entry wins on a clash
-    // because it carries richer metadata (top_provider, pricing, reasoning, …).
-    const byId = new Map<string, any>();
-    for (const m of imageModels) {
-      if (m?.id && !byId.has(m.id)) byId.set(m.id, m);
-    }
-    for (const m of chatModels) {
-      if (m?.id) byId.set(m.id, m);
-    }
-    return [...byId.values()];
+  /** Test that a model answers a tiny chat completion (model check). */
+  testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
+    return this.catalog.testModel(provider, modelId);
   }
 
   async fetchModels(provider: ProviderConfig): Promise<void> {
     try {
       const currentModels = this._models().filter(m => m.providerId === provider.id);
 
-      const rawModels = await this.loadProviderCatalog(provider);
+      const rawModels = await this.catalog.loadProviderCatalog(provider);
       const freshList = rawModels.map((m: any) => mapProviderModel(m, provider.id, provider.type));
       const freshById = new Map<string, ReturnType<typeof mapProviderModel>>(
         freshList.map((m: ReturnType<typeof mapProviderModel>) => [m.modelId, m])
