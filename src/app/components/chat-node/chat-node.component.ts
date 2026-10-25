@@ -41,6 +41,7 @@ import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, gen
 import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
+import { StreamReveal } from '../../core/llm/stream-reveal';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
@@ -1451,6 +1452,13 @@ export class ChatNodeComponent implements OnDestroy {
     let accContent = '';
     let accThinking = '';
     let accImages: LlmImagePart[] = [];
+    // Reveal pump: pace the streamed answer at the configured chars/s or
+    // words/s instead of painting the whole buffer on every chunk (restores
+    // the legacy LlmService behaviour lost when streaming moved into the
+    // orchestration flows). Painting is a view concern.
+    const reveal = new StreamReveal(this.chatService, (content, thinking) => {
+      this.paintAnswer(answerNode.id, content, thinking);
+    });
     try {
       const slots = await this.runner.run(
         { chat, node: question, usecase, vars },
@@ -1461,10 +1469,14 @@ export class ChatNodeComponent implements OnDestroy {
             if (chunk.content) accContent += chunk.content;
             if (chunk.thinking) accThinking += chunk.thinking;
             if (chunk.images?.length) accImages.push(...chunk.images);
-            this.paintAnswer(answerNode.id, accContent, accThinking);
+            reveal.update(accContent, accThinking);
           }
         }
       );
+
+      // The model is done: keep revealing the leftover buffer at the chosen
+      // speed (respecting paceAfterComplete) before the answer is finalized.
+      await reveal.finish(accContent, accThinking, { signal });
 
       // append-with-images: persist the merged direction text (direction +
       // image description) ONTO the user node for real, so the description
@@ -1524,6 +1536,10 @@ export class ChatNodeComponent implements OnDestroy {
         }
       }
     } finally {
+      // Show whatever arrived (error/abort) or nothing extra (success already
+      // revealed + finalized); stop the pump either way.
+      reveal.flush();
+      reveal.destroy();
       this.chatService.clearGeneration();
       // One-shot excluded nodes (e.g. the chat-lore node created with
       // `excludeAfterSend`) were just sent as part of this request: flip them

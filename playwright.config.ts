@@ -39,6 +39,15 @@ export default defineConfig({
     timeout: 120_000,
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Wider than the 1280 default so the widest-drag sidebar (640px) and
+        // the main pane's title row both fit — a narrow main pane collapses
+        // `chat-title-editor` to zero width (Playwright sees it as hidden).
+        viewport: { width: 1600, height: 1000 },
+      },
+    },
   ],
 });

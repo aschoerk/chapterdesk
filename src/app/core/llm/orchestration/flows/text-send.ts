@@ -6,6 +6,7 @@ import { UsecaseContextFactory, type NodeAttachmentLike } from '../context';
 import { LlmOrchestratorService } from '../orchestrator';
 import type { EvalSlots, LlmImagePart, UsecaseContext } from '../types';
 import { imagePartToAttachment, isGeneratedImageAttachment } from '../../llm-message';
+import { StreamReveal } from '../../stream-reveal';
 import { newId } from '../../../util/helpers';
 import type { FlowEnv } from './env';
 
@@ -204,6 +205,16 @@ export async function streamAnswerNode(
   let accContent = '';
   let accThinking = '';
   let accImages: LlmImagePart[] = [];
+  // Reveal pump: pace the streamed answer at the configured chars/s or
+  // words/s instead of painting the whole buffer on every chunk. This restores
+  // the legacy LlmService behaviour that was lost when streaming moved into
+  // the orchestration flows. Painting is a view concern — the pump only
+  // decides how much of the accumulated buffer the node shows right now.
+  const reveal = new StreamReveal(chatService, (content, thinking) => {
+    chatService.updateNodes(list =>
+      list.map(n => (n.id === answerNode.id ? { ...n, content, thinking } : n))
+    );
+  });
   try {
     const slots = await env.orch.completion(env.cx, {
       model: write.model,
@@ -225,12 +236,15 @@ export async function streamAnswerNode(
         if (chunk.content) accContent += chunk.content;
         if (chunk.thinking) accThinking += chunk.thinking;
         if (chunk.images?.length) accImages.push(...chunk.images);
-        chatService.updateNodes(list =>
-          list.map(n => (n.id === answerNode.id ? { ...n, content: accContent, thinking: accThinking } : n))
-        );
+        reveal.update(accContent, accThinking);
       },
       signal
     });
+
+    // The model is done: keep revealing the leftover buffer at the chosen
+    // speed (respecting paceAfterComplete) before the answer is finalized, so
+    // the bubble grows to the full text instead of jumping.
+    await reveal.finish(accContent, accThinking, { signal });
 
     const finalContent = slots.text?.value ?? accContent;
     const finalThinking = slots.thinking?.value ?? accThinking;
@@ -269,6 +283,10 @@ export async function streamAnswerNode(
     }
     return { answerNodeId: answerId, slots };
   } finally {
+    // Show whatever arrived (error/abort) or nothing extra (success already
+    // revealed + finalized); stop the pump either way.
+    reveal.flush();
+    reveal.destroy();
     chatService.clearGeneration();
     // One-shot excluded nodes (e.g. the chat-lore node created with
     // `excludeAfterSend`) have now been sent as part of this request: flip
