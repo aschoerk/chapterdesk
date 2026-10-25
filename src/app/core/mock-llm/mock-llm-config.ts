@@ -15,6 +15,9 @@ export const MOCK_PROVIDER_NAME = 'Mock (no key)';
 export const MOCK_MODEL_ID = 'mock-writer';
 export const MOCK_MODEL_DISPLAY = 'Mock Writer';
 
+export const MOCK_IMAGE_MODEL_ID = 'mock-image';
+export const MOCK_IMAGE_MODEL_DISPLAY = 'Mock Image';
+
 /** Base URL of the local API server (e.g. `http://127.0.0.1:3847`). */
 export function mockProviderBaseUrl(): string {
   const apiBase = getServerConfig().apiBase; // e.g. http://127.0.0.1:3847/api

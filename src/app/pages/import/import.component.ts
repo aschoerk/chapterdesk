@@ -109,12 +109,16 @@ export class ImportComponent {
   /** True when the mock provider is already present. */
   readonly mockExists = computed(() => this.demoData.mockProviderExists());
 
-  /** Register the key-free mock provider/model (idempotent by name). */
+  /** Register the key-free mock provider/models (idempotent by name). */
   async loadMock(): Promise<void> {
     if (this.mockBusy() || this.mockExists()) return;
     this.mockBusy.set(true);
     try {
-      await this.demoData.ensureMockProvider();
+      // Registers Mock Writer + Mock Image and fills the generation-task
+      // defaults (incl. image-create → Mock Image) so writing AND image use
+      // cases run without a provider key. Idempotent — a second press is a
+      // no-op (guard above).
+      await this.demoData.ensureMockWriterDefaults();
       this.summaries.update(list => [
         ...list,
         {

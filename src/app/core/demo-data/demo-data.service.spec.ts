@@ -10,7 +10,7 @@ import { ProjectService } from '../settings/project.service';
 import { SettingsService } from '../settings/settings.service';
 import { GenerationSettingsService } from '../settings/generation-settings.service';
 import { DemoDataService, DEMO_PROJECT_NAME } from './demo-data.service';
-import { MOCK_PROVIDER_NAME, MOCK_MODEL_ID } from '../mock-llm/mock-llm-config';
+import { MOCK_PROVIDER_NAME, MOCK_MODEL_ID, MOCK_IMAGE_MODEL_ID } from '../mock-llm/mock-llm-config';
 
 describe('DemoDataService', () => {
   let api: InMemoryChatApi;
@@ -42,7 +42,7 @@ describe('DemoDataService', () => {
     localStorage.removeItem('chat.demoData.loadedV1');
   });
 
-  it('registers the key-free mock provider + model exactly once', async () => {
+  it('registers the key-free mock provider + models exactly once', async () => {
     expect(service.mockProviderExists()).toBe(false);
 
     await service.ensureMockProvider();
@@ -50,18 +50,25 @@ describe('DemoDataService', () => {
     expect(service.mockProviderExists()).toBe(true);
     const mockProviders = settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME);
     expect(mockProviders).toHaveLength(1);
-    // preset model is enabled and text-only so no image features are offered
+    // preset models are enabled; Mock Writer is text-only, Mock Image can generate images
     const [mockProvider] = mockProviders;
     const model = settings.models().find(
       m => m.providerId === mockProvider.id && m.modelId === MOCK_MODEL_ID
     );
     expect(model).toBeDefined();
     expect(model?.enabled).toBe(true);
+    const imageModel = settings.models().find(
+      m => m.providerId === mockProvider.id && m.modelId === MOCK_IMAGE_MODEL_ID
+    );
+    expect(imageModel).toBeDefined();
+    expect(imageModel?.enabled).toBe(true);
+    expect(imageModel?.architecture?.output_modalities).toContain('image');
 
     // Idempotent — a second call creates no duplicates.
     await service.ensureMockProvider();
     expect(settings.providers().filter(p => p.name === MOCK_PROVIDER_NAME)).toHaveLength(1);
     expect(settings.models().filter(m => m.modelId === MOCK_MODEL_ID)).toHaveLength(1);
+    expect(settings.models().filter(m => m.modelId === MOCK_IMAGE_MODEL_ID)).toHaveLength(1);
   });
 
   it('repairs an existing mock provider that has no mock model', async () => {
@@ -98,6 +105,12 @@ describe('DemoDataService', () => {
         expect(generation.get(kind)).toMatchObject({ providerId: mockProvider.id, modelId: MOCK_MODEL_ID });
       }
     }
+    // the key-free image model fills the image-create default
+    const imageModel = settings.models().find(
+      m => m.providerId === mockProvider.id && m.modelId === MOCK_IMAGE_MODEL_ID
+    );
+    expect(imageModel?.enabled).toBe(true);
+    expect(generation.get('image-create')).toMatchObject({ providerId: mockProvider.id, modelId: MOCK_IMAGE_MODEL_ID });
   });
 
   it('loads the demo bundle exactly once on an empty workspace', async () => {

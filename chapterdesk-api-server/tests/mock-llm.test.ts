@@ -5,6 +5,8 @@ import { makeApp } from './helpers/app.js';
 import {
   MOCK_MODEL_ID,
   MOCK_MODEL_NAME,
+  MOCK_IMAGE_MODEL_ID,
+  MOCK_IMAGE_MODEL_NAME,
   buildChatReply,
   keyPhrases,
 } from '../src/http/mock-llm.js';
@@ -16,21 +18,28 @@ beforeAll(async () => {
 });
 
 describe('Mock LLM endpoints (key-free local provider)', () => {
-  test('GET /models returns the mock writer catalog', async () => {
+  test('GET /models returns the mock writer + mock image catalog', async () => {
     const res = await request(app).get('/models');
     expect(res.status).toBe(200);
     expect(res.body.object).toBe('list');
-    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data).toHaveLength(2);
     expect(res.body.data[0]).toMatchObject({
       id: MOCK_MODEL_ID,
       name: MOCK_MODEL_NAME,
     });
+    expect(res.body.data[1]).toMatchObject({
+      id: MOCK_IMAGE_MODEL_ID,
+      name: MOCK_IMAGE_MODEL_NAME,
+      architecture: { output_modalities: ['image', 'text'] },
+    });
   });
 
-  test('GET /images/models is an empty list', async () => {
+  test('GET /images/models lists the image-capable mock model', async () => {
     const res = await request(app).get('/images/models');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ object: 'list', data: [] });
+    expect(res.body.object).toBe('list');
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0]).toMatchObject({ id: MOCK_IMAGE_MODEL_ID });
   });
 
   test('POST /chat/completions returns a non-streaming OpenAI-style reply', async () => {
@@ -94,6 +103,88 @@ describe('Mock LLM endpoints (key-free local provider)', () => {
       return Array.isArray(p.choices) && p.choices.length === 0 && !!p.usage;
     });
     expect(usageChunk).toBe(true);
+  });
+});
+
+describe('Mock IMAGE model (small deterministic pictures)', () => {
+  /** POST a chat-completion to the mock image model. */
+  async function chatImage(content: string, n?: number) {
+    return request(app).post('/chat/completions').send({
+      model: MOCK_IMAGE_MODEL_ID,
+      messages: [{ role: 'user', content }],
+      stream: false,
+      n,
+    });
+  }
+
+  /** The image_url parts the mock returned (urls only). */
+  function imageUrls(res: Awaited<ReturnType<typeof chatImage>>): string[] {
+    const content = res.body?.choices?.[0]?.message?.content ?? [];
+    return Array.isArray(content)
+      ? content.map((p: { image_url?: { url?: string } }) => p?.image_url?.url).filter(Boolean)
+      : [];
+  }
+
+  test('returns one small SVG picture for a default single-image request', async () => {
+    const res = await chatImage('Illustrate this beat of the story.');
+    expect(res.status).toBe(200);
+    const urls = imageUrls(res);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^data:image\/svg\+xml;/);
+  });
+
+  test('returns N pictures when the storyboard prompt requests N', async () => {
+    const res = await chatImage('Storyboard one-shot: create EXACTLY 3 pictures in ONE single response.');
+    expect(imageUrls(res)).toHaveLength(3);
+  });
+
+  test('different prompt content → different pictures; same prompt → identical', async () => {
+    const sea = await chatImage('Render the sea at night beside the harbour.');
+    const fire = await chatImage('Render the fire burning in the tower at night.');
+    expect(imageUrls(sea)[0]).not.toBe(imageUrls(fire)[0]);
+
+    const again = await chatImage('Render the sea at night beside the harbour.');
+    expect(imageUrls(sea)[0]).toBe(imageUrls(again)[0]);
+  });
+
+  test('mock:partial forces a single picture for a multi-picture batch', async () => {
+    const res = await chatImage('Storyboard: create EXACTLY 3 pictures. Additional storyboard rules for every picture: mock:partial');
+    expect(imageUrls(res)).toHaveLength(1);
+  });
+
+  test('mock:per-scene makes the batch return nothing but single scenes still answer', async () => {
+    const batch = await chatImage('Storyboard one-shot: create EXACTLY 3 pictures. Additional storyboard rules for every picture: mock:per-scene');
+    expect(imageUrls(batch)).toHaveLength(0);
+
+    const scene = await chatImage('Storyboard: render picture 2 of 3 mock:per-scene');
+    expect(imageUrls(scene)).toHaveLength(1);
+  });
+
+  test('mock:refuse returns a content-policy refusal, no picture', async () => {
+    const res = await chatImage('Render the sea. mock:refuse');
+    expect(res.status).toBe(200);
+    const message = res.body?.choices?.[0]?.message;
+    expect(message.refusal).toContain('mock content policy');
+    expect(message.content).toBeNull();
+    expect(res.body.choices[0].finish_reason).toBe('content_filter');
+  });
+
+  test('mock:error responds 400', async () => {
+    const res = await chatImage('Render the sea. mock:error');
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /images returns n pictures (OpenRouter-Images shape)', async () => {
+    const res = await request(app).post('/images').send({
+      model: MOCK_IMAGE_MODEL_ID,
+      prompt: 'The keeper by the harbour light',
+      n: 2,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+    for (const item of res.body.data) {
+      expect(item.url).toMatch(/^data:image\/svg\+xml;/);
+    }
   });
 });
 

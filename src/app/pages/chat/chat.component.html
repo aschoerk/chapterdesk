@@ -1,8 +1,14 @@
 <div class="chat-layout">
+  <!-- ==================================================================
+       Layout: sidebar + resize handle + main
+       ================================================================== -->
+
+  <!-- Sidebar pane -->
   <div class="sidebar-pane" [style.width.px]="sidebarWidth()">
     <side-bar></side-bar>
   </div>
 
+  <!-- Sidebar resize handle (drag / double-click to reset) -->
   <div
     class="sidebar-resizer"
     [class.active]="isResizing()"
@@ -18,9 +24,13 @@
         <p>{{ i18n.t('chat.selectOrCreate') }}</p>
       </div>
     } @else {
+      <!-- ==============================================================
+           Conversation
+           ============================================================== -->
       <div class="conversation">
 
         @if (currentChatId()) {
+          <!-- Title / book-view + streaming preferences -->
           <div class="title-row">
             <chat-title-editor></chat-title-editor>
 
@@ -80,6 +90,7 @@
               </div>
             </div>
           </div>
+          <!-- Chat params / structure / lore / search / trash toolbar -->
           <div class="params-bar">
             <button class="btn small" type="button" (click)="toggleChatParams()">
               {{ i18n.t('chat.params') }}
@@ -154,6 +165,7 @@
               }
             }
           </div>
+          <!-- Chat parameters popover -->
           @if (showChatParams()) {
             <div class="params-popover">
               <app-chat-parameters-editor
@@ -170,6 +182,7 @@
             </div>
           }
 
+          <!-- Trash panel (soft-deleted branches) -->
           @if (showTrash()) {
             <div class="trash-panel" role="dialog" aria-modal="true"
                  [attr.aria-label]="i18n.t('chat.trashTitle')">
@@ -209,6 +222,7 @@
             </div>
           }
 
+          <!-- Elaborate dialog -->
           @if (showElaborateDialog()) {
             <div class="elaborate-backdrop">
               <div class="elaborate-dialog" role="dialog" aria-modal="true"
@@ -291,6 +305,7 @@
             </div>
           }
 
+          <!-- Lore dialog -->
           @if (showLoreDialog()) {
             <div class="elaborate-backdrop">
               <div class="elaborate-dialog lore-dialog" role="dialog" aria-modal="true"
@@ -318,6 +333,7 @@
           }
 
         @if (getActivePath().length > 0) {
+            <!-- Node nav bar: active path + multi-select tools -->
             <div class="node-nav-bar"
                  #nodeNavBar
                  [class.grown]="navBarHeight() !== null"
@@ -422,10 +438,13 @@
                  (dblclick)="resetNavBarHeight()"
                  [title]="i18n.t('chat.resizeNavBar')"></div>
 
-            <!-- Context menus are kept OUTSIDE .node-nav-bar: it is a stacking
-                 context (sticky + z-index 20), so a fixed-position menu nested
-                 in it would render UNDER the resizer (z-index 40). As siblings
-                 of the resizer, their z-index 1001 applies globally. -->
+            <!-- ============================================================
+                 Navbar paste / node context menus
+                 ============================================================
+                 Kept OUTSIDE .node-nav-bar: it is a stacking context (sticky +
+                 z-index 20), so a fixed-position menu nested in it would render
+                 UNDER the resizer (z-index 40). As siblings of the resizer,
+                 their z-index 1001 applies globally. -->
             @if (navPasteMenu(); as menu) {
               <div class="nav-paste-backdrop" (mousedown)="closeNavPasteMenu()"></div>
               <div class="nav-paste-menu"
@@ -475,6 +494,7 @@
           }
         }
 
+        <!-- Conversation tree -->
         <div class="tree" #tree (scroll)="onTreeScroll()">
           @for (node of getActivePath(); track node.id) {
             <app-chat-node

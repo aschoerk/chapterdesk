@@ -121,10 +121,12 @@ One recorded usecase → a repeatable matrix. Adding a scenario = one row.
 e2e/
   fixtures/seed.json      # deterministic backend state (memory persistence)
   support/
-    llm-mock.ts           # wiremock-style /proxy/chat/completions interception
+    llm-mock.ts           # wiremock-style /proxy/chat/completions + /proxy/images
     ui.ts                 # reusable recorded steps (helpers)
   tests/                  # one file per usecase-template
     chat-create-navigate.spec.ts
+    llm-orchestration-text.spec.ts    # UC6–13, UC15–21 (text/flows)
+    llm-orchestration-images.spec.ts  # UC1–5, UC14 (illustrate / image-send)
 docker-compose.e2e.yml    # single-origin test stack (memory + seeded)
 ```
 
@@ -135,6 +137,19 @@ docker-compose.e2e.yml    # single-origin test stack (memory + seeded)
 project/chat/nodes there to shape what a fresh run starts from. The API server
 imports it via `CHAPTERDESK_SEED_FILE` (see
 `chapterdesk-api-server/src/persistence/factory.ts`).
+
+The provider ships THREE enabled preset models so every LLM-orchestration use
+case resolves a model in environment B:
+
+| modelId | displayName | architecture | used by |
+| --- | --- | --- | --- |
+| `mock-model` | Mock Model | — (text) | default writer (`append`, flows, planning) |
+| `mock-image` | Mock Model Image | `input [text,image]`, `output [image,text]` | Illustrate render (UC1–5) + `image-send` (UC14) |
+| `mock-vision` | Mock Model Vision | `input [image]`, `output [text]` | image interpretation (`append-with-images`, UC7) |
+
+`enabledModels()` sorts by display name, so `Mock Model` stays the default
+writer while `Mock Model Image` / `Mock Model Vision` remain reachable for the
+image render and interpret steps.
 
 ## Rebuilding after source edits
 
@@ -147,6 +162,46 @@ npx ng build           # dist/chat/browser
 ```
 
 (Dockerfile.dev bakes a build too, but the mounts take precedence in this stack.)
+
+## LLM-orchestration specs
+
+- `llm-orchestration-text.spec.ts` — every text use case against the real UI:
+  `append` (6), `append-with-images` (7), `send-branch` (8), `send-insert` (9),
+  `send-regenerate` (10), `send-rewrite` (11), `send-prepend` (12),
+  `send-elaborate` (13), `structure-title/overview/heading/headings` (15–18),
+  `language-check` (19), `rewrite-selection` (20),
+  `send-chapter-descriptions` (21). Each seeds a fresh story, drives the exact
+  button/dialog, and asserts the DOM outcome (new node text, structural node,
+  alert text, branch count…).
+- `llm-orchestration-images.spec.ts` — the Illustrate use cases against the
+  real dialog: `storyboard-direct` (1), `planned-enblock` (2),
+  `planned-scenes` (3), `render-full` (4), `render-window` (4b),
+  `render-node` (5) and `image-send`/“Create image of selection” (14). The
+  wiremock answers render calls with deterministic `image_url` parts and
+  planning calls with a `{pictures:[…]}` completion, so each run lands real
+  thumbnails (asserted by `expectImageThumbs`).
+
+### Mocking multi-call use cases
+
+`append-with-images` (interpret → stream), `planned-enblock` /
+`planned-scenes` (planning → render) and storyboard fallbacks need different
+answers per call. Use `mockLlmScripts(page, [script1, script2, …])` — each mock
+consumes the next script (the last one repeats):
+
+```ts
+await mockLlmScripts(page, [
+  { planning: 2 },  // call 1: planning pass returns 2 descriptions
+  { images: 2 },    // call 2: render returns 2 picture parts
+]);
+```
+
+### Verify the new specs
+
+```sh
+npm run e2e                 # full suite (builds + starts the stack)
+# or a single spec:
+npx playwright test e2e/tests/llm-orchestration-images.spec.ts
+```
 
 ## Tips
 

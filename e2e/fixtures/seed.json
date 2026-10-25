@@ -119,6 +119,32 @@
           "type": "preset",
           "enabled": true,
           "chatParametersId": null
+        },
+        {
+          "id": "model-2",
+          "displayName": "Mock Model Image",
+          "modelId": "mock-image",
+          "providerId": "provider-1",
+          "type": "preset",
+          "enabled": true,
+          "chatParametersId": null,
+          "architecture": {
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["image", "text"]
+          }
+        },
+        {
+          "id": "model-3",
+          "displayName": "Mock Model Vision",
+          "modelId": "mock-vision",
+          "providerId": "provider-1",
+          "type": "preset",
+          "enabled": true,
+          "chatParametersId": null,
+          "architecture": {
+            "input_modalities": ["image"],
+            "output_modalities": ["text"]
+          }
         }
       ],
       "parameters": [],

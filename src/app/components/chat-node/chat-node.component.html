@@ -8,12 +8,14 @@
   [attr.data-node-id]="node().id"
   (contextmenu)="openNodeMenu($event)">
 
-  <!-- Header stays visible while editing -->
+  <!-- ==================================================================
+       Header — stays visible while editing
+       ================================================================== -->
   <div class="node-header">
     <span class="badge"
           [class.question]="node().role === 'user'"
-            [class.answer]="node().role === 'assistant'"
-            [class.structural]="node().role === 'structural'">
+          [class.answer]="node().role === 'assistant'"
+          [class.structural]="node().role === 'structural'">
           {{ node().role === 'user' ? i18n.t('node.dir') : node().role === 'assistant' ? i18n.t('node.ch') : i18n.t('node.structure') }}
     </span>
 
@@ -105,12 +107,17 @@
     </div>
   </div>
 
+  <!-- ==================================================================
+       Parameters footnote
+       ================================================================== -->
   @if (parametersFootnote(); as footnote) {
     <div class="params-footnote">{{ footnote }}</div>
   }
 
+  <!-- ==================================================================
+       Inline editor (in-place, no modal / backdrop)
+       ================================================================== -->
   @if (isEditing()) {
-    <!-- In-place editor: lives inside the node, no modal / backdrop -->
     <div class="inline-content-editor"
          [class.with-preview]="showPreview()"
          [class.drag-over]="isEditorDragOver()"
@@ -118,6 +125,7 @@
          (dragleave)="onEditorDragLeave($event)"
          (drop)="onEditorDrop($event)">
 
+      <!-- Editor toolbar -->
       <div class="editor-toolbar">
         @if (node().role === 'user') {
           <select class="model-select"
@@ -163,6 +171,7 @@
         </button>
       </div>
 
+      <!-- Check-my-English suggestions -->
       @if (englishSuggestions(); as suggestions) {
         <div class="english-check">
           <div class="english-head">
@@ -193,6 +202,7 @@
         </div>
       }
 
+      <!-- Editable attachment chips (unsaved draft) + file picker -->
       <div class="attachment-chips editable"
            [class.selection-active]="showAttachmentToolbar()">
         @for (a of editAttachments(); track a.id) {
@@ -227,6 +237,7 @@
                (change)="onEditorFilesSelected($event)" />
       </div>
 
+      <!-- Attachment toolbar (editing) -->
       @if (showAttachmentToolbar() && isEditing()) {
         <div class="attachment-toolbar">
           @if (hasAttachmentSelection()) {
@@ -269,6 +280,7 @@
         </div>
       }
 
+      <!-- Editor body: textarea + live preview -->
       <div class="editor-body">
         <textarea #editArea
                   class="editor-textarea"
@@ -289,6 +301,7 @@
         }
       </div>
 
+      <!-- Editor actions (send / save / branch / insert / cancel) -->
       <div class="editor-actions">
         @if (isUnsentQuestion()) {
           <button class="btn primary small" type="button"
@@ -381,7 +394,6 @@
               }
             </button>
 
-
           }
         }
 
@@ -398,6 +410,11 @@
     </div>
 
   } @else {
+    <!-- ================================================================
+         Read-only body
+         ================================================================ -->
+
+    <!-- Thinking / waiting toggle -->
     @if (node().role === 'assistant' && (hasThinking() || isThinkingLive())) {
       <div class="thinking-content" [class.live]="isThinkingLive()">
         <button type="button" class="thinking-toggle"
@@ -416,6 +433,7 @@
       </div>
     }
 
+    <!-- Rendered content / empty states -->
     @if (node().content?.trim()) {
       @if (node().role === 'user') {
         <div class="node-content empty-draft click-to-edit"
@@ -437,14 +455,15 @@
         <em>{{ i18n.t('node.writeNext') }}</em>
       </div>
     } @else {
-      <div class="node-content empty-answer"
-      >
+      <div class="node-content empty-answer">
         <em>{{ i18n.t('node.stopped') }}</em>
       </div>
     }
 
+    <!-- Streaming anchor for live follow-scroll -->
     <div #streamEnd class="stream-end"></div>
 
+    <!-- Prior versions -->
     @if (priorVersions().length) {
       <div class="prior-versions">
         <button type="button" class="prior-toggle"
@@ -469,6 +488,7 @@
       </div>
     }
 
+    <!-- Read-only attachments: chips + prompt records -->
     @if (node().attachments?.length) {
       <div class="attachment-chips read-only"
            [class.selection-active]="showAttachmentToolbar()">
@@ -552,6 +572,7 @@
       }
     }
 
+    <!-- Attachment toolbar (read-only) -->
     @if (showAttachmentToolbar() && !isEditing()) {
       <div class="attachment-toolbar">
         @if (hasAttachmentSelection()) {
@@ -594,6 +615,7 @@
       </div>
     }
 
+    <!-- Node actions -->
     <div class="node-actions">
       @if (node().role === 'assistant') {
         <button class="btn-icon" type="button"
@@ -754,6 +776,9 @@
     </div>
   }
 
+  <!-- ==================================================================
+       Right-click context menu
+       ================================================================== -->
   @if (ctxMenu(); as menu) {
     <div class="ctx-backdrop" (mousedown)="closeCtxMenu()"></div>
     <div #ctxMenu

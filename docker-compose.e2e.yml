@@ -24,6 +24,12 @@ services:
       PORT: "8080"
       PERSISTENCE: memory
       CHAPTERDESK_SEED_FILE: /e2e/fixtures/seed.json
+      # The Dockerfile.dev bakes CHAPTERDESK_RUNTIME=docker-dev → the client
+      # would default to the 'indexeddb-all' storage profile (fresh IDB →
+      # imports the demo bundle) and IGNORE the seeded server API. Force the
+      # SPA onto the server/seed: sqlite-all makes every data kind hit the
+      # HTTP API backed by the in-memory seed.
+      CHAPTERDESK_STORAGE: sqlite-all
     ports:
       - "8081:8080"
     volumes:

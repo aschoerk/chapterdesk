@@ -66,3 +66,6 @@ Thumbs.db
 .env.chapterdesk-sqlite
 x.jpg
 docs/ideas/*
+data/chapterdesk.sqlite
+data/chapterdesk.sqlite-shm
+data/chapterdesk.sqlite-wal

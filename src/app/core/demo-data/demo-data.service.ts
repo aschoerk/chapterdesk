@@ -7,6 +7,8 @@ import { GenerationSettingsService } from '../settings/generation-settings.servi
 import { GenerationTaskKind } from '../../models/generation-task';
 import { DEMO_BUNDLE } from './demo-bundle';
 import {
+  MOCK_IMAGE_MODEL_DISPLAY,
+  MOCK_IMAGE_MODEL_ID,
   MOCK_MODEL_DISPLAY,
   MOCK_MODEL_ID,
   MOCK_PROVIDER_NAME,
@@ -104,6 +106,22 @@ export class DemoDataService {
         { input_modalities: ['text'], output_modalities: ['text'] }
       );
     }
+
+    // Also register the key-free IMAGE model (output modality image): it lets
+    // the Illustrate / image-send use cases run against the local server's
+    // mock-image endpoint, which returns a small deterministic picture — no
+    // provider key needed. Idempotent by model id, same as the writer.
+    const imageExists = this.settings
+      .models()
+      .some(m => m.providerId === provider.id && m.modelId === MOCK_IMAGE_MODEL_ID);
+    if (!imageExists) {
+      await this.settings.addPreset(
+        MOCK_IMAGE_MODEL_DISPLAY,
+        MOCK_IMAGE_MODEL_ID,
+        provider.id,
+        { input_modalities: ['text', 'image'], output_modalities: ['image', 'text'] }
+      );
+    }
   }
 
   /** Register Mock Writer and use it only for authoring tasks without a default. */
@@ -124,6 +142,21 @@ export class DemoDataService {
       const config = this.generation.get(kind);
       if (!config.providerId && !config.modelId) {
         this.generation.update(kind, { providerId: provider.id, modelId: MOCK_MODEL_ID });
+      }
+    }
+
+    // The key-free image model becomes the image-create default so Illustrate
+    // works out of the box (a small mock picture instead of a key). It only
+    // fills the task when nothing is configured yet — a real provider choice
+    // always wins.
+    const imageModel = this.settings.models().find(
+      m => m.providerId === provider.id && m.modelId === MOCK_IMAGE_MODEL_ID
+    );
+    if (imageModel) {
+      if (!imageModel.enabled) await this.settings.toggleModelEnabled(imageModel.id);
+      const imageConfig = this.generation.get('image-create');
+      if (!imageConfig.providerId && !imageConfig.modelId) {
+        this.generation.update('image-create', { providerId: provider.id, modelId: MOCK_IMAGE_MODEL_ID });
       }
     }
   }

@@ -20,6 +20,50 @@ function publicDir(): string {
   return candidates.find((dir) => fs.existsSync(path.join(dir, 'index.html'))) ?? candidates[0];
 }
 
+const IDB_KINDS = ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'];
+const ALL_KINDS = ['users', 'auth', 'chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'];
+
+/**
+ * Storage split the SPA should use (see DOCKER-MODES.txt). An explicit
+ * `CHAPTERDESK_STORAGE` env var wins (used by the E2E stack to force the
+ * client onto the seeded HTTP/SQLite API); otherwise it follows the runtime:
+ * docker/gcloud → everything in IndexedDB, everything else → SQLite/server.
+ */
+function storageFor(kind: string | undefined, docker: boolean): {
+  profile: string;
+  sqlite: string[];
+  idb: string[];
+} {
+  const forced = (kind ?? '').toLowerCase().trim();
+  if (forced === 'sqlite-all') {
+    return { profile: 'sqlite-all', sqlite: [...ALL_KINDS], idb: [] };
+  }
+  if (forced === 'indexeddb-all') {
+    return { profile: 'indexeddb-all', sqlite: [], idb: [...IDB_KINDS] };
+  }
+  if (forced === 'chats-idb') {
+    return { profile: 'chats-idb', sqlite: ALL_KINDS.filter(k => k !== 'chats'), idb: ['chats'] };
+  }
+  if (forced === 'chats-params-idb') {
+    return {
+      profile: 'chats-params-idb',
+      sqlite: ALL_KINDS.filter(k => k !== 'chats' && k !== 'chat-parameters'),
+      idb: ['chats', 'chat-parameters'],
+    };
+  }
+  if (forced === 'theme-local') {
+    return {
+      profile: 'theme-local',
+      sqlite: ALL_KINDS.filter(k => k !== 'personas' && k !== 'projects'),
+      idb: ['personas', 'projects'],
+    };
+  }
+  // runtime heuristic (Docker/gcloud → IndexedDB, else SQLite/server)
+  return docker
+    ? { profile: 'indexeddb-all', sqlite: [], idb: [...IDB_KINDS] }
+    : { profile: 'sqlite-all', sqlite: [...ALL_KINDS], idb: [] };
+}
+
 /**
  * Central error handler for the API app. Must be registered AFTER the routes
  * whose errors it should catch (Express only forwards to downstream handlers),
@@ -63,28 +107,12 @@ export function createApp(store: PersistencePort) {
     const runtime = process.env.CHAPTERDESK_RUNTIME;
     const docker = runtime === 'docker-prod' || runtime === 'docker-dev';
     const gcloud = runtime === 'gcloud' || store.kind === 'firebase';
-    const indexeddb = docker || gcloud;
-    const idbKinds = ['chats', 'chat-parameters', 'projects', 'topics', 'personas', 'providers', 'models'];
-    const sqliteKinds = [
-      'users',
-      'auth',
-      'chats',
-      'chat-parameters',
-      'projects',
-      'topics',
-      'personas',
-      'providers',
-      'models',
-    ];
+    const storage = storageFor(process.env.CHAPTERDESK_STORAGE, docker || gcloud);
     res.json({
       runtime: docker ? runtime : gcloud ? 'gcloud' : 'local',
       docker,
       partlySqlite: false,
-      storage: {
-        profile: indexeddb ? 'indexeddb-all' : 'sqlite-all',
-        sqlite: indexeddb ? [] : sqliteKinds,
-        idb: indexeddb ? idbKinds : [],
-      },
+      storage,
       auth: {
         login: 'none',
         username: null,
