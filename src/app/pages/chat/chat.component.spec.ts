@@ -882,6 +882,33 @@ describe('Chat', () => {
     expect(pasted[0].chatId).toBe('chat-1');
   });
 
+  it('keeps the "exclude from model context" flag when copying/pasting a node', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question', excludeFromContext: true, excludeAfterSend: true },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+
+    const clipboard = TestBed.inject(NodeClipboardService);
+    const src = chatService.nodes().find(n => n.id === 'q1')!;
+    clipboard.copy(src);
+    expect(clipboard.clipboard()!.nodes[0].excludeFromContext).toBe(true);
+    expect(clipboard.clipboard()!.nodes[0].excludeAfterSend).toBe(true);
+
+    await component.pasteAtTop();
+
+    const pasted = chatService.nodes().filter(n => n.content === 'Question' && n.id !== 'q1');
+    expect(pasted.length).toBe(1);
+    expect(pasted[0].excludeFromContext).toBe(true);
+    expect(pasted[0].excludeAfterSend).toBe(true);
+  });
+
   // ----------------------------------------------------------------------
   // Navbar multi-selection (Ctrl+click / Ctrl+drag / copy-cut-delete / paste-after)
   // ----------------------------------------------------------------------

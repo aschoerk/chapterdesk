@@ -319,3 +319,79 @@ export async function clickCtxAction(page: Page, label: string): Promise<void> {
   await ctxMenuItem(page, label).click();
   await expect(page.locator('.context-menu')).toHaveCount(0);
 }
+
+// ---------------------------------------------------------------------------
+// Trash (soft-delete / restore / purge) helpers.
+//
+// Deleting a node is a SOFT delete: the branch root lands in the chat's trash
+// panel (params-bar "Trash" button) from where it can be Restored or purged
+// forever. These helpers drive the node-header delete buttons, the trash panel
+// and the ConfirmService dialog.
+// ---------------------------------------------------------------------------
+
+/** Delete a node's whole following text via its header "Delete Continuation"
+ *  button (cascade soft-delete → the branch root lands in the trash).
+ *  `nodeText` anchors the node card by rendered content. */
+export async function deleteContinuation(page: Page, nodeText: string): Promise<void> {
+  const card = nodeFor(page, nodeText);
+  await card.locator('.delete-actions .delete-btn').click();
+  await acceptConfirmDialog(page);
+  await expect(card).toHaveCount(0);
+}
+
+/** Delete ONLY the node (keep following text) via the "Remove Section" button. */
+export async function removeSectionOnly(page: Page, nodeText: string): Promise<void> {
+  const card = nodeFor(page, nodeText);
+  await card.locator('.delete-actions .remove-node-btn').click();
+  await acceptConfirmDialog(page);
+  await expect(card).toHaveCount(0);
+}
+
+/** Open the trash panel from the params-bar "Trash" button. */
+export async function openTrash(page: Page): Promise<void> {
+  await page.locator('.params-bar button').filter({ hasText: 'Trash' }).first().click();
+  await expect(page.locator('.trash-panel')).toBeVisible();
+}
+
+/** Assert the params-bar "Trash" button shows the given count — pass null for
+ *  the bare "Trash" label (empty trash). */
+export async function expectTrashCount(page: Page, count: number | null): Promise<void> {
+  const btn = page.locator('.params-bar button').filter({ hasText: 'Trash' }).first();
+  if (count === null || count === 0) {
+    await expect(btn).toHaveText('Trash');
+  } else {
+    await expect(btn).toHaveText(`Trash (${count})`);
+  }
+}
+
+/** Assert the trash panel shows its empty ("No deleted continuations") state. */
+export async function expectTrashEmpty(page: Page): Promise<void> {
+  await expect(page.locator('.trash-panel .trash-empty')).toHaveText(
+    'No deleted continuations',
+  );
+}
+
+/** A trash item (deleted branch root) whose preview contains `text`. */
+export function trashItem(page: Page, text: string): ReturnType<Page['locator']> {
+  return page.locator('.trash-panel .trash-item').filter({ hasText: text }).first();
+}
+
+/** Restore a deleted branch from the trash. */
+export async function restoreTrashItem(page: Page, text: string): Promise<void> {
+  await trashItem(page, text).locator('.trash-actions button').filter({ hasText: 'Restore' }).click();
+}
+
+/** Purge a deleted branch forever (accepts the permanent-delete confirm). */
+export async function purgeTrashItem(page: Page, text: string): Promise<void> {
+  await trashItem(page, text)
+    .locator('.trash-actions button')
+    .filter({ hasText: 'Delete forever' })
+    .click();
+  await acceptConfirmDialog(page);
+}
+
+/** Close the trash panel. */
+export async function closeTrash(page: Page): Promise<void> {
+  await page.locator('.trash-panel .trash-footer .btn').click();
+  await expect(page.locator('.trash-panel')).toHaveCount(0);
+}

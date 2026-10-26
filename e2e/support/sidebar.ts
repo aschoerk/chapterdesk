@@ -78,3 +78,163 @@ export async function openApp(page: Page): Promise<void> {
   await expect(page.locator('.sidebar')).toBeVisible();
   await widenSidebar(page);
 }
+
+// ---------------------------------------------------------------------------
+// Sidebar chat-movement helpers.
+//
+// A story (chat) can be moved between environments ("books") on the sidebar in
+// three ways, all exercised by `e2e/tests/sidebar-chat-move.spec.ts`:
+//   1. the per-chat "Move to another environment" button + the reassign
+//      dropdown (`reassign-select`) — including "— Unassigned —" as a target,
+//   2. the per-chat "Move to Unassigned" button (ejects from an environment),
+//   3. HTML5 drag & drop of the chat row onto another environment header,
+// and the multi-selection toolbar (Ctrl+click → Cut → paste button in the
+// target environment header) which moves a whole batch at once.
+// ---------------------------------------------------------------------------
+
+/** The sidebar project block (environment) with the given name. */
+export function projectBlock(page: Page, name: string): ReturnType<Page['locator']> {
+  return page.locator('.project-block').filter({ hasText: name }).first();
+}
+
+/** The header row of a project block — also the drag & drop target. */
+export function projectHeader(page: Page, name: string): ReturnType<Page['locator']> {
+  return projectBlock(page, name).locator('.project-header');
+}
+
+/** Expand a project block so its chat list is rendered. */
+export async function expandProject(page: Page, name: string): Promise<void> {
+  const block = projectBlock(page, name);
+  if (!(await block.evaluate(el => el.classList.contains('expanded')))) {
+    await block.locator('.project-header').click();
+  }
+}
+
+/** Expand the "Unfiled stories" (unassigned) block. */
+export async function expandUnassigned(page: Page): Promise<void> {
+  const block = page.locator('.project-block.unassigned');
+  if (!(await block.evaluate(el => el.classList.contains('expanded')))) {
+    await block.locator('.project-header').click();
+  }
+}
+
+/** A sidebar chat item by title. */
+export function chatItem(page: Page, title: string): ReturnType<Page['locator']> {
+  return page.locator('.chat-item').filter({ hasText: title }).first();
+}
+
+/** Assert a chat appears inside the given project's chat list. */
+export async function expectChatInProject(
+  page: Page,
+  title: string,
+  projectName: string,
+): Promise<void> {
+  await expandProject(page, projectName);
+  await expect(
+    projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title }),
+  ).toBeVisible();
+}
+
+/** Assert a chat is NOT inside the given project's chat list. */
+export async function expectChatNotInProject(
+  page: Page,
+  title: string,
+  projectName: string,
+): Promise<void> {
+  await expandProject(page, projectName);
+  await expect(
+    projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title }),
+  ).toHaveCount(0);
+}
+
+/** Assert a chat appears inside the "Unfiled stories" (unassigned) block. */
+export async function expectChatUnassigned(page: Page, title: string): Promise<void> {
+  await expandUnassigned(page);
+  await expect(
+    page.locator('.project-block.unassigned .chat-item').filter({ hasText: title }),
+  ).toBeVisible();
+}
+
+/** Move a chat to another environment (or to unassigned) via its "Move to
+ *  another environment" button + the reassign dropdown. `targetLabel` is the
+ *  option label: another project's name or "— Unassigned —".
+ *
+ * NOTE: the `.reassign-dropdown` is a SIBLING of the `.chat-item` (it sits in
+ * the `@for` loop after the item's closing `</div>`), so the select is located
+ * page-wide — only one dropdown is open at a time (`toggleReassign` closes the
+ * others). */
+export async function moveChatViaReassign(
+  page: Page,
+  title: string,
+  targetLabel: string,
+): Promise<void> {
+  const item = chatItem(page, title);
+  await item.locator('.btn-icon[title="Move to another environment"]').click();
+  const select = page.locator('.reassign-dropdown .reassign-select').first();
+  await expect(select).toBeVisible();
+  await select.selectOption({ label: targetLabel });
+  await expect(page.locator('.reassign-dropdown')).toHaveCount(0);
+}
+
+/** Eject a chat out of its environment into "Unfiled stories" via the "Move to
+ *  Unassigned" button. */
+export async function moveChatToUnassigned(page: Page, title: string): Promise<void> {
+  const item = chatItem(page, title);
+  await item.locator('.btn-icon[title="Move to Unassigned"]').click();
+}
+
+/** Move a chat to another environment by HTML5-dragging its row onto the target
+ *  environment header (the drag & drop target). */
+export async function dragChatToProject(
+  page: Page,
+  title: string,
+  targetProject: string,
+): Promise<void> {
+  const source = chatItem(page, title).locator('.chat-title');
+  const target = projectHeader(page, targetProject);
+  await source.dragTo(target);
+}
+
+/** Ctrl+click a chat item — toggles multi-selection on the sidebar. */
+export async function ctrlClickChat(page: Page, title: string): Promise<void> {
+  // Click the title TEXT (left part of the `.chat-title` span) so the click
+  // never lands on the trailing rename button inside the same span.
+  const span = chatItem(page, title).locator('.chat-title');
+  await span.click({ modifiers: ['Control'], position: { x: 20, y: 8 } });
+}
+
+/** Click the multi-selection toolbar's "Cut" button (stages a move). */
+export async function cutSelectedChats(page: Page): Promise<void> {
+  await page.locator('.story-tools .btn.small').filter({ hasText: 'Cut' }).click();
+}
+
+/** Click the "Paste the clipboard into this environment" button of a project header. */
+export async function pasteIntoProject(page: Page, projectName: string): Promise<void> {
+  await projectHeader(page, projectName).locator('.paste-btn').click();
+}
+
+/** Assert the multi-selection toolbar reports the given selected count. */
+export async function expectSelectionCount(page: Page, n: number): Promise<void> {
+  await expect(page.locator('.story-tools')).toBeVisible();
+  await expect(page.locator('.story-selection-info')).toContainText(`${n} selected`);
+}
+
+/** Cancel a staged cut/copy (nothing moved, nothing deleted). */
+export async function cancelClipboard(page: Page): Promise<void> {
+  await page.locator('.story-tools .btn.small').filter({ hasText: 'Cancel' }).click();
+}
+
+/**
+ * Delete a chat via the API by title. Teardown-only: the USE-CASE steps of a
+ * spec stay UI-driven; removing leftover data through the API is far more
+ * robust than clicking the sidebar's delete button (an Angular re-render loop
+ * detaches the row of an unassigned/current chat mid-click).
+ */
+export async function deleteChatViaApi(page: Page, title: string): Promise<void> {
+  const res = await page.request.get('/api/chats');
+  if (!res.ok()) return;
+  const chats = (await res.json()) as Array<{ id: string; title: string }>;
+  const chat = chats.find((c) => c.title === title);
+  if (!chat) return;
+  await page.request.delete(`/api/chats/${chat.id}`);
+}

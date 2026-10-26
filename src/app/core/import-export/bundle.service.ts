@@ -511,6 +511,8 @@ export class BundleService {
         providerId: n.providerId || undefined,
         attachments: n.attachments,
         chatParametersId: n.chatParametersId ?? null,
+        excludeFromContext: n.excludeFromContext ?? undefined,
+        excludeAfterSend: n.excludeAfterSend ?? undefined,
       });
       idMap.set(n.id, createdNode.id);
       created++;

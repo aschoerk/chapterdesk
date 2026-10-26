@@ -33,6 +33,10 @@ export interface ClipboardNode {
   providerId?: string | null;
   attachments?: NodeAttachment[];
   chatParametersId?: string | null;
+  /** Exclude from the LLM context (history) — see ChatNode.excludeFromContext. */
+  excludeFromContext?: boolean;
+  /** One-shot context node — see ChatNode.excludeAfterSend. */
+  excludeAfterSend?: boolean;
 }
 
 export interface ClipboardEntry {
@@ -54,6 +58,8 @@ function toClipboardNode(n: ChatNode): ClipboardNode {
     providerId: n.providerId ?? null,
     attachments: n.attachments ?? [],
     chatParametersId: n.chatParametersId ?? null,
+    excludeFromContext: n.excludeFromContext ?? false,
+    excludeAfterSend: n.excludeAfterSend ?? false,
   };
 }
 
@@ -203,6 +209,8 @@ export class NodeClipboardService {
         thinking: node.thinking ?? undefined,
         modelId: node.modelId ?? undefined,
         providerId: node.providerId ?? undefined,
+        excludeFromContext: node.excludeFromContext ?? undefined,
+        excludeAfterSend: node.excludeAfterSend ?? undefined,
         attachments: node.attachments,
         chatParametersId: node.chatParametersId ?? null,
       });
