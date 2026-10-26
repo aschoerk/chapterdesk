@@ -102,20 +102,62 @@ export function projectHeader(page: Page, name: string): ReturnType<Page['locato
   return projectBlock(page, name).locator('.project-header');
 }
 
-/** Expand a project block so its chat list is rendered. */
-export async function expandProject(page: Page, name: string): Promise<void> {
-  const block = projectBlock(page, name);
-  if (!(await block.evaluate(el => el.classList.contains('expanded')))) {
-    await block.locator('.project-header').click();
-  }
+/**
+ * Ensure a project block is expanded and its chat list is rendered.
+ *
+ * The app uses zoneless change detection, so the expanded state is applied
+ * ASYNCHRONOUSLY after a header click — and, crucially, after an AUTO-expand
+ * triggered by a paste/drop that is still in flight. Reading the DOM class too
+ * early returns a STALE collapsed state, and clicking the header then toggles
+ * the (about-to-be-expanded) block back to collapsed (`toggleExpanded` reads
+ * the already-updated signal, not the stale DOM). Callers that count or step
+ * through `.chat-item`s on the next line would otherwise race.
+ *
+ * NOTE: the UNASSIGNED block never receives the `expanded` class — it is
+ * absent from its template binding — so we anchor on the `.chat-list` being
+ * rendered, which is the actual functional signal of "expanded".
+ */
+async function ensureBlockExpanded(
+  page: Page,
+  block: ReturnType<Page['locator']>,
+): Promise<void> {
+  await expect(async () => {
+    if (await block.locator('.chat-list').count() === 0) {
+      await block.locator('.project-header').click();
+    }
+    // The list must be rendered…
+    await expect(block.locator('.chat-list')).toBeAttached({ timeout: 1_000 });
+    // …and STAY rendered. An auto-expand from a paste/drop can still be in
+    // flight and late-toggle the block back closed right after we see the
+    // list (zoneless: the paste's `toggleExpanded` reads the signal, which
+    // our earlier click may have already flipped to "open" → it closes it).
+    // Requiring the list to survive a short settle makes the helper converge
+    // to a STABLE open state instead of returning mid-race.
+    await page.waitForTimeout(250);
+    await expect(block.locator('.chat-list')).toBeAttached({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
-/** Expand the "Unfiled stories" (unassigned) block. */
+/** Expand a project block so its chat list is rendered. */
+export async function expandProject(page: Page, name: string): Promise<void> {
+  await ensureBlockExpanded(page, projectBlock(page, name));
+}
+
+/**
+ * Expand the "Unfiled stories" (unassigned) block.
+ *
+ * Unlike a named project, the unassigned block is CONDITIONALLY rendered:
+ * `@if (getChatsForProject(null).length > 0)` mounts the whole block (header
+ * included) only when there is at least one unassigned chat. Right after a
+ * move-to-unassigned the chat list updates asynchronously (zoneless), so the
+ * block can be torn down and re-mounted mid-expansion — clicking its header
+ * too early sees a stale/recreating element. We therefore wait for the block
+ * to be attached (which implies it has a chat), then expand it.
+ */
 export async function expandUnassigned(page: Page): Promise<void> {
   const block = page.locator('.project-block.unassigned');
-  if (!(await block.evaluate(el => el.classList.contains('expanded')))) {
-    await block.locator('.project-header').click();
-  }
+  await expect(block).toBeAttached({ timeout: 10_000 });
+  await ensureBlockExpanded(page, block);
 }
 
 /** A sidebar chat item by title. */
@@ -123,16 +165,24 @@ export function chatItem(page: Page, title: string): ReturnType<Page['locator']>
   return page.locator('.chat-item').filter({ hasText: title }).first();
 }
 
-/** Assert a chat appears inside the given project's chat list. */
+/**
+ * Assert a chat appears inside the given project's chat list.
+ *
+ * Converges: a paste/drop auto-expands the target, but a LATE auto-expand
+ * toggle can collapse it right after (zoneless — `toggleExpanded` reads the
+ * signal while the DOM lags), so the chat may vanish between expand and
+ * assertion. Re-expanding and re-checking until stable removes the race.
+ */
 export async function expectChatInProject(
   page: Page,
   title: string,
   projectName: string,
 ): Promise<void> {
-  await expandProject(page, projectName);
-  await expect(
-    projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title }),
-  ).toBeVisible();
+  const item = projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title });
+  await expect(async () => {
+    await expandProject(page, projectName);
+    await expect(item).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 /** Assert a chat is NOT inside the given project's chat list. */
@@ -141,18 +191,20 @@ export async function expectChatNotInProject(
   title: string,
   projectName: string,
 ): Promise<void> {
-  await expandProject(page, projectName);
-  await expect(
-    projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title }),
-  ).toHaveCount(0);
+  const item = projectBlock(page, projectName).locator('.chat-item').filter({ hasText: title });
+  await expect(async () => {
+    await expandProject(page, projectName);
+    await expect(item).toHaveCount(0, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 /** Assert a chat appears inside the "Unfiled stories" (unassigned) block. */
 export async function expectChatUnassigned(page: Page, title: string): Promise<void> {
-  await expandUnassigned(page);
-  await expect(
-    page.locator('.project-block.unassigned .chat-item').filter({ hasText: title }),
-  ).toBeVisible();
+  const item = page.locator('.project-block.unassigned .chat-item').filter({ hasText: title });
+  await expect(async () => {
+    await expandUnassigned(page);
+    await expect(item).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 /** Move a chat to another environment (or to unassigned) via its "Move to
@@ -183,16 +235,174 @@ export async function moveChatToUnassigned(page: Page, title: string): Promise<v
   await item.locator('.btn-icon[title="Move to Unassigned"]').click();
 }
 
-/** Move a chat to another environment by HTML5-dragging its row onto the target
- *  environment header (the drag & drop target). */
+/**
+ * Delete every story in a project except a keep-list, via the API.
+ * Teardown-only cleanup: the shared "Demo Project" accumulates stray stories
+ * from many specs in the full suite, which pushes the sidebar's scroll window
+ * down. For the DRAG tests this matters — see the `dragChatTo*` docs.
+ */
+export async function deleteProjectStoriesExcept(
+  page: Page,
+  projectName: string,
+  keepTitles: string[],
+): Promise<void> {
+  const projectsRes = await page.request.get('/api/projects');
+  if (!projectsRes.ok()) return;
+  const projects = (await projectsRes.json()) as Array<{ id: string; name: string }>;
+  const project = projects.find((p) => p.name === projectName);
+  if (!project) return;
+
+  const chatsRes = await page.request.get('/api/chats');
+  if (!chatsRes.ok()) return;
+  const chats = (await chatsRes.json()) as Array<{ id: string; title: string; projectId: string | null }>;
+  for (const chat of chats) {
+    if (chat.projectId === project.id && !keepTitles.includes(chat.title)) {
+      await page.request.delete(`/api/chats/${chat.id}`);
+    }
+  }
+}
+
+/**
+ * Move a chat to a target by dragging its row onto the target header (the
+ * drag & drop target). `targetHeader`/`targetBlock` let the caller point at
+ * either a named environment OR the "Unfiled stories" (unassigned) block.
+ *
+ * Two strategies, in order:
+ *
+ * 1. REAL pointer drag (`locator.dragTo`) — used when BOTH the source chat and
+ *    the target header are actually inside the visible `.project-list`
+ *    viewport. This exercises the true HTML5 drag UX.
+ *
+ * 2. DETERMINISTIC synthetic HTML5 drag (`dragstart` → `dragenter` →
+ *    `dragover` → `drop` → `dragend` dispatched in-page with a real
+ *    `DataTransfer`) — the fallback when either element is scrolled out of the
+ *    visible list. When the sidebar has many expanded stories, the source chat
+ *    and/or the target environment can sit BELOW the fold; Playwright's
+ *    `dragTo` auto-scrolls BOTH elements, but with both inside the same
+ *    `.project-list` scroll container its scroll-into-view thrashes and times
+ *    out (reproduced: 26 stories + target header at y>1000 → `dragTo` threw
+ *    "Timeout 5000ms exceeded" and no drop registered). The synthetic events
+ *    still run the app's REAL Angular drag handlers (`onChatDragStart` /
+ *    `onDragOver` / `onDropEnvironment`), so the drop logic is fully exercised —
+ *    only the visual ghost drag is skipped.
+ *
+ * In both cases the helper does NOT return until the move actually completed:
+ * the chat is present in the target AND gone from the source (the app's
+ * `reassignChat` is a real move, so a successful drop must remove it from the
+ * source). If the first strategy doesn't satisfy that, it retries with the
+ * other.
+ */
+async function dragTo(
+  page: Page,
+  title: string,
+  sourceProject: string,
+  targetHeader: ReturnType<Page['locator']>,
+  targetBlock: ReturnType<Page['locator']>,
+  targetLabel: string,
+): Promise<void> {
+  const source = chatItem(page, title).locator('.chat-title');
+
+  await expect(source).toBeAttached();
+  await expect(targetHeader).toBeAttached();
+
+  const sourceBlock = projectBlock(page, sourceProject);
+  const done = async (): Promise<boolean> => {
+    const inTarget = await targetBlock.locator('.chat-item').filter({ hasText: title }).count();
+    const inSource = await sourceBlock.locator('.chat-item').filter({ hasText: title }).count();
+    return inTarget > 0 && inSource === 0;
+  };
+
+  // Order the strategies: real drag first when both are on screen, then the
+  // deterministic synthetic drag as a retry.
+  const realFirst = await withinListViewport(page, source) && await withinListViewport(page, targetHeader);
+  const order = realFirst ? (['real', 'synthetic'] as const) : (['synthetic'] as const);
+
+  for (const kind of order) {
+    try {
+      if (kind === 'real') {
+        await source.dragTo(targetHeader, { timeout: 5_000 });
+      } else {
+        await syntheticDrag(page, source, targetHeader);
+      }
+      await expect.poll(done, { timeout: 6_000 }).toBe(true);
+      return;
+    } catch {
+      // Try the next strategy (or surface the last failure below).
+    }
+  }
+
+  throw new Error(
+    `drag: moving chat "${title}" onto "${targetLabel}" did not move (still in source "${sourceProject}"); target/source may be scrolled out of the sidebar list`,
+  );
+}
+
+/** Drag a chat onto a named environment header. */
 export async function dragChatToProject(
   page: Page,
   title: string,
   targetProject: string,
+  sourceProject: string,
 ): Promise<void> {
-  const source = chatItem(page, title).locator('.chat-title');
-  const target = projectHeader(page, targetProject);
-  await source.dragTo(target);
+  await dragTo(
+    page,
+    title,
+    sourceProject,
+    projectHeader(page, targetProject),
+    projectBlock(page, targetProject),
+    targetProject,
+  );
+}
+
+/** Drag a chat onto the "Unfiled stories" (unassigned) block header. */
+export async function dragChatToUnassigned(
+  page: Page,
+  title: string,
+  sourceProject: string,
+): Promise<void> {
+  const unassigned = page.locator('.project-block.unassigned');
+  await dragTo(page, title, sourceProject, unassigned.locator('.project-header'), unassigned, 'Unfiled stories');
+}
+
+/** Deterministic in-page HTML5 drag: `dragstart` on the source, `dragenter` /
+ *  `dragover` / `drop` on the target, `dragend` back on the source — reusing a
+ *  single `DataTransfer` so `onChatDragStart.setData` reaches `readDragIds`. */
+async function syntheticDrag(
+  page: Page,
+  source: ReturnType<Page['locator']>,
+  target: ReturnType<Page['locator']>,
+): Promise<void> {
+  await source.evaluate((el) => {
+    const dt = new DataTransfer();
+    (window as unknown as Record<string, unknown>).__cdDrag = dt;
+    el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  });
+  await target.evaluate((el) => {
+    const dt = (window as unknown as Record<string, unknown>).__cdDrag as DataTransfer;
+    el.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    el.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  });
+  await source.evaluate((el) => {
+    const dt = (window as unknown as Record<string, unknown>).__cdDrag as DataTransfer;
+    el.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    delete (window as unknown as Record<string, unknown>).__cdDrag;
+  });
+}
+
+/** True when `locator` is fully inside the visible (clipped) `.project-list`
+ *  viewport — i.e. actually on screen and not scrolled below the fold. */
+async function withinListViewport(
+  page: Page,
+  locator: ReturnType<Page['locator']>,
+): Promise<boolean> {
+  await locator.scrollIntoViewIfNeeded();
+  return locator.evaluate((el) => {
+    const list = el.closest('.project-list');
+    if (!list) return true; // not inside a scroll list → assume visible
+    const lr = list.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    return er.top >= lr.top - 1 && er.bottom <= lr.bottom + 1;
+  }).catch(() => false);
 }
 
 /** Ctrl+click a chat item — toggles multi-selection on the sidebar. */

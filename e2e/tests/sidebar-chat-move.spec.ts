@@ -24,7 +24,9 @@ import {
   cutSelectedChats,
   deleteChatViaApi,
   deleteProject,
+  deleteProjectStoriesExcept,
   dragChatToProject,
+  dragChatToUnassigned,
   expandProject,
   expectChatInProject,
   expectChatNotInProject,
@@ -41,8 +43,8 @@ import {
 } from '../support/ui';
 
 const SOURCE_PROJECT = 'Demo Project';
-const AUTO_TITLE = 'Demo Project – New Chat';
 const UNASSIGNED_LABEL = '— Unassigned —';
+const SEED_STORY = 'Getting Started';
 
 /** Boot the app on the chat page with the sidebar widened (chat items clickable). */
 async function openChatSidebar(page: Page): Promise<void> {
@@ -52,10 +54,21 @@ async function openChatSidebar(page: Page): Promise<void> {
   await widenSidebar(page);
 }
 
-/** Create a fresh environment (book) to move chats into. */
-async function createTargetProject(page: Page, name: string): Promise<void> {
+/** Create a fresh environment (book) and return to the chat sidebar. */
+async function createEnvironment(page: Page, name: string): Promise<void> {
   await createProject(page, name, 'Demo Topic');
   await openChatSidebar(page);
+}
+
+/**
+ * Empty the shared seed environment down to its original story so the sidebar
+ * scroll window stays short. A drag needs its source + target on screen; with
+ * time-sorting the freshly created source/target environments are the YOUNGEST
+ * and sort to the TOP regardless, but removing the accumulated strays keeps any
+ * scroll-to-active-chat from pulling the view down into a long project list.
+ */
+async function tidySourceProject(page: Page): Promise<void> {
+  await deleteProjectStoriesExcept(page, SOURCE_PROJECT, [SEED_STORY]);
 }
 
 /**
@@ -65,16 +78,28 @@ async function createTargetProject(page: Page, name: string): Promise<void> {
  * the new chat to actually render in the sidebar (count + 1) and rename the
  * ACTIVE (auto-selected) item — never by matching the colliding auto title.
  */
-async function makeMoveChat(page: Page, label: string): Promise<string> {
-  const block = projectBlock(page, SOURCE_PROJECT);
-  await expandProject(page, SOURCE_PROJECT);
-  const before = await block.locator('.chat-item').count();
-  await newStory(page, SOURCE_PROJECT);
+async function makeMoveChat(page: Page, label: string, projectName = SOURCE_PROJECT): Promise<string> {
+  const block = projectBlock(page, projectName);
+  await expandProject(page, projectName);
+  // The chat list renders asynchronously (zoneless change detection + the
+  // chats loading from the API). Wait for the item count to SETTLE before
+  // taking the baseline so `before` is accurate — this works for BOTH a
+  // populated environment (Demo Project seed) and a freshly created EMPTY
+  // source environment (the drag tests), which has zero chats.
+  let before = await block.locator('.chat-item').count();
+  await expect.poll(async () => {
+    const now = await block.locator('.chat-item').count();
+    const stable = now === before;
+    before = now;
+    return stable;
+  }, { timeout: 10_000 }).toBe(true);
+
+  await newStory(page, projectName);
   const name = uniqueName(label);
   await expect(block.locator('.chat-item')).toHaveCount(before + 1);
   const active = block.locator('.chat-item.active').first();
   await expect(active).toBeVisible();
-  await expect(active.locator('.chat-title').first()).toHaveText(AUTO_TITLE);
+  await expect(active.locator('.chat-title').first()).toHaveText(`${projectName} – New Chat`);
   await active.locator('.rename-btn').click();
   const input = page.locator('.chat-title-input').first();
   await expect(input).toBeVisible();
@@ -90,7 +115,7 @@ test.describe('sidebar chat movement', () => {
   }) => {
     await openChatSidebar(page);
     const target = uniqueName('Move Target');
-    await createTargetProject(page, target);
+    await createEnvironment(page, target);
 
     const chat = await makeMoveChat(page, 'Move Chat');
     await expectChatInProject(page, chat, SOURCE_PROJECT);
@@ -132,23 +157,57 @@ test.describe('sidebar chat movement', () => {
     page,
   }) => {
     await openChatSidebar(page);
+    await tidySourceProject(page);
+
+    // A drag needs BOTH source + target on screen. Instead of dragging out of
+    // the shared seed project (which accumulates many stories and pushes the
+    // target below the fold in the full suite), use a DEDICATED source
+    // environment with its own story — with the sidebar sorted by time, the
+    // freshly created SOURCE and TARGET environments are the youngest and sit
+    // at the TOP of the list, so the drag is feasible.
+    const source = uniqueName('Drag Source');
     const target = uniqueName('Drag Target');
-    await createTargetProject(page, target);
+    await createEnvironment(page, source);
+    await createEnvironment(page, target);
 
-    const chat = await makeMoveChat(page, 'Move Chat');
-    await expectChatInProject(page, chat, SOURCE_PROJECT);
+    const chat = await makeMoveChat(page, 'Move Chat', source);
+    await expectChatInProject(page, chat, source);
 
-    await dragChatToProject(page, chat, target);
+    await dragChatToProject(page, chat, target, source);
     await expectChatInProject(page, chat, target);
-    await expectChatNotInProject(page, chat, SOURCE_PROJECT);
+    await expectChatNotInProject(page, chat, source);
 
     await deleteProject(page, target);
+    await deleteProject(page, source);
   });
 
-  test('05 cut + paste moves the selected chats into another environment', async ({ page }) => {
+  test('05 move a chat to "Unfiled stories" by dragging it onto the unassigned header', async ({
+    page,
+  }) => {
+    await openChatSidebar(page);
+    await tidySourceProject(page);
+
+    // Same principle as 04: a dedicated source env (newest → top) makes the
+    // drag-on/off and the unassigned block reachable without deep scrolling.
+    const source = uniqueName('Drag Source');
+    await createEnvironment(page, source);
+
+    const chat = await makeMoveChat(page, 'Move Chat', source);
+    await expectChatInProject(page, chat, source);
+
+    await dragChatToUnassigned(page, chat, source);
+    await expectChatUnassigned(page, chat);
+    await expectChatNotInProject(page, chat, source);
+
+    await deleteProject(page, source);
+    // The chat now lives in Unfiled stories — remove it via API (no env owns it).
+    await deleteChatViaApi(page, chat);
+  });
+
+  test('06 cut + paste moves the selected chats into another environment', async ({ page }) => {
     await openChatSidebar(page);
     const target = uniqueName('Paste Target');
-    await createTargetProject(page, target);
+    await createEnvironment(page, target);
 
     const chatA = await makeMoveChat(page, 'Move Chat A');
     const chatB = await makeMoveChat(page, 'Move Chat B');
@@ -177,7 +236,7 @@ test.describe('sidebar chat movement', () => {
     await deleteProject(page, target);
   });
 
-  test('06 cancel leaves a staged cut chat untouched', async ({ page }) => {
+  test('07 cancel leaves a staged cut chat untouched', async ({ page }) => {
     await openChatSidebar(page);
     const chat = await makeMoveChat(page, 'Move Chat');
     await expectChatInProject(page, chat, SOURCE_PROJECT);
