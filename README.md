@@ -1,14 +1,15 @@
 # ChapterDesk
 
-A local writing studio for scene-by-scene story work with language models.
+**A local writing studio for scene-by-scene story work with language models.**
 
-You do not chat with the model. You give a short direction for the next scene,
-read what comes back, and keep going. When a plot could go two ways, you fork
-the thread and keep both versions. When you want to read, you open the book
-view instead of the prompt.
+You do not chat with the model.  
+You give a short direction for the next scene, read what comes back, and keep going.
 
-ChapterDesk is for steering stories — not for claiming authorship. The model
-drafts the beat; you decide what happens next.
+When a plot could go two ways, you fork the thread and keep both versions.  
+When you want to read, you open the book view instead of the prompt.
+
+ChapterDesk is for **steering stories** — not for claiming authorship.  
+The model drafts the beat; you decide what happens next.
 
 ---
 
@@ -18,70 +19,94 @@ drafts the beat; you decide what happens next.
 - Keep topics, environments, and personas as the spine of a longer work
 - Branch a draft when a scene could go another way
 - Reread the active path as a continuous text
-- Stay local: SQLite on disk, or IndexedDB in the browser
+- Stay local: your data lives in SQLite on your machine (or IndexedDB in the browser)
 
-The Angular client talks only to a local **chat-server**. The server stores
-threads and versions, proxies provider requests, and exposes a small REST API.
+The Angular client talks only to a local **chat-server**. The server stores threads and versions, proxies provider requests, and exposes a small REST API.
 
 ---
 
 ## Words on the screen
 
-Code and URLs still say project / chat / question / answer.
+Code and URLs still say project / chat / question / answer.  
 What you see in the UI:
 
-```
-| In the UI   | Means                                                                        |
-| ----------- | ---------------------------------------------------------------------------- |
-| Topic       | A body of work, plus the standing narrator rules (system prompt)             |
-| Environment | A general setting-idea inside that topic: place, tone, who tends to be there |
-| Story       | One narrative thread you can fork                                            |
-| Direction   | The cue you give for the next beat                                           |
-| Chapter     | The draft that comes back                                                    |
-```
+| In the UI       | Means                                                                 |
+|-----------------|-----------------------------------------------------------------------|
+| **Topic**       | A body of work, plus the standing narrator rules (system prompt)      |
+| **Environment** | A general setting-idea inside that topic: place, tone, who tends to be there |
+| **Story**       | One narrative thread you can fork                                     |
+| **Direction**   | The cue you give for the next beat                                    |
+| **Chapter**     | The draft that comes back                                             |
+
+---
+
+## How it feels to use
+
+1. You set the room once (Topic rules + Environment + Personas).
+2. You open a Story and give a short **Direction**.
+3. A **Chapter** streams back.
+4. You read it, then steer again — or branch if you want to explore another path.
+5. Whenever you want to just read, you switch to the Book view.
+
+There is no long conversation history to manage. The active path is always clear.
+
+---
+
+## Core ideas
+
+- **Local first** — Your stories and settings stay on your machine. The app talks only to a local server; the server is what calls your chosen model provider.
+- **Steering, not chatting** — You direct scenes. The model continues them. You stay in control of what happens next.
+- **Branching built in** — When a moment could go two ways, keep both versions instead of overwriting.
+- **Organized for longer work** — Topics, Environments, and Personas give structure without forcing you into a rigid outline.
+- **Read as a book** — Switch from the steering view to a continuous reading view of the active path at any time.
+
+---
+
+## What you need
+
+ChapterDesk does not ship a model. You bring a provider that speaks the OpenAI-style chat API (OpenRouter is the usual choice — one key, many models).
+
+A long-context, instruction-following model is enough. You are giving scene directions, not running a toolbox agent.
+
+---
 
 ## First hour
 
-ChapterDesk does not ship a model. You bring a provider key, pick a model,
-then set the room the story happens in.
+ChapterDesk does not ship a model. You bring a provider key, pick a model, then set the room the story happens in.
 
 ### 1. API token
 
 You need an API token from a provider that speaks the OpenAI-style chat API.
 
-[OpenRouter](https://openrouter.ai/) is the usual choice: one key, many models.
-DeepSeek (including Pro), GLM, Kimi, Claude Sonnet, and Grok are available
-there or from the vendor’s own endpoint.
+[OpenRouter](https://openrouter.ai/) is the usual choice: one key, many models. DeepSeek (including Pro), GLM, Kimi, Claude Sonnet, and Grok are available there or from the vendor’s own endpoint.
 
-In **Settings → Providers** add the provider (name, base URL, token).
+In **Settings → Providers** add the provider (name, base URL, token).  
 For OpenRouter the base URL is `https://openrouter.ai/api/v1`.
 
-Keep the token on this machine. ChapterDesk only talks to your local server;
-the server is what calls the provider.
+Keep the token on this machine. ChapterDesk only talks to your local server; the server is what calls the provider.
+
+See [Settings: Appearance, Providers, Tasks and Prompts](https://github.com/aschoerk/chapterdesk/wiki/settings).
 
 ### 2. Choose a model
 
-Still in **Settings**, fetch the provider’s catalog and enable the models
-you actually want. Mark one as a preset if you use it all the time.
+Still in **Settings**, fetch the provider’s catalog and enable the models you actually want. Mark one as a preset if you use it all the time.
 
-A long-context, instruction-following model is enough. You are giving
-scene directions, not running a toolbox agent.
+A long-context, instruction-following model is enough. You are giving scene directions, not running a toolbox agent.
 
 ### 3. Topic rules, environment, personas, first direction
 
-The **Topic** holds how the narrator writes. The **Environment** only says
-what kind of place this is.
+The **Topic** holds how the narrator writes. The **Environment** only says what kind of place this is.
 
-1. Open **Environments**. Create a **Topic** and paste the system prompt from
-   the section below into the topic’s default system prompt.
-2. Create an **Environment** in that topic. Do not paste the long narrator
-   rules again. Write a short setting-idea: where we are in general, the
-   mood, the kind of people who show up. Leave room for many stories.
-3. Create the **Personas** that belong here and attach them to the
-   environment. They are who the narrator may speak for.
-4. Open **Stories** and start a story in that environment.
-5. The first **Direction** is the Situation: this hour, these people, this
-   pressure. Then read the **Chapter**. Later directions only steer.
+1. Open **Environments**. Create a **Topic** and paste the system prompt from the section below into the topic’s default system prompt.  
+   See [Organize with topics](https://github.com/aschoerk/chapterdesk/wiki/topics).
+2. Create an **Environment** in that topic. Do not paste the long narrator rules again. Write a short setting-idea: where we are in general, the mood, the kind of people who show up. Leave room for many stories.  
+   See [Books (Environments) and moving stories](https://github.com/aschoerk/chapterdesk/wiki/environments).
+3. Create the **Personas** that belong here and attach them to the environment. They are who the narrator may speak for.  
+   See [Personas](https://github.com/aschoerk/chapterdesk/wiki/personas).
+4. Open **Stories** and start a story in that environment.  
+   See [Write Your First Chapter](https://github.com/aschoerk/chapterdesk/wiki/new-story).
+5. The first **Direction** is the Situation: this hour, these people, this pressure. Then read the **Chapter**. Later directions only steer.  
+   When you want to just read, switch to the [Book view](https://github.com/aschoerk/chapterdesk/wiki/reader).
 
 Environment example (setting-idea, not a scene):
 
@@ -99,11 +124,9 @@ folded letter she has not opened. A conductor passes and does not stop.
 Begin with the letter. Do not skip to the destination.
 ```
 
+### Example topic system prompt
 
-## Example topic system prompt
-
-Paste this into a topic’s default system prompt if you want ChapterDesk to
-direct scenes and keep them open for the next cue.
+Paste this into a topic’s default system prompt if you want ChapterDesk to direct scenes and keep them open for the next cue.
 
 ```text
 You are a collaborative narrator for this topic. The user gives scene directions. You continue the scene. You do not lecture, summarize the assignment, or break character unless asked.
@@ -143,6 +166,23 @@ Tone for this topic
 - Keep the work readable in public: no explicit sexual content. Tension, conflict, and complicated motives are fine.
 ```
 
+---
+
+## Learn more
+
+Full getting-started guide and detailed feature pages live in the [Wiki](https://github.com/aschoerk/chapterdesk/wiki):
+
+- [Getting Started with ChapterDesk](https://github.com/aschoerk/chapterdesk/wiki/welcome)
+- [Organize with topics](https://github.com/aschoerk/chapterdesk/wiki/topics)
+- [Books (Environments) and moving stories](https://github.com/aschoerk/chapterdesk/wiki/environments)
+- [Personas](https://github.com/aschoerk/chapterdesk/wiki/personas)
+- [Write Your First Chapter](https://github.com/aschoerk/chapterdesk/wiki/new-story)
+- [Continuations and the navigation bar](https://github.com/aschoerk/chapterdesk/wiki/continuations)
+- [Read your story as a book](https://github.com/aschoerk/chapterdesk/wiki/reader)
+- [Illustrate your chapters](https://github.com/aschoerk/chapterdesk/wiki/illustrate)
+- [Section actions and the context menu](https://github.com/aschoerk/chapterdesk/wiki/node-actions)
+- [Settings: Appearance, Providers, Tasks and Prompts](https://github.com/aschoerk/chapterdesk/wiki/settings)
+- [Delete and Restore Sections](https://github.com/aschoerk/chapterdesk/wiki/trash)
 
 ---
 
@@ -171,16 +211,14 @@ sudo apt install ./ChapterDesk-*.deb
 sudo dnf install ./ChapterDesk-*.rpm
 ```
 
-The application starts its own local server automatically.
+The application starts its own local server automatically.  
 Your data is stored in:
 
 ```
 ~/.config/ChapterDesk/data/chapterdesk.sqlite
 ```
 
-Linux package metadata (AppStream, desktop file, recipes for Flathub / OBS /
-PPA / AUR) lives in the `packaging/` folder — see
-[`packaging/README.md`](packaging/README.md).
+Linux package metadata (AppStream, desktop file, recipes for Flathub / OBS / PPA / AUR) lives in the `packaging/` folder — see [`packaging/README.md`](packaging/README.md).
 
 ### Windows
 
@@ -189,20 +227,15 @@ PPA / AUR) lives in the `packaging/` folder — see
 3. Run the installer. You can choose the folder; it is not a one-click-only install.
 4. Start **ChapterDesk** from the Start menu or the desktop shortcut.
 
-The application starts its own local server automatically.
+The application starts its own local server automatically.  
 Your data is stored in:
 
 ```
 %APPDATA%\ChapterDesk\data\chapterdesk.sqlite
 ```
 
-If Windows Defender SmartScreen warns about an unknown publisher, choose
-**More info** → **Run anyway**. The build is unsigned unless a code-signing
-certificate is added. To sign the NSIS build, add `CSC_LINK` (the `.pfx` as
-base64 or URL) and `CSC_KEY_PASSWORD` as GitHub secrets — the
-[release workflow](.github/workflows/release.yml) forwards them automatically.
-See [`packaging/README.md`](packaging/README.md) for the Microsoft Store
-(MSIX) path (`npm run electron:build:msix`).
+If Windows Defender SmartScreen warns about an unknown publisher, choose **More info** → **Run anyway**. The build is unsigned unless a code-signing certificate is added. To sign the NSIS build, add `CSC_LINK` (the `.pfx` as base64 or URL) and `CSC_KEY_PASSWORD` as GitHub secrets — the [release workflow](.github/workflows/release.yml) forwards them automatically.  
+See [`packaging/README.md`](packaging/README.md) for the Microsoft Store (MSIX) path (`npm run electron:build:msix`).
 
 To build the installer yourself on Windows:
 
@@ -250,19 +283,15 @@ This starts:
 npm run electron:build
 ```
 
-> The bundled API server (`chapterdesk-api-server`) is a separate npm package.
-> Install its dependencies once before building if you have not already
+> The bundled API server (`chapterdesk-api-server`) is a separate npm package.  
+> Install its dependencies once before building if you have not already  
 > (`npm install --prefix chapterdesk-api-server`).
 
-On Linux this produces `.AppImage`, `.deb` and `.rpm` in `dist/`. On Windows
-it produces the NSIS `.exe` installer. Useful extras:
+On Linux this produces `.AppImage`, `.deb` and `.rpm` in `dist/`. On Windows it produces the NSIS `.exe` installer. Useful extras:
 
 ```bash
 npm run electron:build:dir     # unpacked dir only (fast size/smoke check)
 npm run electron:build:msix    # Windows: MSIX package for the Microsoft Store
 ```
 
-The installer is kept slim by construction: only the resolved production
-dependencies are bundled (Angular is a devDependency — the renderer ships as
-a prebuilt static bundle). Progress on official-distro and Windows
-certification is tracked in [`packaging/README.md`](packaging/README.md).
+The installer is kept slim by construction: only the resolved production dependencies are bundled (Angular is a devDependency — the renderer ships as a prebuilt static bundle). Progress on official-distro and Windows certification is tracked in [`packaging/README.md`](packaging/README.md).
