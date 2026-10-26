@@ -22,4 +22,4 @@
 - [Settings](settings)
 - [FAQ](faq)
 - [Privacy](privacy)
-- [UX Playbooks](ChapterDesk‑UX‑Playbooks)
+- [UX Playbooks](ChapterDesk-UX-Playbooks)

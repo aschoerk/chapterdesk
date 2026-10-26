@@ -37,12 +37,18 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const ROOT = process.cwd();
 const MANUALS = join(ROOT, 'docs', 'manuals');
 const CURATED = join(ROOT, 'e2e', 'manual', 'wiki'); // curated wiki pages (not generated)
+const UX_PLAYBOOKS = join(ROOT, 'docs', 'ux-playbooks.md'); // canonical, version-controlled
 const WIKI_STAGE = join(ROOT, '.wiki-stage');
 
 /** Wiki pages to DELETE on export (obsolete titles replaced by curated ones).
  *  Keep other unmanaged pages (e.g. a hand-written "UX Playbooks" page) in
  *  place — they are intentionally outside the managed set. */
-const PRUNE_PAGES = ['Getting-Started-With-ChapterDesk.md'];
+const PRUNE_PAGES = [
+  'Getting-Started-With-ChapterDesk.md',
+  // Old UX-playbooks page used U+2010 HYPHEN characters in its filename; the
+  // curated export now publishes it under the clean ASCII name below.
+  'ChapterDesk\u2010UX\u2010Playbooks.md',
+];
 
 /** The repo was renamed chapterly → chapterdesk on GitHub; local clones may
  *  still carry the old name in their `origin` remote (GitHub redirects it, but
@@ -207,6 +213,18 @@ function buildIndexLines(existingSlugs = new Set()) {
 }
 
 /**
+ * Copy the UX playbooks (docs/ux-playbooks.md — the canonical, version
+ * controlled source) into the wiki as a curated page under a clean ASCII
+ * filename. The obsolete U+2010-hyphen page is removed by `prunePages()`.
+ */
+function copyPlaybooks() {
+  if (!existsSync(UX_PLAYBOOKS)) return;
+  const text = readFileSync(UX_PLAYBOOKS, 'utf8');
+  writeFileSync(join(WIKI_STAGE, 'ChapterDesk-UX-Playbooks.md'), text);
+  console.log('  page: ChapterDesk-UX-Playbooks.md (curated, from docs/ux-playbooks.md)');
+}
+
+/**
  * Delete explicitly-pruned wiki pages (obsolete titles) from the staging dir so
  * `git add -A` records the deletions on the next commit.
  */
@@ -249,6 +267,9 @@ function main() {
   // Curated landing/static pages first (Home template, _Sidebar, install,
   // concepts, faq, privacy) — never overwritten by the generated chapters.
   copyCurated();
+
+  // UX playbooks — curated, version-controlled (canonical file in the repo).
+  copyPlaybooks();
 
   for (const p of pages) {
     writeFileSync(join(WIKI_STAGE, `${p.slug}.md`), p.text);

@@ -187,6 +187,8 @@ to wiki-relative `screenshots/…`, then commits + pushes:
   welcome page whose `{{CHAPTERS}}` marker is auto-filled with links to any
   generated chapter not already listed), `_Sidebar.md`, `install.md`,
   `concepts.md`, `faq.md`, `privacy.md`.
+- **UX Playbooks** — copied from the canonical, version-controlled
+  `docs/ux-playbooks.md` into `ChapterDesk-UX-Playbooks.md`.
 - **Generated chapters** from `docs/manuals/`, with the "Auto-generated on …"
   line stripped so they read like a manual rather than a test report.
 
