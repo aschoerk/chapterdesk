@@ -127,8 +127,10 @@ e2e/
   manual/                 # USER-MANUAL generator (NOT part of the test suite)
     manual-*.spec.ts      # one manual chapter per feature area (see below)
     manual-support.ts     # newManual() + API-based cleanup helpers
+    wiki/                 # CURATED wiki pages (Home template, _Sidebar, install,
+                          #   concepts, faq, privacy) — copied verbatim by the export
     build-index.mjs       # generate docs/manuals/index.md (table of contents)
-    wiki-export.mjs       # push docs/manuals into the GitHub wiki (Home.md)
+    wiki-export.mjs       # push manuals + curated pages into the GitHub wiki
   tests/                  # one file per usecase-template
     chat-create-navigate.spec.ts
     llm-orchestration-text.spec.ts    # UC6–13, UC15–21 (text/flows)
@@ -179,8 +181,14 @@ The wiki remote is derived from `git remote get-url origin`
 (`…/chapterdesk.git` → `…/chapterdesk.wiki.git`; the legacy `chapterly` repo
 name is normalized to `chapterdesk`); override with `WIKI_REMOTE=…`.
 It clones the wiki into `.wiki-stage/` (git-ignored), rewrites the image paths
-to wiki-relative `screenshots/…`, writes a `Home.md` index, then commits +
-pushes every chapter page.
+to wiki-relative `screenshots/…`, then commits + pushes:
+
+- **Curated pages** from `e2e/manual/wiki/` (never overwritten): `Home.md` (a
+  welcome page whose `{{CHAPTERS}}` marker is auto-filled with links to any
+  generated chapter not already listed), `_Sidebar.md`, `install.md`,
+  `concepts.md`, `faq.md`, `privacy.md`.
+- **Generated chapters** from `docs/manuals/`, with the "Auto-generated on …"
+  line stripped so they read like a manual rather than a test report.
 
 > First-time setup: the wiki must exist before export — open the repo on
 > GitHub → **Wiki** → **Create the first page**. After that, `docs:manual:wiki`

@@ -49,8 +49,11 @@ du -sh dist/*-unpacked
      server already binds `127.0.0.1` — and make `app.getPath('userData')`
      resolve inside the sandbox's XDG data home.
    - Rebuild `better-sqlite3` against the Flatpak runtime's Node ABI.
-2. Submit the recipe + this `metainfo.xml` to `flathub/io.github.aschoerk.chapterdesk`
-   (needs a real screenshot — see the TODO in the metainfo).
+2. Submit the recipe + this `metainfo.xml` to `flathub/io.github.aschoerk.chapterdesk`.
+   The metainfo already ships real screenshots (referenced from
+   `assets/screenshots/` on `main`) and a full OARS content rating, so a
+   Flathub submission should pass `appstreamcli validate` once the assets are
+   pushed (validate points at `raw.githubusercontent.com/…/main/assets/…`).
 
 ### Launchpad PPA (Ubuntu/Debian users)
 - Ship the `.deb` that `electron-builder` produces; `debsign` with a GPG key

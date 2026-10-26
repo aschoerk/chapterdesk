@@ -11,9 +11,11 @@
 //   1. reads docs/manuals/*.md + screenshots (must be generated first:
 //      `npm run docs:manual:full`),
 //   2. clones (or fetches) the wiki repo into a staging area,
-//   3. copies each manual chapter to a wiki page (kebab-case name + .md),
-//      remapping the local screenshot paths to the wiki's committed files,
-//   4. writes a Home.md index that links every page,
+//   3. copies each CURATED page (e2e/manual/wiki/*.md — Home, _Sidebar,
+//      install, concepts, faq, privacy) into the wiki,
+//   4. copies each generated manual chapter to a wiki page (kebab-case name),
+//      stripping the "Auto-generated on …" line and remapping the local
+//      screenshot paths to the wiki's committed files,
 //   5. commits + pushes.
 //
 // Usage:
@@ -34,7 +36,13 @@ import { join } from 'node:path';
 const DRY_RUN = process.argv.includes('--dry-run');
 const ROOT = process.cwd();
 const MANUALS = join(ROOT, 'docs', 'manuals');
+const CURATED = join(ROOT, 'e2e', 'manual', 'wiki'); // curated wiki pages (not generated)
 const WIKI_STAGE = join(ROOT, '.wiki-stage');
+
+/** Wiki pages to DELETE on export (obsolete titles replaced by curated ones).
+ *  Keep other unmanaged pages (e.g. a hand-written "UX Playbooks" page) in
+ *  place — they are intentionally outside the managed set. */
+const PRUNE_PAGES = ['Getting-Started-With-ChapterDesk.md'];
 
 /** The repo was renamed chapterly → chapterdesk on GitHub; local clones may
  *  still carry the old name in their `origin` remote (GitHub redirects it, but
@@ -121,10 +129,14 @@ function buildPages() {
     const titleMatch = text.match(/^#\s+(.+)$/m);
     const title = titleMatch ? titleMatch[1].trim() : file.replace(/\.md$/, '');
 
+    // Strip the machine-y "> Auto-generated on …" line so wiki pages read as a
+    // manual, not a test report.
+    const body = text.replace(/^>\s*Auto-generated on[^\n]*\n+/m, '');
+
     // Remap relative screenshot links to wiki-relative "screenshots/…" paths.
     // The markdown embeds `./screenshots/<scenario>/step-0N.png`.
     const slug = pageSlug(file.replace(/\.md$/, ''));
-    const wikified = text.replace(
+    const wikified = body.replace(
       /!\[([^\]]*)\]\(\.\/screenshots\/([^)]+)\)/g,
       (_, alt, rel) => `![${alt}](./screenshots/${rel})`,
     );
@@ -145,19 +157,67 @@ function buildPages() {
   return pages;
 }
 
-/** Write Home.md — the wiki landing page with a link to every manual chapter. */
-function writeHome(pages) {
-  const lines = [
-    '# ChapterDesk User Manual',
-    '',
-    '> Auto-generated from the Playwright E2E manual scenarios (see `e2e/manual`).',
-    '',
-  ];
-  for (const p of pages) {
-    lines.push(`- [${p.title}](${encodeURIComponent(p.slug)})`);
+/**
+ * Copy the CURATED wiki pages (e2e/manual/wiki/*.md — Home, _Sidebar, install,
+ * concepts, faq, privacy) into the wiki staging. These are hand-written and
+ * never overwritten by the generated manual.
+ */
+function copyCurated() {
+  if (!existsSync(CURATED)) return;
+  for (const file of readdirSync(CURATED).filter((f) => f.endsWith('.md'))) {
+    const src = join(CURATED, file);
+    const text = readFileSync(src, 'utf8');
+    const dest = join(WIKI_STAGE, file);
+    if (file === 'Home.md') {
+      // Home is a template: keep the curated prose/grouped links, but replace
+      // the {{CHAPTERS}} marker with links to any generated chapter NOT already
+      // linked in the curated text — so the landing page never goes stale when
+      // scenarios are added, without duplicating existing links.
+      const existing = new Set(
+        Array.from(text.matchAll(/\]\(([^)#)]+)\)/g), (m) => m[1].toLowerCase()),
+      );
+      const index = buildIndexLines(existing);
+      writeFileSync(dest, text.replace('{{CHAPTERS}}', index));
+      console.log('  page: Home.md (curated template + generated index)');
+    } else {
+      writeFileSync(dest, text);
+      console.log(`  page: ${file} (curated)`);
+    }
   }
-  lines.push('');
-  writeFileSync(join(WIKI_STAGE, 'Home.md'), lines.join('\n'));
+}
+
+/** Build "- [Title](slug)" lines for generated chapters not already linked. */
+function buildIndexLines(existingSlugs = new Set()) {
+  if (!existsSync(MANUALS)) return '';
+  const mdFiles = readdirSync(MANUALS)
+    .filter((f) => f.endsWith('.md') && f !== 'index.md')
+    .sort();
+  const entries = [];
+  for (const file of mdFiles) {
+    const src = join(MANUALS, file);
+    const text = readFileSync(src, 'utf8');
+    const slug = pageSlug(file.replace(/\.md$/, ''));
+    if (existingSlugs.has(slug.toLowerCase())) continue;
+    const titleMatch = text.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : file.replace(/\.md$/, '');
+    entries.push(`- [${title}](${encodeURIComponent(slug)})`);
+  }
+  if (!entries.length) return '';
+  return ['', '## All manual chapters', '', ...entries, ''].join('\n');
+}
+
+/**
+ * Delete explicitly-pruned wiki pages (obsolete titles) from the staging dir so
+ * `git add -A` records the deletions on the next commit.
+ */
+function prunePages() {
+  for (const file of PRUNE_PAGES) {
+    const p = join(WIKI_STAGE, file);
+    if (existsSync(p)) {
+      rmSync(p, { force: true });
+      console.log(`  prune: ${file}`);
+    }
+  }
 }
 
 function main() {
@@ -183,7 +243,12 @@ function main() {
   const pages = buildPages();
   if (!pages.length) throw new Error('No manual chapters found.');
 
-  writeHome(pages);
+  // Remove obsolete wiki pages first (so `git add -A` records the deletions).
+  prunePages();
+
+  // Curated landing/static pages first (Home template, _Sidebar, install,
+  // concepts, faq, privacy) — never overwritten by the generated chapters.
+  copyCurated();
 
   for (const p of pages) {
     writeFileSync(join(WIKI_STAGE, `${p.slug}.md`), p.text);

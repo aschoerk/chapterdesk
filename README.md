@@ -11,6 +11,8 @@ When you want to read, you open the book view instead of the prompt.
 ChapterDesk is for **steering stories** — not for claiming authorship.  
 The model drafts the beat; you decide what happens next.
 
+![ChapterDesk — the steering view](assets/screenshots/steering-view.png)
+
 ---
 
 ## What it is for
@@ -24,6 +26,17 @@ The model drafts the beat; you decide what happens next.
 The Angular client talks only to a local **chat-server**. The server stores threads and versions, proxies provider requests, and exposes a small REST API.
 
 ---
+
+## A quick look
+
+| Steering & branching | Read as a book |
+|---|---|
+| Give a short direction, the chapter streams back; fork any beat to keep both versions. | Switch to the book view to read the active path as continuous prose. |
+| ![Writing a direction](assets/screenshots/writing-direction.png) | ![Book view](assets/screenshots/book-view.png) |
+
+Scenes can also be **illustrated**, so chapters keep their visual anchors next to the text:
+
+![Illustrating a chapter](assets/screenshots/illustrate.png)
 
 ## Words on the screen
 
