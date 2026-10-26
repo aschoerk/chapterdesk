@@ -1,6 +1,6 @@
 {
   "name": "chapterdesk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Offline-first AI-assisted story writing. An Electron shell with its own local API server and an Angular SPA.",
   "keywords": [
     "story",
