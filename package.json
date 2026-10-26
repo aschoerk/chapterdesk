@@ -46,7 +46,11 @@
     "coverage:unit": "ng test --watch=false",
     "coverage:e2e": "npm run build:server && npx ng build -c production,e2e && E2E_COVERAGE=1 playwright test",
     "coverage:merge": "node 0scripts/merge-coverage.mjs",
-    "coverage:all": "npm run coverage:unit && npm run coverage:e2e && npm run coverage:merge"
+    "coverage:all": "npm run coverage:unit && npm run coverage:e2e && npm run coverage:merge",
+    "docs:manual": "playwright test --config playwright.manual.config.ts --reporter=list",
+    "docs:manual:index": "node e2e/manual/build-index.mjs",
+    "docs:manual:full": "npm run docs:manual && npm run docs:manual:index",
+    "docs:manual:wiki": "npm run docs:manual:full && node e2e/manual/wiki-export.mjs"
   },
   "private": true,
   "packageManager": "npm@10.9.8",
@@ -87,6 +91,7 @@
     "istanbul-reports": "^3.2.0",
     "jsdom": "^28.0.0",
     "marked": "^18.0.10",
+    "playwright-scenario-recorder": "^0.4.0",
     "prettier": "^3.8.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",

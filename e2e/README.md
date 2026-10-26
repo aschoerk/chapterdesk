@@ -124,17 +124,67 @@ e2e/
     llm-mock.ts           # wiremock-style /proxy/chat/completions + /proxy/images
     ui.ts                 # reusable recorded steps (helpers)
     config.ts             # /config/* settings page helpers (+ /proxy/models mock)
+  manual/                 # USER-MANUAL generator (NOT part of the test suite)
+    manual-*.spec.ts      # one manual chapter per feature area (see below)
+    manual-support.ts     # newManual() + API-based cleanup helpers
+    build-index.mjs       # generate docs/manuals/index.md (table of contents)
+    wiki-export.mjs       # push docs/manuals into the GitHub wiki (Home.md)
   tests/                  # one file per usecase-template
     chat-create-navigate.spec.ts
     llm-orchestration-text.spec.ts    # UC6–13, UC15–21 (text/flows)
     llm-orchestration-images.spec.ts  # UC1–5, UC14 (illustrate / image-send)
     topics-crud.spec.ts / projects-crud.spec.ts / personas-crud.spec.ts
+    sidebar-chat-move.spec.ts         # move stories between books (buttons/drag)
+    node-nav-bar.spec.ts / node-context-menu.spec.ts
+    readonly-navigation.spec.ts       # the /read book view
+    trash-usage.spec.ts               # soft-delete → restore / purge
     settings-appearance.spec.ts       # theme + language (localStorage)
     settings-providers.spec.ts        # provider/preset CRUD, test, fetch, filters
     settings-generation-tasks.spec.ts  # per-task provider/model/prompt + reset
     settings-prompts.spec.ts          # versions: save/edit/rename/delete, topic scope, reset-all
 docker-compose.e2e.yml    # single-origin test stack (memory + seeded)
 ```
+
+## Generating the user manual (Markdown + screenshots)
+
+The `e2e/manual` scenarios drive the REAL UI step by step and record an
+annotated screenshot per step using **playwright-scenario-recorder**. They
+share the exact same Docker stack + support helpers as the assertion suite, so
+the screenshots show the real app.
+
+```sh
+npm run docs:manual        # run the 11 manual scenarios → docs/manuals/*.md + screenshots/
+npm run docs:manual:index  # regenerate docs/manuals/index.md (table of contents)
+npm run docs:manual:full   # both of the above
+```
+
+- Output lands in `docs/manuals/` (git-ignored — it is a regenerated artifact).
+- `docs/manuals/index.md` is the entry point; every chapter embeds its
+  `screenshots/<chapter>/step-NN.png`.
+- Scenarios are deterministic: they use the seeded story / mock LLM and each
+  cleans up after itself (API-based deletes avoid flaky UI races in teardown).
+
+### Publishing to the GitHub project wiki
+
+The manual can be pushed to the repo's GitHub wiki as separate pages, with the
+screenshots committed alongside them (GitHub wikis need images inside the wiki
+repo, not remote URLs):
+
+```sh
+npm run docs:manual:wiki   # docs:manual:full + node e2e/manual/wiki-export.mjs
+node e2e/manual/wiki-export.mjs --dry-run   # build pages locally, don't push
+```
+
+The wiki remote is derived from `git remote get-url origin`
+(`…/chapterdesk.git` → `…/chapterdesk.wiki.git`; the legacy `chapterly` repo
+name is normalized to `chapterdesk`); override with `WIKI_REMOTE=…`.
+It clones the wiki into `.wiki-stage/` (git-ignored), rewrites the image paths
+to wiki-relative `screenshots/…`, writes a `Home.md` index, then commits +
+pushes every chapter page.
+
+> First-time setup: the wiki must exist before export — open the repo on
+> GitHub → **Wiki** → **Create the first page**. After that, `docs:manual:wiki`
+> fully replaces its content on every run.
 
 ## Editing the seed
 
