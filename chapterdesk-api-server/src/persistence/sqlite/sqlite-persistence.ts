@@ -1050,6 +1050,8 @@ export class SqlitePersistence implements PersistencePort {
   }
   async deleteProvider(id: string): Promise<void> {
     this.requireRow('provider', id, 'providers');
+    // Cascade-delete the provider's models (prevents orphaned model rows).
+    this.db.prepare('DELETE FROM models WHERE provider_id=?').run(id);
     this.db.prepare('DELETE FROM providers WHERE id=?').run(id);
   }
   async getModels(): Promise<ModelEntry[]> {

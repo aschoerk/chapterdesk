@@ -749,6 +749,11 @@ export class MemoryPersistence implements PersistencePort {
   async deleteProvider(id: string): Promise<void> {
     if (!this.providers.has(id)) throw notFound('provider', id);
     this.providers.delete(id);
+    // Cascade-delete the provider's models so no orphaned model rows linger
+    // on the shared server (the client already drops them locally after this).
+    for (const model of [...this.models.values()]) {
+      if (model.providerId === id) this.models.delete(model.id);
+    }
   }
 
   async getModels(): Promise<ModelEntry[]> {

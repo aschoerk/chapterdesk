@@ -147,6 +147,32 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(getRes.body).toHaveLength(0);
     });
 
+    test('DELETE /api/providers/:id cascade-deletes the provider models', async () => {
+      const created = await request(app).post('/api/providers').send({
+        name: 'CascadeMe',
+        type: 'custom',
+        baseUrl: 'http://cascade',
+        apiKey: 'cascade-key',
+      });
+      const id = created.body.id;
+      const model = await request(app).post('/api/models').send({
+        displayName: 'Cascade Model',
+        modelId: 'cascade/model',
+        providerId: id,
+        type: 'fetched',
+      });
+      expect(model.status).toBe(201);
+
+      const res = await request(app).delete(`/api/providers/${id}`);
+      expect(res.status).toBe(204);
+
+      const modelsRes = await request(app).get('/api/models');
+      const orphaned = (modelsRes.body as Array<{ providerId: string }>).filter(
+        (m) => m.providerId === id,
+      );
+      expect(orphaned).toHaveLength(0);
+    });
+
     test('DELETE /api/providers/:id returns 404 for unknown id', async () => {
       const res = await request(app).delete(`/api/providers/${uuidv4()}`);
       expect(res.status).toBe(404);

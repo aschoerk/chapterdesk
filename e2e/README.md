@@ -123,10 +123,16 @@ e2e/
   support/
     llm-mock.ts           # wiremock-style /proxy/chat/completions + /proxy/images
     ui.ts                 # reusable recorded steps (helpers)
+    config.ts             # /config/* settings page helpers (+ /proxy/models mock)
   tests/                  # one file per usecase-template
     chat-create-navigate.spec.ts
     llm-orchestration-text.spec.ts    # UC6–13, UC15–21 (text/flows)
     llm-orchestration-images.spec.ts  # UC1–5, UC14 (illustrate / image-send)
+    topics-crud.spec.ts / projects-crud.spec.ts / personas-crud.spec.ts
+    settings-appearance.spec.ts       # theme + language (localStorage)
+    settings-providers.spec.ts        # provider/preset CRUD, test, fetch, filters
+    settings-generation-tasks.spec.ts  # per-task provider/model/prompt + reset
+    settings-prompts.spec.ts          # versions: save/edit/rename/delete, topic scope, reset-all
 docker-compose.e2e.yml    # single-origin test stack (memory + seeded)
 ```
 
@@ -202,6 +208,30 @@ npm run e2e                 # full suite (builds + starts the stack)
 # or a single spec:
 npx playwright test e2e/tests/llm-orchestration-images.spec.ts
 ```
+
+## Settings specs
+
+The four `/config/*` pages are covered by `settings-*.spec.ts`:
+
+- `settings-appearance.spec.ts` — theme (System/White/Dark, resolved on
+  `<html data-theme>`, persisted in localStorage) and language (en↔de,
+  re-labels the UI, persisted). Both are per-browser-context, so no cleanup.
+- `settings-providers.spec.ts` — provider CRUD (masked key), required-API-key
+  alert, connection test ok/fail, fetching a mocked model catalog into the
+  table, provider filter, preset CRUD with modality chips, model search and
+  enabled/disabled filters. Providers/presets live on the shared API, so tests
+  use `uniqueName()` and delete what they create (like the entity-CRUD specs).
+- `settings-generation-tasks.spec.ts` — per-task provider/model/prompt is
+  localStorage; the Docker bootstrap pre-fills authoring tasks with the
+  key-free mock writer, and Reset returns a task to inherit/empty.
+- `settings-prompts.spec.ts` — save-as-version (user + topic scope), edit the
+  active version (Save changes), rename/delete versions, unknown-token warning,
+  revert-to-default and Reset all. Versions live in the shared DB and are
+  deleted per test.
+
+The provider "Test"/"Fetch Models" calls go through the backend `/proxy`; they
+are mocked in-browser by `mockProviderModels()` (config.ts) returning
+`{ "data": [...] }` — deterministic connection checks.
 
 ## Tips
 
