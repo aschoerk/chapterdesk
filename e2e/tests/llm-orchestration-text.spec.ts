@@ -24,7 +24,7 @@
 //                               UC21 send-chapter-descriptions
 // ---------------------------------------------------------------------------
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/coverage';
 import { mockLlm, mockLlmScripts } from '../support/llm-mock';
 import {
   openApp,

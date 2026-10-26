@@ -36,6 +36,10 @@ yarn-error.log
 /blob-report/
 /playwright/.cache/
 
+# Coverage artifacts
+/coverage/
+/.e2e-coverage-raw/
+
 # Miscellaneous
 /.angular/cache
 .sass-cache/
@@ -58,11 +62,14 @@ Thumbs.db
 /chat-server-js/node_modules/*
 /chat-server-js/dist/*
 /chapterdesk-api-server/data/*
+/chapterdesk-api-server/coverage/*
 /chapterdesk-api-server/node_modules/*
 /chapterdesk-api-server/dist/*
 /electron/renderer/browser/main-*.js
 /electron/renderer/browser/styles-*.css
 /electron/renderer/browser/index.html
+/.e2e-coverage-raw/*
+/coverage/*
 .env.chapterdesk-sqlite
 x.jpg
 docs/ideas/*

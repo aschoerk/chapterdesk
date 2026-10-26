@@ -13,7 +13,7 @@
 // tables below, so one recorded usecase becomes a repeatable matrix.
 // ---------------------------------------------------------------------------
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/coverage';
 import { mockLlm } from '../support/llm-mock';
 import {
   openApp,

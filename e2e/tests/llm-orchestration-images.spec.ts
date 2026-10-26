@@ -16,7 +16,7 @@
 //                            UC14 image-send (create image of a selection)
 // ---------------------------------------------------------------------------
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/coverage';
 import { mockLlm, mockLlmScripts } from '../support/llm-mock';
 import {
   openApp,
