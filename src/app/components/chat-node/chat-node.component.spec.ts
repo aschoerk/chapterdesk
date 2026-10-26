@@ -8,6 +8,7 @@ import { ChatService } from '../../core/chat/chat.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { ToastService } from '../../core/toast/toast.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeAttachment, makeModel, makeNode, seedApi } from '../../../../test-helpers/factories';
@@ -42,6 +43,7 @@ describe('ChatNodeComponent', () => {
   let chatService: ChatService;
   let settings: SettingsService;
   let confirm: ConfirmService;
+  let toast: ToastService;
   let llm: {
     streamAnswer: ReturnType<typeof vi.fn>;
     askLlm: ReturnType<typeof vi.fn>;
@@ -192,6 +194,8 @@ describe('ChatNodeComponent', () => {
     chatService = TestBed.inject(ChatService);
     settings = TestBed.inject(SettingsService);
     confirm = TestBed.inject(ConfirmService);
+    toast = TestBed.inject(ToastService);
+    toast.clear();
     runner = TestBed.inject(LlmUseCaseRunner) as unknown as {
       run: ReturnType<typeof vi.fn>;
     };
@@ -1184,9 +1188,8 @@ describe('ChatNodeComponent', () => {
       await component.openRewriteDialog();
       fixture.detectChanges();
       expect(rewriteDialog.open).not.toHaveBeenCalled();
-      expect(window.alert).toHaveBeenCalledWith(
-        expect.stringContaining('Mark the text'),
-      );
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error' && t.text.includes('Mark the text'))).toBe(true);
     });
 
     it('opens the dialog with the marked fragment + node model and replaces the selection with the result', async () => {
@@ -1353,7 +1356,8 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(rewriteDialog.open).not.toHaveBeenCalled();
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error' && t.text.includes('Mark the text'))).toBe(true);
     });
 
     it('rewrites a multi-paragraph selection whose rendering differs from the source', async () => {
@@ -1416,7 +1420,8 @@ describe('ChatNodeComponent', () => {
       const saved = chatService.nodes()
         .find(n => n.role === 'assistant' && n.content === 'The hero enters the old tower.\n\na ruined keep');
       expect(saved).toBeDefined();
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('appended'));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.text.includes('appended'))).toBe(true);
     });
   });
 
@@ -1464,7 +1469,8 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(createImageDialog.open).not.toHaveBeenCalled();
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Mark the text'));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error' && t.text.includes('Mark the text'))).toBe(true);
     });
 
     it('opens the dialog with the marked text + the configured image model and attaches the created picture', async () => {
@@ -2888,7 +2894,8 @@ describe('ChatNodeComponent', () => {
       const kept = chapter.attachments!.find(a => a.name === 'refused-prompt-1.txt');
       expect(kept).toBeTruthy();
       expect(decodeDataUrlToText(kept!.dataUrl!)).toContain('A softer scene');
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('I cannot help with that.'));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error' && t.text.includes('I cannot help with that.'))).toBe(true);
       // Editor resets after the attempt.
       expect(component.editingPromptId()).toBeNull();
       expect(component.expandedPromptId()).toBeNull();
@@ -3757,7 +3764,8 @@ describe('ChatNodeComponent', () => {
       await component.illustrate();
       fixture.detectChanges();
 
-      expect(window.alert).toHaveBeenCalled();
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error')).toBe(true);
     });
 
     it('requests the dialog storyboard count + style + rules and attaches every image', async () => {
@@ -3908,8 +3916,10 @@ describe('ChatNodeComponent', () => {
       const text = decodeDataUrlToText(chapter.attachments![0].dataUrl) ?? '';
       expect(text).toContain('sensitive scene');
       expect(text).toContain("I can't draw that.");
-      // The user is still informed nothing was generated.
-      expect(window.alert).toHaveBeenCalled();
+      // The user is still informed nothing was generated — with the model's
+      // own refusal reply (UX playbook §8), not a generic failure.
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().some(t => t.kind === 'error' && t.text.includes("I can't draw that."))).toBe(true);
     });
 
     it('attaches each storyboard picture as soon as it is ready (progressive onImages) and replaces interim with the final plan', async () => {
@@ -4018,9 +4028,9 @@ describe('ChatNodeComponent', () => {
       });
 
       createFixture(q1, 'a1');
-      // The alert spy accumulates calls across tests in this file; clear it so
-      // only THIS run's alerts are counted by the assertions below.
-      (window.alert as unknown as { mockClear: () => void }).mockClear();
+      // Toasts accumulate across tests in this file; clear them so only THIS
+      // run's notifications are counted by the assertions below.
+      toast.clear();
       const running = component.illustrate();
       await flush();
 
@@ -4043,6 +4053,7 @@ describe('ChatNodeComponent', () => {
       const chapter = chatService.getChildren('q1').find((c) => c.role === 'assistant' && c.isCurrent)!;
       expect(chapter.attachments?.length ?? 0).toBe(0);
       expect(window.alert).not.toHaveBeenCalled();
+      expect(toast.toasts().length).toBe(0);
     });
 
     it('does nothing when the dialog is cancelled', async () => {

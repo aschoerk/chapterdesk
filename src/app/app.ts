@@ -8,6 +8,8 @@ import {RewriteDialogComponent} from './components/rewrite-dialog/rewrite-dialog
 import {CreateImageDialogComponent} from './components/create-image-dialog/create-image-dialog.component';
 import {ChapterDescriptionsDialogComponent} from './components/chapter-descriptions-dialog/chapter-descriptions-dialog.component';
 import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox.component';
+import {ToastHostComponent} from './components/toast-host/toast-host.component';
+import {ShortcutHelpComponent} from './components/shortcut-help/shortcut-help.component';
 import {ThemeService} from './core/settings/theme.service';
 import {EnvironmentService} from './core/settings/environment.service';
 import {SettingsService} from './core/settings/settings.service';
@@ -22,7 +24,7 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, SetupWizardComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

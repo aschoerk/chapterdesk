@@ -273,8 +273,8 @@ When something fails (network, provider, model, validation), the user always kno
 ## Next Steps
 
 1. Map each playbook to existing E2E specs (chat-create-navigate, settings-*, personas-crud, etc. — already largely covered).
-2. Identify gaps where new manual scenarios or UI improvements are needed (candidates: onboarding w/ mock, keyboard-shortcut help, error-toast affordances).
-3. Convert high-priority playbook steps into wiki pages or in-app empty-state guidance (several already exist: `concepts`, `faq`, `reader`, `trash`).
+2. Gap-closing UI work (implemented 2026-10): the app now ships an **in-app keyboard-shortcut reference** — the top-nav “?” button opens a help panel (`src/app/components/shortcut-help/`, service `src/app/core/dialogs/shortcut-help.service.ts`) covering the §7 list (plus the reader and story-tree extras) — and a **non-modal toast host** (`src/app/components/toast-host/` + `src/app/core/toast/toast.service.ts`) that now surfaces the steering-loop failures inline: send/stream/save, illustrate/create-image/rerender (incl. the model-refusal reply from §8), structure, language check, rewrite and regenerate/delete. Rare admin flows (providers, import, attachment clipboard) still use the native `alert` — migrate them as they are touched.
+3. Convert high-priority playbook steps into wiki pages or in-app empty-state guidance (several already exist: `concepts`, `faq`, `reader`, `trash`). Candidates for new manual scenarios: onboarding with the mock model, and a keyboard-shortcut help page.
 4. If product analytics are ever added, revisit the manual checklists as quantified KPIs — until then they live as usability-test checklists only.
 
 ---

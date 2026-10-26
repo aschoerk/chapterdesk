@@ -24,6 +24,7 @@ import {
 import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/settings/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { ToastService } from '../../core/toast/toast.service';
 import { newId } from '../../core/util/helpers';
 import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
@@ -94,6 +95,7 @@ export class ChatNodeComponent implements OnDestroy {
 
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
+  private readonly toast = inject(ToastService);
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
@@ -586,7 +588,7 @@ export class ChatNodeComponent implements OnDestroy {
       this.closeEditor();
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.saveFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -663,12 +665,12 @@ export class ChatNodeComponent implements OnDestroy {
       m => m.modelId === modelId || m.id === modelId
     );
     if (!model) {
-      alert(this.i18n.t('node.modelMissing'));
+      this.toast.error(this.i18n.t('node.modelMissing'));
       return;
     }
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
-      alert(this.i18n.t('node.providerMissing'));
+      this.toast.error(this.i18n.t('node.providerMissing'));
       return;
     }
 
@@ -705,7 +707,7 @@ export class ChatNodeComponent implements OnDestroy {
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
-      alert(this.i18n.t('node.failed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
     } finally {
       this.chatService.batchProgress.set(null);
       this.chatService.endOperation();
@@ -796,13 +798,13 @@ export class ChatNodeComponent implements OnDestroy {
       m => m.modelId === modelId || m.id === modelId
     );
     if (!model) {
-      alert(this.i18n.t('node.modelMissing'));
+      this.toast.error(this.i18n.t('node.modelMissing'));
       return null;
     }
 
     const provider = this.settings.providers().find(p => p.id === model.providerId);
     if (!provider) {
-      alert(this.i18n.t('node.providerMissing'));
+      this.toast.error(this.i18n.t('node.providerMissing'));
       return null;
     }
 
@@ -821,7 +823,7 @@ export class ChatNodeComponent implements OnDestroy {
       await work();
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.failed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -1023,7 +1025,7 @@ export class ChatNodeComponent implements OnDestroy {
       if (result.error?.status === 'error' && scenes.length === 0) {
         const reason = result.error.reason ?? '';
         if (/image model/i.test(reason)) {
-          alert(this.i18n.t('node.imageModelMissing'));
+          this.toast.error(this.i18n.t('node.imageModelMissing'));
           return;
         }
         throw new Error(reason || this.i18n.t('node.imageEmpty'));
@@ -1077,13 +1079,13 @@ export class ChatNodeComponent implements OnDestroy {
         // (same as `illustrate`).
         const reply = (scenes[0]?.content ?? '').trim()
           || (result.text?.value ?? '').trim();
-        alert(reply
+        this.toast.error(reply
           ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
           : this.i18n.t('node.imageEmpty'));
       }
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -1164,7 +1166,7 @@ export class ChatNodeComponent implements OnDestroy {
       const candidate = answers[0] ?? this.chatService.getChildren(pressed.id)
         .find(c => c.role === 'assistant');
       if (!candidate) {
-        alert(this.i18n.t('node.imageNoChapter'));
+        this.toast.error(this.i18n.t('node.imageNoChapter'));
         return;
       }
       chapter = candidate;
@@ -1183,7 +1185,7 @@ export class ChatNodeComponent implements OnDestroy {
       }
     }
     if (!defaultModel || !defaultProvider) {
-      alert(this.i18n.t('node.imageModelMissing'));
+      this.toast.error(this.i18n.t('node.imageModelMissing'));
       return;
     }
 
@@ -1315,15 +1317,21 @@ export class ChatNodeComponent implements OnDestroy {
       const imagesTotal = plan.summary.imagesTotal;
       if (imagesTotal === 0) {
         // Everything was refused — the refused-prompt attachments were saved
-        // above so the prompts stay findable; still inform the user.
-        const reply = result.text?.value?.trim() ?? '';
-        alert(reply
+        // above so the prompts stay findable; still inform the user. Prefer
+        // the model's own refusal reply: it lives on the refused scenes'
+        // `content` (storyboard-direct does NOT fill `result.text`), falling
+        // back to the generic empty message (UX playbook §8: the user sees
+        // the reason, not a generic failure).
+        const refusedReply = (result.storyboard?.value ?? [])
+          .find(s => (s.content ?? '').trim())?.content?.trim() ?? '';
+        const reply = result.text?.value?.trim() ?? refusedReply;
+        this.toast.error(reply
           ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
           : this.i18n.t('node.imageEmpty'));
       } else if (count > 1 && imagesTotal < count) {
         // Storyboard partially completed — keep what was generated, tell the
         // user how many scenes came back.
-        alert(this.i18n.t('node.imagePartial', {
+        this.toast.info(this.i18n.t('node.imagePartial', {
           got: imagesTotal,
           want: count
         }));
@@ -1331,7 +1339,7 @@ export class ChatNodeComponent implements OnDestroy {
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
-      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -1588,7 +1596,7 @@ export class ChatNodeComponent implements OnDestroy {
       return true;
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.failed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
       return false;
     } finally {
       this.isLoading.set(false);
@@ -1663,7 +1671,7 @@ export class ChatNodeComponent implements OnDestroy {
       ? this.settings.providers().find(p => p.id === model.providerId)
       : null;
     if (!model || !provider) {
-      alert(this.i18n.t('node.structureModelMissing'));
+      this.toast.error(this.i18n.t('node.structureModelMissing'));
       return;
     }
 
@@ -1688,7 +1696,7 @@ export class ChatNodeComponent implements OnDestroy {
       if (structureNodeId) this.activate.emit(structureNodeId);
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.structureFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.structureFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -1712,7 +1720,7 @@ export class ChatNodeComponent implements OnDestroy {
 
     const text = this.contentDraft().trim();
     if (!text) {
-      alert(this.i18n.t('node.englishEmpty'));
+      this.toast.error(this.i18n.t('node.englishEmpty'));
       return;
     }
 
@@ -1731,7 +1739,7 @@ export class ChatNodeComponent implements OnDestroy {
         : null;
     }
     if (!model || !provider) {
-      alert(this.i18n.t('node.englishModelMissing'));
+      this.toast.error(this.i18n.t('node.englishModelMissing'));
       return;
     }
 
@@ -1757,7 +1765,7 @@ export class ChatNodeComponent implements OnDestroy {
       }
       const variants = this.parseEnglishVariants(slots.text?.value ?? '');
       if (variants.length === 0) {
-        alert(this.i18n.t('node.englishFailed', {
+        this.toast.error(this.i18n.t('node.englishFailed', {
           error: this.i18n.t('node.englishNoVariants')
         }));
         return;
@@ -1765,7 +1773,7 @@ export class ChatNodeComponent implements OnDestroy {
       this.englishSuggestions.set(variants);
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.englishFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.englishFailed', { error: err?.message || err }));
     } finally {
       this.checkingEnglish.set(false);
     }
@@ -1800,7 +1808,7 @@ export class ChatNodeComponent implements OnDestroy {
     const draft = this.contentDraft();
     const fragment = draft.slice(s, e);
     if (!fragment.trim()) {
-      alert(this.i18n.t('node.rewriteNoSelection'));
+      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
       return;
     }
 
@@ -1854,16 +1862,16 @@ export class ChatNodeComponent implements OnDestroy {
     const contentEl = this.readContent()?.nativeElement;
     const selection = window.getSelection();
     if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-      alert(this.i18n.t('node.rewriteNoSelection'));
+      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
       return;
     }
     if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
-      alert(this.i18n.t('node.rewriteNoSelection'));
+      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
       return;
     }
     const fragment = selection.toString();
     if (!fragment.trim()) {
-      alert(this.i18n.t('node.rewriteNoSelection'));
+      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
       return;
     }
 
@@ -1893,7 +1901,7 @@ export class ChatNodeComponent implements OnDestroy {
     const newContent = loc
       ? source.slice(0, loc.index) + result + source.slice(loc.index + loc.length)
       : appendRewriteFallback(source, result);
-    if (!loc) alert(this.i18n.t('node.rewriteAppended'));
+    if (!loc) this.toast.info(this.i18n.t('node.rewriteAppended'));
 
     this.isLoading.set(true);
     this.pendingAction.set('version');
@@ -1917,7 +1925,7 @@ export class ChatNodeComponent implements OnDestroy {
       this.activate.emit(saved.id);
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.saveFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -1948,12 +1956,12 @@ export class ChatNodeComponent implements OnDestroy {
     const selection = window.getSelection();
     if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0 ||
         !contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
-      alert(this.i18n.t('node.createImageNoSelection'));
+      this.toast.error(this.i18n.t('node.createImageNoSelection'));
       return;
     }
     const script = selection.toString();
     if (!script.trim()) {
-      alert(this.i18n.t('node.createImageNoSelection'));
+      this.toast.error(this.i18n.t('node.createImageNoSelection'));
       return;
     }
 
@@ -1969,7 +1977,7 @@ export class ChatNodeComponent implements OnDestroy {
       }
     }
     if (!defaultModel || !defaultProvider) {
-      alert(this.i18n.t('node.imageModelMissing'));
+      this.toast.error(this.i18n.t('node.imageModelMissing'));
       return;
     }
 
@@ -1990,7 +1998,7 @@ export class ChatNodeComponent implements OnDestroy {
       .filter(Boolean)
       .join('\n\n');
     if (!prompt.trim() && result.images.length === 0) {
-      alert(this.i18n.t('createImageDialog.empty'));
+      this.toast.error(this.i18n.t('createImageDialog.empty'));
       return;
     }
 
@@ -2023,7 +2031,7 @@ export class ChatNodeComponent implements OnDestroy {
       if (slots.error?.status === 'error' && scenes.length === 0) {
         const reason = slots.error.reason ?? '';
         if (/image model/i.test(reason)) {
-          alert(this.i18n.t('node.imageModelMissing'));
+          this.toast.error(this.i18n.t('node.imageModelMissing'));
           return;
         }
         throw new Error(reason || this.i18n.t('node.imageEmpty'));
@@ -2057,13 +2065,13 @@ export class ChatNodeComponent implements OnDestroy {
         // prompt stays findable; still inform the user.
         const reply = (scenes[0]?.content ?? '').trim()
           || (slots.text?.value ?? '').trim();
-        alert(reply
+        this.toast.error(reply
           ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
           : this.i18n.t('node.imageEmpty'));
       }
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.imageFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
@@ -2103,7 +2111,7 @@ export class ChatNodeComponent implements OnDestroy {
       ? this.chatService.nodes().find(n => n.id === node.parentId)
       : undefined;
     if (!question || question.role !== 'user') {
-      alert(this.i18n.t('node.regenerateNoParent'));
+      this.toast.error(this.i18n.t('node.regenerateNoParent'));
       return;
     }
 
@@ -2179,7 +2187,7 @@ export class ChatNodeComponent implements OnDestroy {
       }
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.removeFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.removeFailed', { error: err?.message || err }));
     }
   }
 
@@ -2224,7 +2232,7 @@ export class ChatNodeComponent implements OnDestroy {
       await this.chatService.ensureDraftUnderUserLeaf(chatId);
     } catch (err: any) {
       console.error(err);
-      alert(this.i18n.t('node.deleteFailed', { error: err?.message || err }));
+      this.toast.error(this.i18n.t('node.deleteFailed', { error: err?.message || err }));
     }
   }
 

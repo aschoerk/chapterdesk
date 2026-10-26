@@ -107,11 +107,34 @@
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   min-width: 0;
   padding-left: 0.75rem;
 }
 
-.now-chat {
+.nav-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #e5e5e5);
+  background: transparent;
+  color: var(--text-muted, #666);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-family, system-ui, sans-serif);
+}
+
+.nav-help:hover {
+  background: var(--bg-hover, #f0f0f0);
+  color: var(--text, #111);
+}
+
+.nav-right .now-chat {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-muted, #666);

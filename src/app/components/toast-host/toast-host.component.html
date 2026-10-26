@@ -1,0 +1,16 @@
+@if (toast.toasts().length) {
+  <div class="toast-viewport" role="region" aria-label="Notifications">
+    @for (t of toast.toasts(); track t.id) {
+      <div class="toast" [class.toast-error]="t.kind === 'error'"
+                         [class.toast-success]="t.kind === 'success'"
+                         [class.toast-info]="t.kind === 'info'"
+                         role="status">
+        <span class="toast-text">{{ t.text }}</span>
+        <button type="button" class="toast-close"
+                [title]="i18n.t('toast.dismissTitle')"
+                [attr.aria-label]="i18n.t('toast.dismissTitle')"
+                (click)="toast.dismiss(t.id)">&times;</button>
+      </div>
+    }
+  </div>
+}

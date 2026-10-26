@@ -26,7 +26,6 @@ import {
   nodeFor,
   clickNodeActionOn,
   selectNodeText,
-  captureAlerts,
   illustrateOn,
   expectImageThumbsOn,
   confirmCreateImage,
@@ -139,16 +138,18 @@ test('UC14 image-send — marked text sent AS-IS, picture attached to the chapte
 // Refusal / zero-image error paths
 // ---------------------------------------------------------------------------
 
-test('UC1 refused — moderation refusal keeps the prompt, shows the empty alert', async ({
+test('UC1 refused — moderation refusal keeps the prompt, shows the empty toast', async ({
   page,
 }) => {
   await freshChapter(page);
   await mockLlm(page, { refusal: 'Cannot create this picture.' });
-  const alerts = captureAlerts(page);
   await illustrateOn(page, ANSWER, { count: 2, mode: 'direct' });
   // Nothing produced → the refused prompt record is kept, no thumbnails.
   await expect(nodeFor(page, ANSWER).locator('.chip .name').first()).toContainText('refused-prompt-1.txt');
   await expect(nodeFor(page, ANSWER).locator('.chip img.thumb')).toHaveCount(0);
-  await page.waitForTimeout(300);
-  expect(alerts.some(a => /no picture|refused/i.test(a))).toBe(true);
+  // Non-modal toast surfaces the refusal reason (UX playbook §8) — no
+  // blocking native alert.
+  const toast = page.locator('.toast-error');
+  await expect(toast).toContainText(/no picture/i);
+  await expect(toast).toContainText(/cannot create this picture/i);
 });

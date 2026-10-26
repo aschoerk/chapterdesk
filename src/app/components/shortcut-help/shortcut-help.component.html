@@ -1,0 +1,38 @@
+@if (service.open()) {
+  <div class="shortcut-backdrop" (click)="service.close()">
+    <div
+      class="shortcut-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcut-help-title"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="shortcut-head">
+        <h3 id="shortcut-help-title">{{ i18n.t('shortcuts.title') }}</h3>
+        <p class="shortcut-intro">{{ i18n.t('shortcuts.intro') }}</p>
+      </div>
+
+      <div class="shortcut-body">
+        @for (g of groups(); track g.title) {
+          <section class="shortcut-group">
+            <h4>{{ g.title }}</h4>
+            <table class="shortcut-table">
+              @for (row of g.rows; track row.label) {
+                <tr>
+                  <td class="shortcut-keys"><kbd>{{ row.keys }}</kbd></td>
+                  <td class="shortcut-label">{{ row.label }}</td>
+                </tr>
+              }
+            </table>
+          </section>
+        }
+      </div>
+
+      <div class="shortcut-actions">
+        <button type="button" class="btn" (click)="service.close()">
+          {{ i18n.t('shortcuts.close') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

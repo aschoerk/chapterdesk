@@ -80,12 +80,18 @@
     }
   </div>
 
-  @if (currentChatTitle()) {
-    <div class="nav-right">
+  <div class="nav-right">
+    <button
+      type="button"
+      class="nav-help"
+      [title]="i18n.t('nav.helpTitle')"
+      [attr.aria-label]="i18n.t('nav.helpTitle')"
+      (click)="openHelp()">?</button>
+    @if (currentChatTitle()) {
       <span
         class="now-chat"
         [title]="i18n.t('nav.currentChat', { title: currentChatTitle() })"
       >{{ currentChatTitle() }}</span>
-    </div>
-  }
+    }
+  </div>
 </nav>

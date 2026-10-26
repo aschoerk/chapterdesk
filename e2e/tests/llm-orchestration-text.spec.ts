@@ -36,7 +36,6 @@ import {
   openEditorOn,
   clickChatToolbarAction,
   acceptConfirmDialog,
-  captureAlerts,
   selectNodeText,
   expectImageThumbsOn,
   illustrateOn,
@@ -279,14 +278,13 @@ test('UC21 send-chapter-descriptions — branches a sibling question with the li
   await expectNodeText(page, 'The First Evening');
 });
 
-test('UC1 storyboard-direct variant — "only got X of Y" alert when the batch comes back partial', async ({
+test('UC1 storyboard-direct variant — "only got X of Y" toast when the batch comes back partial', async ({
   page,
 }) => {
   await freshQA(page);
   await mockLlm(page, { images: 1 }); // batch returns 1 of 3 → stops, no fallback
-  const alerts = captureAlerts(page);
   await illustrateOn(page, ANSWER, { count: 3, mode: 'direct' });
   await expectImageThumbsOn(page, ANSWER, 1);
-  await page.waitForTimeout(200);
-  expect(alerts.some(a => a.includes('pictures were created'))).toBe(true);
+  // Non-modal info toast reports the partial storyboard (UX playbook §8).
+  await expect(page.locator('.toast')).toContainText(/only 1 of 3 pictures were created/i);
 });

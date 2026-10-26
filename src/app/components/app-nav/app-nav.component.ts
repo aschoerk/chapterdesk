@@ -3,6 +3,7 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { EnvironmentService } from '../../core/settings/environment.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ChatService } from '../../core/chat/chat.service';
+import { ShortcutHelpService } from '../../core/dialogs/shortcut-help.service';
 import { APP_VERSION } from '../../core/util/version';
 
 interface AppNavLink {
@@ -24,6 +25,12 @@ export class AppNavComponent {
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
   private readonly chatService = inject(ChatService);
+  private readonly shortcutHelp = inject(ShortcutHelpService);
+
+  /** Open the in-app keyboard-shortcut reference (UX playbook §7). */
+  openHelp(): void {
+    this.shortcutHelp.openDialog();
+  }
 
   readonly versionLabel = APP_VERSION;
 
