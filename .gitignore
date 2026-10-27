@@ -6,6 +6,9 @@
 /out-tsc
 /bazel-out
 
+# Docs site (MkDocs build output — only the source in /docs is committed)
+/site
+
 # Node
 /node_modules
 /chat-server/node_modules

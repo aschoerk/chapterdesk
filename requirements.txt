@@ -1,0 +1,4 @@
+# Python dependencies for building the documentation site with MkDocs.
+# Used by the GitHub Actions workflow (.github/workflows/docs.yml) and for
+# local previews: `pip install -r requirements.txt && mkdocs serve`
+mkdocs-material

@@ -1,0 +1,72 @@
+# MkDocs configuration for the ChapterDesk documentation site.
+# Docs source: ./docs — build: `mkdocs build` — preview: `mkdocs serve`
+#
+# Fill these in once you know the published URL / repo:
+# site_url: https://<your-username>.github.io/chapterly/
+# repo_url: https://github.com/<your-username>/chapterly
+
+site_name: ChapterDesk
+site_description: A local writing studio for scene-by-scene story work with language models.
+
+theme:
+  name: material
+  # Developer-centric Material look, with automatic dark mode.
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.integrate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - User Manual:
+    - Manuals: manuals/index.md
+    - Getting Started: manuals/manual-welcome.md
+    - Write Your First Chapter: manuals/manual-new-story.md
+    - Read Your Story as a Book: manuals/manual-reader.md
+    - Books (Environments) and Moving Stories: manuals/manual-environments.md
+    - Organize with Topics: manuals/manual-topics.md
+    - Personas: manuals/manual-personas.md
+    - Continuations and the Navigation Bar: manuals/manual-continuations.md
+    - Section Actions and the Context Menu: manuals/manual-node-actions.md
+    - Illustrate Your Chapters: manuals/manual-illustrate.md
+    - Delete and Restore Sections: manuals/manual-trash.md
+    - Settings: manuals/manual-settings.md
+  - Developer Docs:
+    - LLM Orchestration Test Plans: llm-orchestration/test-plans.md
+    - LLM Orchestration Manual Testing: llm-orchestration/manual-testing.md
+    - UX Playbooks: ux-playbooks.md
