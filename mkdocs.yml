@@ -68,6 +68,10 @@ nav:
     - Illustrate Your Chapters: manuals/manual-illustrate.md
     - Delete and Restore Sections: manuals/manual-trash.md
     - Settings: manuals/manual-settings.md
+  - Video Guides:
+    - Provider & Model Setup: videos/provider-model-setup.md
+    - Chapter Headings and Elaboration: videos/chapter-headings-and-elaboration.md
+    - Create a Topic, Environment and Story: videos/create-topic-environment-story.md
   - Developer Docs:
     - LLM Orchestration Test Plans: llm-orchestration/test-plans.md
     - LLM Orchestration Manual Testing: llm-orchestration/manual-testing.md
