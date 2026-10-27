@@ -14,6 +14,15 @@ model drafts the beat; you decide what happens next.
 
 ---
 
+## Documentation
+
+Looking for the searchable manual with screenshots and walkthrough videos?
+The full docs site lives at
+**[https://aschoerk.github.io/chapterdesk/](https://aschoerk.github.io/chapterdesk/)**.
+
+This wiki is a mirror of the same manual — everything linked below is also
+there, with search.
+
 ## Start here
 
 New to ChapterDesk? Begin with these:

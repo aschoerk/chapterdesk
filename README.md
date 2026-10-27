@@ -183,7 +183,11 @@ Tone for this topic
 
 ## Learn more
 
-Full getting-started guide and detailed feature pages live in the [Wiki](https://github.com/aschoerk/chapterdesk/wiki):
+The searchable documentation site — the full user manual, walkthrough videos,
+and developer docs — is published at
+**[https://aschoerk.github.io/chapterdesk/](https://aschoerk.github.io/chapterdesk/)**.
+
+The getting-started guide and detailed feature pages are also mirrored in the [Wiki](https://github.com/aschoerk/chapterdesk/wiki):
 
 - [Getting Started with ChapterDesk](https://github.com/aschoerk/chapterdesk/wiki/welcome)
 - [Organize with topics](https://github.com/aschoerk/chapterdesk/wiki/topics)
