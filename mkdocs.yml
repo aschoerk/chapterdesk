@@ -6,6 +6,10 @@ site_description: A local writing studio for scene-by-scene story work with lang
 site_url: https://aschoerk.github.io/chapterdesk/
 repo_url: https://github.com/aschoerk/chapterdesk
 
+# Fail the build on any warning (missing nav files, dead links, etc.) instead
+# of silently publishing an incomplete site.
+strict: true
+
 theme:
   name: material
   # Developer-centric Material look, with automatic dark mode.

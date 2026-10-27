@@ -42,7 +42,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Build the site
-        run: mkdocs build
+        run: mkdocs build --strict
 
       - name: Upload the built site
         uses: actions/upload-pages-artifact@v3
