@@ -10,7 +10,7 @@ view instead of the prompt.
 ChapterDesk is for **steering stories** — not for claiming authorship. The
 model drafts the beat; you decide what happens next.
 
-![ChapterDesk — the steering view](../assets/screenshots/steering-view.png)
+![ChapterDesk — the steering view](./assets/screenshots/steering-view.png)
 
 ---
 
