@@ -43,9 +43,6 @@ yarn-error.log
 /coverage/
 /.e2e-coverage-raw/
 
-# Generated user-manual output (regenerated via `npm run docs:manual`)
-/docs/manuals/
-
 # GitHub-wiki export staging area (regenerated via `npm run docs:manual:wiki`)
 /.wiki-stage/
 
