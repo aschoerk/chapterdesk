@@ -37,6 +37,12 @@ The [User Manual](./manuals/index.md) walks you through every part of the app:
 - [Illustrate Your Chapters](./manuals/manual-illustrate.md)
 - [Settings](./manuals/manual-settings.md) — appearance, providers, tasks, prompts
 
+Short walkthrough videos:
+
+- [Provider & Model Setup](./videos/provider-model-setup.md)
+- [Chapter Headings and Elaboration](./videos/chapter-headings-and-elaboration.md)
+- [Create a Topic, Environment and Story](./videos/create-topic-environment-story.md)
+
 ## For developers
 
 - [LLM Orchestration Test Plans](./llm-orchestration/test-plans.md) — the use
