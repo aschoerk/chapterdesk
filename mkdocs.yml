@@ -1,12 +1,10 @@
 # MkDocs configuration for the ChapterDesk documentation site.
 # Docs source: ./docs — build: `mkdocs build` — preview: `mkdocs serve`
-#
-# Fill these in once you know the published URL / repo:
-# site_url: https://<your-username>.github.io/chapterly/
-# repo_url: https://github.com/<your-username>/chapterly
 
 site_name: ChapterDesk
 site_description: A local writing studio for scene-by-scene story work with language models.
+site_url: https://aschoerk.github.io/chapterdesk/
+repo_url: https://github.com/aschoerk/chapterdesk
 
 theme:
   name: material

@@ -8,7 +8,7 @@
 #   Repository → Settings → Pages → Build and deployment → Source: "GitHub Actions"
 #
 # The site then lives at:
-#   https://<your-username>.github.io/<repository>/
+#   https://aschoerk.github.io/chapterdesk/
 name: Deploy docs to GitHub Pages
 
 on:
