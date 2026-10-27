@@ -32,6 +32,7 @@
 
   <p class="hint">{{ i18n.t('logs.hint') }}</p>
   <p class="log-size-note">{{ i18n.t('logs.sizeLimitHint') }}</p>
+  <p class="log-size-note">{{ i18n.t('logs.resendHint') }}</p>
 
   @if (entries().length === 0) {
     <p class="empty">{{ i18n.t('logs.empty') }}</p>
@@ -70,12 +71,24 @@
       </div>
 
       <div class="card-body log-summary">
-        @let usage = usageLine(entry);
-        <code>{{ entry.summary }}</code>
-        @if (usage !== '') {
-          <div class="log-usage">
-            <span class="log-usage-label">{{ i18n.t('logs.usage') }}:</span>
-            <code>{{ usage }}</code>
+        <div class="log-summary-main">
+          @let usage = usageLine(entry);
+          <code>{{ entry.summary }}</code>
+          @if (usage !== '') {
+            <div class="log-usage">
+              <span class="log-usage-label">{{ i18n.t('logs.usage') }}:</span>
+              <code>{{ usage }}</code>
+            </div>
+          }
+        </div>
+        @if (canResend(entry)) {
+          <div class="log-resend">
+            <button type="button" class="btn small"
+                    [disabled]="isResending(entry.seq)"
+                    [title]="i18n.t('logs.resendTitle')"
+                    (click)="editAndResend(entry); $event.stopPropagation()">
+              {{ isResending(entry.seq) ? i18n.t('logs.resending') : i18n.t('logs.resend') }}
+            </button>
           </div>
         }
       </div>

@@ -33,6 +33,12 @@ export class IllustrateDialogComponent {
   readonly count = signal(1);
   readonly style = signal('');
   readonly storyboardPrompt = signal('');
+  /**
+   * The scene to depict. Pre-filled with the MARKED part of the node content
+   * when the user selected one before opening the dialog; editable. When left
+   * empty the whole node content is used as the scene (the classic behavior).
+   */
+  readonly sceneText = signal('');
   readonly modelId = signal('');
   readonly providerId = signal('');
   readonly historyMode = signal<IllustrateHistoryMode>('single');
@@ -85,6 +91,7 @@ export class IllustrateDialogComponent {
       this.count.set(s.count);
       this.style.set(s.style);
       this.storyboardPrompt.set(s.storyboardPrompt);
+      this.sceneText.set(s.sceneText ?? '');
       this.modelId.set(s.modelId);
       this.providerId.set(s.providerId);
       this.historyMode.set(s.historyMode);
@@ -143,6 +150,9 @@ export class IllustrateDialogComponent {
   submit(): void {
     const usecase = this.usecase();
     this.dialog.submit({
+      // The marked part of the node (editable); empty = the whole node
+      // content becomes the scene.
+      sceneText: this.sceneText(),
       count: this.count(),
       style: this.style(),
       storyboardPrompt: this.storyboardPrompt(),

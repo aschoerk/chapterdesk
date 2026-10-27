@@ -20,16 +20,16 @@ participant "ChatService" as SVC
 participant "Provider\n(proxy)" as NET
 
 == 1. Dialog picks the use case ==
-User -> DLG : count(>1), planDescriptions OFF, style, storyboard rules
+User -> DLG : count(>1), planDescriptions OFF, style, storyboard rules,\nscene = the MARKED part of the chapter (editable; empty = whole chapter)
 DLG --> UI : options
 UI -> UI : pickUsecase(vars) → 'storyboard-direct'\nbeginOperation('illustrate') → Stop ends the use case
 note over UI, RUN
-  vars carry count, style, storyboardPrompt,\ncontent (scene text), modelId, providerId.
+  vars carry count, style, storyboardPrompt,\ncontent (marked scene text, else the whole chapter),\nmodelId, providerId.
 end note
 
 == 2. Run: env built once per run ==
 UI -> RUN : runner.run(chat, node, usecase, vars)
-RUN -> RUN : resolveImageModel(modelId, providerId)\ninstruction = styled task prompt\ncontextMessages = text-only chat up to node\nanchor = instruction + node text\nimageExtras (stream:false)
+RUN -> RUN : resolveImageModel(modelId, providerId)\ninstruction = styled task prompt\ncontextMessages = text-only chat up to node\nanchor = instruction + node text\n(the node text = the MARKED scene text when one was\ngiven in the dialog, else the whole chapter content)\nimageExtras (stream:false)
 RUN --> UC : controllerFor('storyboard-direct')(env)
 
 == 3. Controller: one render request ==

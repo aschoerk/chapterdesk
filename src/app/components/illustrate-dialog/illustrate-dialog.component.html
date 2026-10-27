@@ -88,7 +88,20 @@
         <small class="ill-hint">{{ i18n.t('illustrateDialog.countHint') }}</small>
       </label>
 
-      <!-- 4. Story text to use — current text / last N beats / all text. -->
+      <!-- 4. Scene to depict — the marked part of the node (editable).
+           Empty = the whole node content is the scene. -->
+      <label class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.sceneLabel') }}</span>
+        <textarea
+          rows="3"
+          [ngModel]="sceneText()"
+          (ngModelChange)="sceneText.set($event)"
+          [placeholder]="i18n.t('illustrateDialog.scenePh')"
+        ></textarea>
+        <small class="ill-hint">{{ i18n.t('illustrateDialog.sceneHint') }}</small>
+      </label>
+
+      <!-- 5. Story text to use — current text / last N beats / all text. -->
       <fieldset class="ill-radio-group">
         <legend>{{ i18n.t('illustrateDialog.contextModeLabel') }}</legend>
         <label class="ill-radio">

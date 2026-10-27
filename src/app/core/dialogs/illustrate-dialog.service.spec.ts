@@ -74,6 +74,7 @@ describe('IllustrateDialogService', () => {
     });
 
     await expect(promise).resolves.toEqual({
+      sceneText: '',
       count: 3,
       style: 'ink',
       storyboardPrompt: 'hide behind shadows',
@@ -184,6 +185,30 @@ describe('IllustrateDialogService', () => {
       storyboardHistoryNodes: 9,
       planDescriptions: true // pure mode forced planning back on
     });
+  });
+
+  it('returns the marked scene text on submit but never remembers it', async () => {
+    const promise = service.open({ sceneText: 'The old tower at dusk.' });
+    expect(service.current()?.sceneText).toBe('The old tower at dusk.');
+
+    service.submit({
+      count: 1, style: '', storyboardPrompt: '', purePictures: false,
+      modelId: '', providerId: '', historyMode: 'single',
+      historyNodes: 4, storyboardHistoryNodes: 4, planDescriptions: true,
+      sceneText: 'The old tower at dusk.'
+    });
+
+    // The caller receives the marked scene text …
+    await expect(promise).resolves.toMatchObject({ sceneText: 'The old tower at dusk.' });
+    // … but it is NOT remembered (a stale mark must not seed the next open).
+    expect(service.last().sceneText).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(LS_KEY) ?? '{}')).not.toHaveProperty('sceneText');
+
+    // A subsequent open() starts with an empty scene field.
+    const again = service.open();
+    expect(service.current()?.sceneText).toBeUndefined();
+    service.cancel();
+    await again;
   });
 
   it('restores persisted options on construction', () => {

@@ -135,11 +135,28 @@
   border: 1px solid var(--border, #e5e5e5);
 }
 
+.log-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.log-summary-main {
+  min-width: 0;
+}
+
 .log-summary code {
   font-size: 0.78rem;
   color: var(--text-muted, #555);
   word-break: break-word;
   white-space: pre-wrap;
+}
+
+/* Edit & resend action on the right of the summary line. */
+.log-resend {
+  flex-shrink: 0;
+  margin-top: -0.2rem;
 }
 
 /* Token usage reported by the provider — the entry's second line. */

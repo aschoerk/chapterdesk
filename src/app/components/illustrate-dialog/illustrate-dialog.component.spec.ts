@@ -84,6 +84,7 @@ describe('IllustrateDialogComponent', () => {
     fixture.detectChanges();
 
     await expect(p).resolves.toEqual({
+      sceneText: '',
       count: 2,
       style: 'comic style',
       storyboardPrompt: 'no explicit images',
@@ -437,5 +438,49 @@ describe('IllustrateDialogComponent', () => {
     component.onDocumentKey({ key: 'Escape', preventDefault } as unknown as KeyboardEvent);
     expect(preventDefault).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
+  });
+
+  it('shows an empty "Scene to depict" textarea when nothing is marked', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Scene to depict');
+    const textareas = fixture.nativeElement.querySelectorAll('.ill-field textarea') as NodeListOf<HTMLTextAreaElement>;
+    // The scene-text field sits BEFORE the additional-rules textarea.
+    expect(textareas[0]).not.toBeNull();
+    expect(component.sceneText()).toBe('');
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('seeds the "Scene to depict" field with the marked text passed on open', async () => {
+    const p = dialog.open({ sceneText: 'The old tower at dusk.' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.sceneText()).toBe('The old tower at dusk.');
+    const sceneTa = fixture.nativeElement.querySelectorAll('.ill-field textarea')[0] as HTMLTextAreaElement;
+    expect(sceneTa.value).toBe('The old tower at dusk.');
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('submits the marked scene text (editable) and never remembers it', async () => {
+    const p = dialog.open({ sceneText: 'The old tower at dusk.' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The user adjusts the marked fragment before generating.
+    component.sceneText.set('The old tower at dusk, lantern in the window.');
+    component.submit();
+    fixture.detectChanges();
+
+    await expect(p).resolves.toMatchObject({
+      sceneText: 'The old tower at dusk, lantern in the window.'
+    });
+    // A stale mark is NOT remembered for the next dialog open.
+    expect(dialog.last().sceneText).toBeUndefined();
   });
 });

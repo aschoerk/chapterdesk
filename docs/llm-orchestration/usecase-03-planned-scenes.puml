@@ -18,12 +18,12 @@ participant "ChatService" as SVC
 participant "Provider\n(proxy)" as NET
 
 == 1. Dialog picks the use case ==
-User -> RUN : count(>1), planning ON,\nNOT singleCall/pure\n+ style, storyboard rules
+User -> RUN : count(>1), planning ON,\nNOT singleCall/pure\n+ style, storyboard rules\n+ scene = the MARKED part of the chapter\n(editable; empty = whole chapter)
 RUN -> RUN : pickUsecase(vars) → 'planned-scenes'
 
 == 2. Run: env ==
 RUN -> RUN : beginOperation('illustrate') → Stop ends the use case
-render + plan model resolution\n(contextMessages, anchor, imageExtras)
+render + plan model resolution\n(contextMessages, anchor = instruction + scene\n(marked text, else chapter), imageExtras)
 RUN --> UC : controllerFor('planned-scenes')(env)
 
 == 3. Step 1 — planning (SCENE template) ==

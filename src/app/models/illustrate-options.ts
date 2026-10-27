@@ -3,6 +3,16 @@
  * (last-used) so the next Illustrate starts from the previous configuration.
  */
 export interface IllustrateOptions {
+  /**
+   * The scene text to depict — normally the WHOLE content of the chapter
+   * node. When the user has MARKED a part of the node content before opening
+   * the dialog, that marked fragment is pre-filled here (editable in the
+   * dialog). Absent / empty = fall back to the full node content as the
+   * scene. Forwarded to every illustration use case via `vars.content`, so
+   * planned / direct / pure all depict exactly this text. NEVER remembered
+   * across dialog openings (each mark is a one-off scene, not a preference).
+   */
+  sceneText?: string;
   /** Number of scenes to render (1 = single picture, N>1 = storyboard). */
   count: number;
   /** Free-form style hint, e.g. "comic style, sketchy ink". Empty = none. */

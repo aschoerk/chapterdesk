@@ -138,6 +138,8 @@ e2e/
     topics-crud.spec.ts / projects-crud.spec.ts / personas-crud.spec.ts
     sidebar-chat-move.spec.ts         # move stories between books (buttons/drag)
     node-nav-bar.spec.ts / node-context-menu.spec.ts
+    chat-node-buttons.spec.ts         # all on-card node buttons (header/footer/editor)
+                                      #   across role × empty × leaf × sibling × version
     readonly-navigation.spec.ts       # the /read book view
     trash-usage.spec.ts               # soft-delete → restore / purge
     settings-appearance.spec.ts       # theme + language (localStorage)

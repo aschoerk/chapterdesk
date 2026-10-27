@@ -206,6 +206,9 @@ Support image generation and interpretation as optional enrichments, not interru
 
 ### Happy Path
 - From a chapter or selection: “Illustrate” or “Create image of selection”.
+- **Marking a part of a chapter and pressing “Illustrate” pre-fills the dialog’s
+  “Scene to depict” with that marked text — so the pictures show exactly the
+  marked moment, in every use case (planned / direct / pure).**
 - Planning step (optional) → render.
 - Images appear as thumbnails attached to the relevant section.
 - Vision models can interpret uploaded or generated images when needed.

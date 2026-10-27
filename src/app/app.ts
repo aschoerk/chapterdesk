@@ -5,6 +5,7 @@ import {ConfirmDialogComponent} from './components/confirm-dialog/confirm-dialog
 import {IllustrateDialogComponent} from './components/illustrate-dialog/illustrate-dialog.component';
 import {PrependDialogComponent} from './components/prepend-dialog/prepend-dialog.component';
 import {RewriteDialogComponent} from './components/rewrite-dialog/rewrite-dialog.component';
+import {ResendDialogComponent} from './components/resend-dialog/resend-dialog.component';
 import {CreateImageDialogComponent} from './components/create-image-dialog/create-image-dialog.component';
 import {ChapterDescriptionsDialogComponent} from './components/chapter-descriptions-dialog/chapter-descriptions-dialog.component';
 import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox.component';
@@ -24,7 +25,7 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

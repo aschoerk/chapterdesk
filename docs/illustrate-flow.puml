@@ -22,13 +22,15 @@ note over UI
   - isGenerating(node) / isLoading → ignore (button disabled)
   - a chapter node can be illustrated directly;
     a direction node needs a current chapter child.
+  A MARKED part of the chapter content (text selection in the
+  read view or the editor) is captured as the scene to depict.
 end note
 alt on a direction (user node) without a current chapter
   UI -> UI : … no assistant child found
   UI -> User : alert "No chapter to attach to" (imageNoChapter)
   return (nothing happens)
 else on a chapter (assistant node) or direction WITH a chapter
-  UI -> UI : chapter = target assistant node;\nanchorText = node content (or composer draft);\ncontextParentId = parent branch
+  UI -> UI : chapter = target assistant node;\nanchorText = node content (or composer draft);\nmarkedText = selected fragment (else empty);\ncontextParentId = parent branch
 end
 
 == 2. Resolve the default rendering model ==
@@ -45,13 +47,13 @@ alt none found
 end
 
 == 3. Illustrate dialog (seeded + remembered) ==
-UI -> DLG : open({ modelId, providerId } = default model)
-DLG -> DLG : seed from last-used options;\ndefault model wins over a stale remembered one
+UI -> DLG : open({ modelId, providerId, sceneText = markedText })
+DLG -> DLG : seed from last-used options;\ndefault model wins over a stale remembered one;\n"Scene to depict" pre-filled with the marked text (editable)\n— empty means the WHOLE chapter is the scene
 alt user clicks Cancel
   DLG --> UI : null
   UI -> UI : return (nothing happens)
-else user confirms (count / style / storyboard rules /\nmode: pure picture, model)
-  DLG --> UI : {count, style, storyboardPrompt,\npurePictures, modelId, providerId}
+else user confirms (count / style / storyboard rules /\nmode: pure picture, model + scene text)
+  DLG --> UI : {count, style, storyboardPrompt,\npurePictures, modelId, providerId, sceneText}\n(the scene text is NOT remembered for the next open)
 end
 
 == 4. Resolve the model chosen in the dialog ==
@@ -70,7 +72,7 @@ UI -> UI : isLoading = true; pendingAction = 'image'
 == 5. Build the picture context + anchor ==
 UI -> UI : contextMessages = buildContextMessagesUpTo(contextParentId)\nmessages = textOnlyMessages(contextMessages)
 UI -> UI : instruction = image-create prompt (or default)\nstyled = instruction + "\\n\\nStyle: …" if a style was chosen
-UI -> UI : anchor = styled instruction + "… to illustrate:\\n" + scene text
+UI -> UI : scene = sceneText (marked part, edited in dialog)\nelse whole chapter content\nanchor = styled instruction + "… to illustrate:\\n" + scene
 alt chosen model canInterpretImages AND prior illustrations exist
   UI -> UI : append prior images as image_url parts (max 4)
 else

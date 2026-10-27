@@ -82,6 +82,7 @@ export class IllustrateDialogService {
   /** Confirm: remember + resolve with the chosen options. */
   submit(options: IllustrateOptions): void {
     const clamped: IllustrateOptions = {
+      sceneText: (options.sceneText ?? '').trim(),
       count: clampIllustrateCount(options.count),
       style: (options.style || '').trim(),
       storyboardPrompt: (options.storyboardPrompt || '').trim(),
@@ -95,8 +96,14 @@ export class IllustrateDialogService {
       // must never reach the image model), so planning is forced back on.
       planDescriptions: options.purePictures ? true : (options.planDescriptions !== false)
     };
-    this.last.set(clamped);
-    persist(clamped);
+    // The scene text (the marked part of the node) IS returned to the caller
+    // as the scene override, but it is NOT remembered: a stale mark must
+    // never resurface as the scene on the next dialog open. The remembered /
+    // persisted options therefore drop it entirely.
+    const remembered: IllustrateOptions = { ...clamped };
+    delete remembered.sceneText;
+    this.last.set(remembered);
+    persist(remembered);
     this.modal.close(clamped);
   }
 

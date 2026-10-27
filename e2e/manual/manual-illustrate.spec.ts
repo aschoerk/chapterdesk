@@ -23,8 +23,9 @@ const QA = 'Describe the hero of the story.';
 const ANSWER = 'The hero is Ada, a lighthouse keeper.';
 
 test('Illustrate your chapters', async ({ page }) => {
-  // Call 1 = streamed writing answer; call 2 = the Illustrate image render.
-  await mockLlmScripts(page, [{ answer: [ANSWER] }, { images: 1 }]);
+  // Call 1 = streamed writing answer; call 2 = Illustrate (whole chapter);
+  // call 3 = Illustrate of a MARKED part.
+  await mockLlmScripts(page, [{ answer: [ANSWER] }, { images: 1 }, { images: 1 }]);
   const manual = newManual(page, 'manual-illustrate', 'Illustrate your chapters');
   let title = '';
 
@@ -55,6 +56,13 @@ test('Illustrate your chapters', async ({ page }) => {
       await expectImageThumbsOn(p, ANSWER, 1);
     },
     { waitAfter: 400, highlightTarget: nodeFor(page, ANSWER).locator('.chip img.thumb') },
+  );
+
+  await manual.step(
+    'Illustrate a marked part',
+    'Select a part of the chapter text and press **Illustrate** again: the dialog pre-fills **Scene to depict** with the marked text (editable). The picture then shows exactly that marked moment — in every use case (planned / direct / pure).',
+    (p) => illustrateOn(p, ANSWER, { count: 1, mode: 'direct', scene: 'a lighthouse keeper' }),
+    { waitAfter: 1500 },
   );
 
   await manual.generate();

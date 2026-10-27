@@ -1,0 +1,76 @@
+@if (dialog.current(); as d) {
+  <div
+    class="resend-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="resend-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="resend-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="resend-title">{{ i18n.t('resendDialog.title') }}</h3>
+      <p class="resend-hint">{{ i18n.t('resendDialog.hint') }}</p>
+
+      <div class="resend-meta">
+        @if (d.entry.chatTitle) {
+          <span class="resend-badge">{{ i18n.t('resendDialog.chat', { title: d.entry.chatTitle }) }}</span>
+        }
+        <span class="resend-badge">{{ d.entry.modelId }}</span>
+        <span class="resend-badge">{{ d.entry.provider }}</span>
+      </div>
+
+      @if (models().length > 0) {
+        <label class="resend-field resend-model">
+          <span>{{ i18n.t('resendDialog.modelLabel') }}</span>
+          <select [ngModel]="modelId()" (ngModelChange)="onModelChange($event)">
+            @for (model of models(); track model.modelId) {
+              <option [value]="model.modelId">{{ model.displayName }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      <div class="resend-messages">
+        @for (msg of messages(); track $index; let i = $index) {
+          <div class="resend-msg">
+            <div class="resend-msg-head">
+              <span class="resend-role">{{ msg.role }}</span>
+              <span class="resend-idx">{{ $index + 1 }}</span>
+              @if (preservedCount(msg) > 0) {
+                <span class="resend-parts" [title]="i18n.t('resendDialog.preservedTitle')">
+                  {{ i18n.t('resendDialog.preserved', { count: preservedCount(msg) }) }}
+                </span>
+              }
+            </div>
+            <textarea
+              rows="4"
+              [ngModel]="msg.text"
+              (ngModelChange)="onTextChange(i, $event)"
+              [placeholder]="i18n.t('resendDialog.messagePlaceholder')"
+            ></textarea>
+          </div>
+        }
+      </div>
+
+      @if (hasPreservedParts()) {
+        <p class="resend-preserved-hint">
+          {{ i18n.t('resendDialog.preservedHint', { count: preservedTotal() }) }}
+        </p>
+      }
+
+      <div class="resend-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('resendDialog.sendAgain') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

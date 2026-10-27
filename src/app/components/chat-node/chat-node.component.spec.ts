@@ -3444,6 +3444,146 @@ describe('ChatNodeComponent', () => {
       });
     });
 
+    it('seeds the dialog with a MARKED fragment and depicts only that marked part', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Mara folds the letter, then watches the conductor pass.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      createFixture(a1);
+      fixture.detectChanges();
+
+      // The user MARKED "the conductor" in the rendered chapter content.
+      const mark = 'the conductor';
+      const readEl = fixture.nativeElement.querySelector('.node-content') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 1,
+        anchorNode: readEl,
+        focusNode: readEl,
+        toString: () => mark,
+      } as unknown as Selection);
+
+      // The dialog confirms with the (editable) marked text as the scene.
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'single',
+        planDescriptions: true,
+        sceneText: mark,
+      });
+
+      await component.illustrate();
+      fixture.detectChanges();
+
+      // The mark seeded the dialog's "Scene to depict" field.
+      expect(illustrateDialog.open).toHaveBeenCalledWith({
+        modelId: 'alpha/model',
+        providerId: 'prov-1',
+        sceneText: mark,
+      });
+      // And the marked text (not the whole chapter) became the scene override,
+      // so ALL illustration use cases depict exactly that marked part.
+      const build = runner.run.mock.calls[0][0] as {
+        usecase?: string;
+        vars?: { content?: string };
+      };
+      expect(build.vars?.content).toBe(mark);
+    });
+
+    it('captures a MARKED fragment from the editor textarea while editing', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Mara folds the letter, then watches the conductor pass.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      createFixture(a1);
+      await startEditing(a1);
+      fixture.detectChanges();
+
+      // Mark "the conductor" inside the editor's textarea.
+      const start = a1.content!.indexOf('the conductor');
+      const end = start + 'the conductor'.length;
+      const ta = fixture.nativeElement.querySelector('.editor-textarea') as HTMLTextAreaElement;
+      ta.value = component.contentDraft();
+      ta.setSelectionRange(start, end);
+
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'single',
+        planDescriptions: true,
+        sceneText: 'the conductor',
+      });
+
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(illustrateDialog.open).toHaveBeenCalledWith({
+        modelId: 'alpha/model',
+        providerId: 'prov-1',
+        sceneText: 'the conductor',
+      });
+      const build = runner.run.mock.calls[0][0] as { vars?: { content?: string } };
+      expect(build.vars?.content).toBe('the conductor');
+    });
+
+    it('uses the whole chapter as the scene when nothing is marked', async () => {
+      const q1 = node({ id: 'q1', content: 'A direction.' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'The beam swings across the bay.',
+      });
+      await openChat([q1, a1]);
+
+      const generation = TestBed.inject(GenerationSettingsService);
+      generation.update('image-create', { providerId: 'prov-1', modelId: 'alpha/model' });
+
+      createFixture(a1);
+      fixture.detectChanges();
+
+      // No mark (jsdom selection is collapsed) and the dialog returns no
+      // sceneText → the whole chapter content is the scene (classic behavior).
+      illustrateDialog.open.mockResolvedValue({
+        count: 1,
+        style: '',
+        storyboardPrompt: '',
+        purePictures: false,
+        modelId: '',
+        providerId: '',
+        historyMode: 'single',
+        planDescriptions: true
+      });
+
+      await component.illustrate();
+      fixture.detectChanges();
+
+      expect(illustrateDialog.open).toHaveBeenCalledWith({
+        modelId: 'alpha/model',
+        providerId: 'prov-1'
+      });
+      const build = runner.run.mock.calls[0][0] as { vars?: { content?: string } };
+      expect(build.vars?.content).toBe('The beam swings across the bay.');
+    });
+
     it('uses the image model selected in the dialog instead of the default', async () => {
       // Enable a second, image-capable model to pick from.
       api.models.push(makeModel({

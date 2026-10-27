@@ -78,6 +78,17 @@ export async function setIllustrateStyle(page: Page, style: string): Promise<voi
     .fill(style);
 }
 
+/** Set the "Scene to depict" textarea (pre-filled with a marked fragment;
+ *  leave empty to use the whole chapter as the scene). */
+export async function setIllustrateScene(page: Page, scene: string): Promise<void> {
+  await page
+    .locator('.illustrate-dialog label.ill-field')
+    .filter({ hasText: 'Scene to depict' })
+    .first()
+    .locator('textarea')
+    .fill(scene);
+}
+
 /** Set the Additional rules textarea. */
 export async function setIllustrateStoryRules(page: Page, rules: string): Promise<void> {
   const field = page
@@ -108,6 +119,7 @@ export async function illustrate(
     windowCount?: number;
     style?: string;
     rules?: string;
+    scene?: string;
   } = { mode: 'direct' },
 ): Promise<void> {
   await openIllustrate(page, opts.nodeIndex ?? 1);
@@ -119,6 +131,7 @@ export async function illustrate(
   if (opts.windowCount !== undefined) await setIllustrateWindowCount(page, opts.windowCount);
   if (opts.style !== undefined) await setIllustrateStyle(page, opts.style);
   if (opts.rules !== undefined) await setIllustrateStoryRules(page, opts.rules);
+  if (opts.scene !== undefined) await setIllustrateScene(page, opts.scene);
   await confirmIllustrate(page);
 }
 
@@ -138,6 +151,7 @@ export async function illustrateOn(
   if (opts.windowCount !== undefined) await setIllustrateWindowCount(page, opts.windowCount);
   if (opts.style !== undefined) await setIllustrateStyle(page, opts.style);
   if (opts.rules !== undefined) await setIllustrateStoryRules(page, opts.rules);
+  if (opts.scene !== undefined) await setIllustrateScene(page, opts.scene);
   await confirmIllustrate(page);
 }
 

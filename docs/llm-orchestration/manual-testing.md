@@ -324,6 +324,7 @@ toolbar button with the matching name.
 | Model | select, first option **“Default (from settings) — {model}”**, then image models | which image model |
 | Use case | radio **“Plan descriptions first (text model)”** / **“Direct to image model”** / **“Pure picture mode (descriptions only)”** | → planned / direct (storyboard-direct) / pure (always plans) |
 | Number of pictures / scenes | number input (1..64) | `count` |
+| Scene to depict | textarea, pre-filled with the MARKED part of the chapter (editable); empty = whole chapter | `sceneText` → `vars.content` scene override for ALL use cases |
 | Story text to use | radio **“Current text only”** / **“Last beats up to this point”** (+ inline number, disabled until picked) / **“All story text up to this point”** | → render-node / render-window / render-full |
 | Additional rules | textarea (placeholder “Optional: extra instructions…”) | storyboard prompt |
 | Style | single-line input (placeholder “e.g. comic style, ink, watercolor…”) | style |
@@ -332,6 +333,12 @@ toolbar button with the matching name.
 > The dialog opens with the LAST used settings (memory per `chat.illustrateOptions.v1`).
 > All three “Use case” radios AND the “Story text to use” radios are always visible, even
 > for count=1.
+>
+> **Mark a part of the chapter first and then press Illustrate** — the marked text is
+> pre-filled into “Scene to depict” (editable) and becomes the scene for every use case
+> (planned / direct / pure). Leaving it empty uses the whole chapter, as before. The scene
+> text is never remembered across dialog openings (only the count / style / model / context
+> choices are).
 
 ### Other dialogs
 

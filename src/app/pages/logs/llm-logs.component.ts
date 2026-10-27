@@ -3,6 +3,9 @@ import { CommonModule } from '@angular/common';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
+import { ResendDialogService } from '../../core/dialogs/resend-dialog.service';
+import { LlmLogResendService, ResendResult } from '../../core/llm/llm-log-resend.service';
+import { ToastService } from '../../core/toast/toast.service';
 import { extractLlmImages } from '../../core/llm/llm-message';
 import { LlmLogService, LlmLogEntry, LlmLogMessage, LLM_LOG_LIMIT } from '../../core/llm/llm-log.service';
 
@@ -17,6 +20,9 @@ export class LlmLogsComponent implements OnDestroy {
   private readonly logs = inject(LlmLogService);
   private readonly confirm = inject(ConfirmService);
   private readonly lightbox = inject(LightboxService);
+  private readonly resendDialog = inject(ResendDialogService);
+  private readonly resend = inject(LlmLogResendService);
+  private readonly toast = inject(ToastService);
   readonly i18n = inject(I18nService);
 
   readonly entries = this.logs.entries;
@@ -33,6 +39,8 @@ export class LlmLogsComponent implements OnDestroy {
   /** Copy feedback: which copy button was pressed (flashes "Copied"). */
   readonly copied = signal<{ seq: number; which: 'body' | 'response' } | null>(null);
   private copiedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Seq of the entry currently being re-sent (button shows "Resending…"). */
+  readonly resending = signal<number | null>(null);
 
   constructor() {
     // Re-load on navigation into the page (in case new calls were logged).
@@ -369,5 +377,88 @@ export class LlmLogsComponent implements OnDestroy {
     this.expandedSeq.set(null);
     this.showBodyJson.set(null);
     this.showResponse.set(null);
+  }
+
+  /**
+   * A chat-completions entry with recorded messages AND a target chat can be
+   * edited + re-sent (image-endpoint entries and unattributable calls are
+   * not — there is no chat to add the response to).
+   */
+  canResend(e: LlmLogEntry): boolean {
+    return e.kind === 'chat'
+      && !!e.chatId
+      && (e.messages?.length ?? 0) > 0;
+  }
+
+  /** True while this entry is being re-sent (button shows "Resending…"). */
+  isResending(seq: number): boolean {
+    return this.resending() === seq;
+  }
+
+  /**
+   * "Edit & resend": open the dialog with the entry's editable messages +
+   * a model picker (defaulting to the model the call used), then send the
+   * edited request again. The response is written back to the chat it was
+   * made for: pictures attach to the illustrated chapter, a text answer
+   * replaces the created chapter, otherwise a new chapter is appended.
+   * Surfaces the outcome as a toast.
+   */
+  async editAndResend(e: LlmLogEntry): Promise<void> {
+    if (this.resending()) return;
+    const editable = this.resend.editableMessages(e);
+    const result = await this.resendDialog.open({
+      entry: e,
+      messages: editable,
+      models: this.resend.availableModels(),
+      modelId: this.resend.defaultModelId(e),
+    });
+    if (!result) return;
+
+    this.resending.set(e.seq);
+    try {
+      const out = await this.resend.resend(e, result.messages, {
+        modelId: result.modelId || undefined,
+      });
+      if (out.ok) {
+        const n = out.images ?? 0;
+        let text: string;
+        if (out.applied === 'replaced') {
+          text = this.i18n.t('logs.resendReplaced');
+        } else if (out.applied === 'attached') {
+          text = this.i18n.t('logs.resendAttached', { count: n });
+        } else {
+          text = n > 0
+            ? this.i18n.t('logs.resendAddedImages', { count: n })
+            : this.i18n.t('logs.resendAdded');
+        }
+        this.toast.success(text);
+      } else {
+        this.toast.error(this.resendFailureText(out));
+      }
+      // The re-sent call was recorded while we waited — show it.
+      await this.logs.refresh().catch(() => { /* non-fatal */ });
+    } catch (err) {
+      this.toast.error(
+        this.i18n.t('logs.resendError', {
+          message: String((err as Error)?.message ?? err ?? '')
+        })
+      );
+    } finally {
+      this.resending.set(null);
+    }
+  }
+
+  /** Human-readable failure text for a failed resend (already translated). */
+  private resendFailureText(out: ResendResult): string {
+    switch (out.reason) {
+      case 'model':
+        return this.i18n.t('logs.resendModelMissing');
+      case 'provider':
+        return this.i18n.t('logs.resendProviderMissing');
+      case 'chat':
+        return this.i18n.t('logs.resendNoChat');
+      default:
+        return this.i18n.t('logs.resendError', { message: out.message ?? '' });
+    }
   }
 }

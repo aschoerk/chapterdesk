@@ -21,13 +21,13 @@ participant "ChatService" as SVC
 participant "Provider\n(proxy)" as NET
 
 == 1. Dialog picks the use case ==
-User -> DLG : count(>1), planning ON, singleCall/pure\n+ style, storyboard rules
+User -> DLG : count(>1), planning ON, singleCall/pure\n+ style, storyboard rules\n+ scene = the MARKED part of the chapter\n(editable; empty = whole chapter)
 DLG --> UI : options
 UI -> UI : pickUsecase(vars) → 'planned-enblock'\nbeginOperation('illustrate') → Stop ends the use case
 
 == 2. Run: env ==
 UI -> RUN : runner.run(chat, node, 'planned-enblock', vars)
-RUN -> RUN : render = resolveImageModel(...)\nplan = resolvePlanModel(render, node)\n(plan = node's writing model → image-interpret task → render)
+RUN -> RUN : render = resolveImageModel(...)\nplan = resolvePlanModel(render, node)\n(plan = node's writing model → image-interpret task → render)\nanchor = instruction + scene (marked text, else chapter)
 RUN --> UC : controllerFor('planned-enblock')(env)
 
 == 3. Step 1 — planning (SHARED with use case 3) ==

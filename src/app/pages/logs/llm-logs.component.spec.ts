@@ -5,6 +5,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
+import { ResendDialogService } from '../../core/dialogs/resend-dialog.service';
+import { LlmLogResendService } from '../../core/llm/llm-log-resend.service';
+import { ToastService } from '../../core/toast/toast.service';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import { LlmLogsComponent } from './llm-logs.component';
 
@@ -13,13 +16,28 @@ describe('LlmLogsComponent', () => {
   let component: LlmLogsComponent;
   let logs: LlmLogService;
   let confirm: ConfirmService;
+  const resendStub = {
+    editableMessages: vi.fn(),
+    resend: vi.fn(),
+    availableModels: vi.fn(() => []),
+    defaultModelId: vi.fn(() => ''),
+  };
 
   beforeEach(async () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [LlmLogsComponent],
-      providers: [provideZonelessChangeDetection(), provideHttpClient()]
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: LlmLogResendService, useValue: resendStub }
+      ]
     }).compileComponents();
+
+    resendStub.editableMessages.mockReset();
+    resendStub.resend.mockReset();
+    resendStub.availableModels.mockReset().mockReturnValue([]);
+    resendStub.defaultModelId.mockReset().mockReturnValue('');
 
     TestBed.inject(I18nService).setLocale('en');
     logs = TestBed.inject(LlmLogService);
@@ -538,5 +556,229 @@ describe('LlmLogsComponent', () => {
     expect(component.formatCost(12.5)).toContain('12.50');
     expect(component.formatCost(0.05)).toContain('0.0500');
     expect(component.formatCost(0.000418)).toContain('0.000418');
+  });
+
+  // ------------------------------------------------------------------
+  // Edit & resend (replay an edited request into its chat)
+  // ------------------------------------------------------------------
+
+  it('offers Edit & resend only for chat entries with a chat id + messages', async () => {
+    logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', // no chatId
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    logs.record({
+      kind: 'image', modelId: 'x-ai/img', provider: 'https://p', chatId: 'chat-1', prompt: 'A castle',
+    });
+    await logs.flush();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const buttons = fixture.nativeElement.querySelectorAll('.log-resend button');
+    // Only the chat entry with a chat id + messages shows the button.
+    expect(buttons.length).toBe(1);
+    const list = logs.entries(); // newest-first
+    const chatWithChat = list.find(e => e.kind === 'chat' && e.chatId === 'chat-1');
+    const chatNoChat = list.find(e => e.kind === 'chat' && !e.chatId);
+    const image = list.find(e => e.kind === 'image');
+    expect(component.canResend(chatWithChat!)).toBe(true);
+    expect(component.canResend(chatNoChat!)).toBe(false);
+    expect(component.canResend(image!)).toBe(false);
+  });
+
+  it('editAndResend sends the edited messages and shows a success toast', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      chatTitle: 'The Tale',
+      messages: [{ role: 'user', content: 'Original direction' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    const editable = [{ role: 'user', text: 'Edited direction' }];
+    resendStub.editableMessages.mockReturnValue(editable);
+    resendStub.resend.mockResolvedValue({ ok: true, images: 0, answerNodeId: 'a1', chatId: 'chat-1' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    // The dialog is open with the editable messages + the model list/default.
+    expect(dialog.current()).not.toBeNull();
+    expect(dialog.current()?.messages).toEqual(editable);
+    expect(dialog.current()?.models).toEqual([]);
+    expect(dialog.current()?.modelId).toBe('');
+    dialog.submit({ messages: [{ role: 'user', text: 'Edited direction' }], modelId: '' });
+    await openPromise;
+    await fixture.whenStable();
+
+    expect(resendStub.editableMessages).toHaveBeenCalledWith(entry);
+    expect(resendStub.resend).toHaveBeenCalledWith(
+      entry,
+      [{ role: 'user', text: 'Edited direction' }],
+      { modelId: undefined }
+    );
+    const toasts = TestBed.inject(ToastService).toasts();
+    expect(toasts.some(t => t.kind === 'success' && /Response added to the chat/.test(t.text))).toBe(true);
+  });
+
+  it('editAndResend reports picture count in the success toast', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Draw a dragon' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Draw a dragon' }]);
+    resendStub.resend.mockResolvedValue({ ok: true, images: 3, answerNodeId: 'a1', chatId: 'chat-1' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Draw a dragon' }], modelId: '' });
+    await openPromise;
+    await fixture.whenStable();
+
+    const toasts = TestBed.inject(ToastService).toasts();
+    expect(toasts.some(t => t.kind === 'success' && /3 picture/.test(t.text))).toBe(true);
+  });
+
+  it('editAndResend shows a toast when the response replaced the original chapter', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Hi' }]);
+    resendStub.resend.mockResolvedValue({ ok: true, images: 0, answerNodeId: 'a1', chatId: 'chat-1', applied: 'replaced' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Hi' }], modelId: '' });
+    await openPromise;
+    await fixture.whenStable();
+
+    const toasts = TestBed.inject(ToastService).toasts();
+    expect(toasts.some(t => t.kind === 'success' && /Chapter updated with the new response/.test(t.text))).toBe(true);
+  });
+
+  it('editAndResend shows a toast when pictures were attached to the original chapter', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Draw' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Draw' }]);
+    resendStub.resend.mockResolvedValue({ ok: true, images: 2, answerNodeId: 'a1', chatId: 'chat-1', applied: 'attached' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Draw' }], modelId: '' });
+    await openPromise;
+    await fixture.whenStable();
+
+    const toasts = TestBed.inject(ToastService).toasts();
+    expect(toasts.some(t => t.kind === 'success' && /2 picture.*added to the chapter/.test(t.text))).toBe(true);
+  });
+
+  it('editAndResend passes the chosen model to the resend service', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Hi' }]);
+    resendStub.resend.mockResolvedValue({ ok: true, images: 0, answerNodeId: 'a1', chatId: 'chat-1' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Hi' }], modelId: 'other-model' });
+    await openPromise;
+    await fixture.whenStable();
+
+    expect(resendStub.resend).toHaveBeenCalledWith(
+      entry,
+      [{ role: 'user', text: 'Hi' }],
+      { modelId: 'other-model' }
+    );
+  });
+
+  it('editAndResend shows an error toast when the model is gone', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'gone/model', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Hi' }]);
+    resendStub.resend.mockResolvedValue({ ok: false, reason: 'model' });
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Hi' }], modelId: '' });
+    await openPromise;
+    await fixture.whenStable();
+
+    const toasts = TestBed.inject(ToastService).toasts();
+    expect(toasts.some(t => t.kind === 'error' && /no longer configured/.test(t.text))).toBe(true);
+  });
+
+  it('cancelling the dialog does not resend', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Hi' }]);
+    const openPromise = component.editAndResend(entry);
+    const dialog = TestBed.inject(ResendDialogService);
+    dialog.cancel();
+    await openPromise;
+    await fixture.whenStable();
+
+    expect(resendStub.resend).not.toHaveBeenCalled();
+  });
+
+  it('does not start a second resend while one is running', async () => {
+    const entry = logs.record({
+      kind: 'chat', modelId: 'm/1', provider: 'https://p', chatId: 'chat-1',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    await logs.flush();
+    await fixture.whenStable();
+
+    resendStub.editableMessages.mockReturnValue([{ role: 'user', text: 'Hi' }]);
+    let resolveResend: (v: { ok: boolean }) => void = () => {};
+    resendStub.resend.mockImplementation(() => new Promise(r => { resolveResend = r; }));
+
+    const dialog = TestBed.inject(ResendDialogService);
+    const openPromise = component.editAndResend(entry);
+    dialog.submit({ messages: [{ role: 'user', text: 'Hi' }], modelId: '' });
+    // Let the resumed editAndResend set the "resending" flag + call resend.
+    await Promise.resolve();
+
+    expect(component.isResending(entry.seq)).toBe(true);
+    expect(resendStub.resend).toHaveBeenCalledTimes(1);
+
+    // While running, opening again is refused.
+    const second = await component.editAndResend(entry);
+    expect(second).toBeUndefined();
+    expect(resendStub.resend).toHaveBeenCalledTimes(1);
+
+    resolveResend({ ok: true });
+    await openPromise;
+    await fixture.whenStable();
+    expect(component.isResending(entry.seq)).toBe(false);
   });
 });

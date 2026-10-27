@@ -14,6 +14,8 @@
   width: min(460px, 100%);
   max-width: 92vw;
   max-height: 86vh;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   padding: 1.5rem;
   border-radius: 12px;
@@ -147,10 +149,18 @@
 }
 
 .illustrate-actions {
+  /* Pinned to the bottom of the (scrollable) dialog so the buttons stay
+     visible even when the fields above overflow the max-height. */
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+  padding-top: 0.85rem;
   margin-top: 0.5rem;
+  background: var(--panel, #fff);
+  border-top: 1px solid var(--border, #e5e5e5);
 }
 
 .btn {

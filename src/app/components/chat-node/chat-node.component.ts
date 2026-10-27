@@ -1132,16 +1132,42 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
+   * The MARKED part of the current node — the text the user has selected just
+   * before pressing Illustrate. Captured from the editor's textarea selection
+   * while editing, otherwise from the DOM selection inside the rendered
+   * (read-only) content, mirroring the rewrite-selection / create-image
+   * flows. Empty when nothing is marked (the whole chapter stays the scene).
+   */
+  private captureMarkedSceneText(): string {
+    if (this.isEditing()) {
+      const ta = this.editArea()?.nativeElement;
+      if (!ta) return '';
+      const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+      const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+      return this.contentDraft().slice(s, e).trim();
+    }
+    const contentEl = this.readContent()?.nativeElement;
+    const selection = window.getSelection();
+    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) return '';
+    if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) return '';
+    return selection.toString().trim();
+  }
+
+  /**
    * Generate one or more pictures for the current beat with the configured
    * "image-create" generation task model (fallback: any enabled model that
    * can generate images). Opens the Illustrate dialog first to collect how
    * many scenes, the style, and (for word: >1 scenes) a storyboard prompt.
-   * The prompt is grounded in the active path up to this point, so earlier
-   * chapters stay established context. A direction node delegates to the
-   * ASSISTANT chapter that responds to it — the direction is only the
-   * instruction, the chapter is the beat to depict (and the picture is
-   * attached to that chapter). Prior illustrations are forwarded as visual
-   * reference when the chosen model can also read images.
+   * When a part of the node content is MARKED (selected), the dialog is
+   * seeded with that marked text as the scene to depict — editable there —
+   * and ALL illustration use cases (planned / direct / pure) then depict
+   * exactly that marked part instead of the whole chapter. The prompt is
+   * grounded in the active path up to this point, so earlier chapters stay
+   * established context. A direction node delegates to the ASSISTANT chapter
+   * that responds to it — the direction is only the instruction, the chapter
+   * is the beat to depict (and the picture is attached to that chapter).
+   * Prior illustrations are forwarded as visual reference when the chosen
+   * model can also read images.
    *
    * @param promptOverride when given (e.g. an edited direction draft),
    *   use it as the scene description instead of the depicted node's content.
@@ -1192,13 +1218,21 @@ export class ChatNodeComponent implements OnDestroy {
     // Ask the user how many scenes, in which style, the storyboard prompt,
     // and which image model should render the picture(s). The dialog is
     // seeded with the default rendering model, but its own last-used
-    // selection (persisted in localStorage) wins when still valid.
+    // selection (persisted in localStorage) wins when still valid. When a
+    // part of the node content is marked, the marked text seeds the dialog's
+    // "Scene to depict" field (editable) so the pictures depict exactly that
+    // marked part in every use case.
+    const markedSceneText = this.captureMarkedSceneText();
     const options = await this.illustrateDialog.open({
       modelId: defaultModel.modelId,
-      providerId: defaultModel.providerId
+      providerId: defaultModel.providerId,
+      ...(markedSceneText ? { sceneText: markedSceneText } : {})
     });
     if (!options) return; // cancelled
     const { count, style, storyboardPrompt, purePictures, historyMode, historyNodes, storyboardHistoryNodes, planDescriptions } = options;
+    // The marked text the user confirmed in the dialog (may have edited it).
+    // Empty = use the whole chapter content as the scene (classic behavior).
+    const sceneText = (options.sceneText ?? '').trim();
 
     // The dialog's options CHOOSE the orchestration use case:
     //   count > 1 || assistant chapter || pure mode → planning-based
@@ -1218,7 +1252,9 @@ export class ChatNodeComponent implements OnDestroy {
       historyMode,
       historyNodes: activeHistoryNodes,
       planDescriptions,
-      content: anchorText,
+      // The marked scene text (if any) overrides the whole chapter as the
+      // scene — in ALL illustration use cases, planned / direct / pure.
+      content: sceneText || anchorText,
       modelId: options.modelId || defaultModel.modelId,
       providerId: (options.modelId && options.providerId)
         ? options.providerId
