@@ -10,4 +10,5 @@
 - [Read your story as a book](./manual-reader.md)
 - [Section actions and the context menu](./manual-node-actions.md)
 - [Settings: Appearance, Providers, Tasks and Prompts](./manual-settings.md)
+- [Story lore — canon for every prompt](./manual-lore.md)
 - [Write Your First Chapter](./manual-new-story.md)
