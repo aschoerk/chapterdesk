@@ -1,6 +1,14 @@
 # Continuations and the navigation bar
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+The **navigation bar** shows the active path of the current story —
+the chain of sections from the opening direction to the latest chapter. It lets
+you jump to any section, open a right-click context menu, or multi-select a
+contiguous chain to copy, cut or delete it.
+
+Every section on the path is a button: **D**irection, **C**hapter, or
+**S**tructure. The highlighted button is where you are right now.
 
 ## Step 01: Open a story
 

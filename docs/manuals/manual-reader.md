@@ -1,6 +1,12 @@
 # Read your story as a book
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+The **Reader view** shows your story as a clean, read-only document —
+book sections, a document folio and a progress bar — without the editing
+chrome.
+
+This manual opens a story in the Reader and returns to the edit tree.
 
 ## Step 01: Open a story
 

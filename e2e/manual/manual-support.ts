@@ -12,6 +12,9 @@
 
 import { Page } from '@playwright/test';
 import { ScenarioRecorder } from 'playwright-scenario-recorder';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { DEFAULT_INTROS } from './manual-intros';
 
 /** Where the generated manual (markdown + screenshots) is written.
  *  Relative to the repo root (process.cwd() when playwright runs). */
@@ -21,17 +24,63 @@ export const MANUAL_DIR = './docs/manuals';
  * Create a scenario recorder configured for the ChapterDesk manual (English,
  * Markdown only). `hideOverlaySelectors: []` disables the Next.js-specific
  * defaults baked into the package.
+ *
+ * `intro` controls the formatted explanation rendered right below the page
+ * title (after the "Auto-generated on …" line), before the first step:
+ *
+ *   - a non-empty `string` → rendered verbatim, overriding the auto-generated
+ *     default for this scenario;
+ *   - `false` (or an empty string) → no intro at all;
+ *   - `undefined` → falls back to the auto-generated default from
+ *     `DEFAULT_INTROS` in ./manual-intros.ts.
+ *
+ * Overriding a default for a single run is as simple as passing a different
+ * string here; to change the default for everyone, edit `DEFAULT_INTROS`.
  */
 export function newManual(
   page: Page,
   scenarioName: string,
   title: string,
+  intro?: string | false,
 ): ScenarioRecorder {
-  return new ScenarioRecorder(page, scenarioName, title, MANUAL_DIR, {
+  const recorder = new ScenarioRecorder(page, scenarioName, title, MANUAL_DIR, {
     locale: 'en',
     outputFormat: 'md',
     hideOverlaySelectors: [],
   });
+
+  const introText = resolveIntro(scenarioName, intro);
+  if (introText === null) return recorder;
+
+  // The recorder always rewrites the markdown on generate(); we post-process
+  // the file to drop the intro between the title and the first step.
+  const originalGenerate = recorder.generate.bind(recorder);
+  recorder.generate = async () => {
+    await originalGenerate();
+    const mdPath = join(MANUAL_DIR, `${scenarioName}.md`);
+    if (!existsSync(mdPath)) return;
+    const lines = readFileSync(mdPath, 'utf8').split('\n');
+    // Anchor on the "> Auto-generated on …" blockquote right below the title.
+    // The recorder leaves a blank line right after it, which becomes the
+    // separator between the blockquote and the intro paragraph.
+    const anchor = lines.findIndex((l) => l.trim().startsWith('> '));
+    if (anchor >= 0) {
+      lines.splice(anchor + 1, 0, '', introText);
+      writeFileSync(mdPath, lines.join('\n'));
+    }
+  };
+
+  return recorder;
+}
+
+/**
+ * Resolve the intro for a scenario: an explicit non-empty argument wins over
+ * the auto-generated default; `false` / an empty string suppress it entirely.
+ */
+function resolveIntro(scenarioName: string, intro?: string | false): string | null {
+  if (intro === false || (typeof intro === 'string' && !intro.trim())) return null;
+  if (typeof intro === 'string') return intro.trim();
+  return DEFAULT_INTROS[scenarioName]?.trim() || null;
 }
 
 // ---------------------------------------------------------------------------

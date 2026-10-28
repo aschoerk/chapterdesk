@@ -1,6 +1,13 @@
 # Settings: Appearance, Providers, Tasks and Prompts
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+The **Settings** area groups the configuration pages: **Appearance**
+(theme and language), **Providers / Models** (which AI providers and models
+are enabled), **Generation Tasks** (which model handles each writing task) and
+**Prompt defaults** (the built-in prompts ChapterDesk builds automatically).
+
+This manual walks through each settings page.
 
 ## Step 01: Open the application
 

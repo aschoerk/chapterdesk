@@ -1,6 +1,12 @@
 # Delete and Restore Sections
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+Deleting a continuation is **soft**: the section moves to the **Trash**
+instead of being destroyed. From there you can **restore** it or **delete it
+forever**.
+
+This manual deletes a section, restores it, and finally purges it.
 
 ## Step 01: Open a fresh story
 

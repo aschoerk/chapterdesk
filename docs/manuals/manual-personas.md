@@ -1,6 +1,12 @@
 # Personas
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+**Personas** are writing voices / narrators you can attach to
+environments. Each persona can be created, edited and set as the current
+persona.
+
+This manual creates a persona and reviews it.
 
 ## Step 01: Open the Personas page
 

@@ -1,6 +1,11 @@
 # Organize with topics
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+**Topics** group your books (environments) and personas. Each topic
+can be created, edited and marked as the current topic.
+
+This manual creates a topic and reviews it.
 
 ## Step 01: Open the Topics page
 

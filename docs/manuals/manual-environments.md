@@ -1,6 +1,11 @@
 # Books (Environments) and moving stories
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+**Environments** are your books; each groups stories that belong
+together. Stories can be moved between books from the sidebar.
+
+This manual creates a book and moves a story into it.
 
 ## Step 01: Open the Environments page
 

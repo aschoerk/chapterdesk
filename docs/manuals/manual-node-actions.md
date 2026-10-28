@@ -1,6 +1,12 @@
 # Section actions and the context menu
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+Right-click any section to open its **context menu**: copy, edit,
+rewrite, exclude from the model context, remove, or delete it (with or without
+the following sections).
+
+This manual shows the actions on a real section of the seeded story.
 
 ## Step 01: Open a story
 

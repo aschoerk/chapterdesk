@@ -1,6 +1,12 @@
 # Getting Started with ChapterDesk
 
-> Auto-generated on 2026-10-26
+> Auto-generated on 2026-10-28
+
+ChapterDesk is an AI co-writer for stories. Everything lives in
+the left **sidebar**: your **books** (environments) group several **stories**,
+and a story is a tree of **directions** and **chapters**.
+
+This manual walks through the first launch, the sidebar and opening a story.
 
 ## Step 01: Open the application
 

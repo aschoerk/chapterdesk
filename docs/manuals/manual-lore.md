@@ -1,6 +1,13 @@
 # Story lore — canon for every prompt
 
-> Auto-generated on 2026-10-27
+> Auto-generated on 2026-10-28
+
+**Lore** is a short set of never-miss world facts the model must
+respect and never contradict. It is stored per story and inserted in front of
+every new direction when the prompt is sent — sent exactly once, then
+documented, so it never repeats and never clutters the context.
+
+This manual sets up lore for a fresh story and shows it travel with a prompt.
 
 ## Step 01: Open the application
 
