@@ -452,6 +452,17 @@ export class ChatNodeComponent implements OnDestroy {
       return;
     }
 
+    // Editing a node re-includes it into the model stream: the user is
+    // touching the content, so it is relevant again. Permanently clear the
+    // exclusion flags — the node immediately reappears in the navbar and is no
+    // longer treated as "kept for reading only".
+    if (n.excludeFromContext || n.excludeAfterSend) {
+      await this.chatService.patchNode(n.chatId, n.id, {
+        excludeFromContext: false,
+        excludeAfterSend: false
+      });
+    }
+
     this.editDismissed.set(false);
     this.contentDraft.set(n.content || '');
     this.editAttachments.set([...(n.attachments || [])]);

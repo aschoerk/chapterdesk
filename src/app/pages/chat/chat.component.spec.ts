@@ -198,6 +198,56 @@ describe('Chat', () => {
     expect(other.querySelector('.nav-edit-dot')).toBeNull();
   });
 
+  it('falls back to the next visible navbar node when the frame node is excluded', async () => {
+    await openStory();
+    fixture.detectChanges();
+    await chatService.patchNode('chat-1', 'q1', { excludeFromContext: true, excludeAfterSend: false });
+    component.visibleNodeId.set('q1');
+    fixture.detectChanges();
+
+    // q1 is excluded → hidden from the navbar; the "current" frame falls to
+    // the next visible node (a1) instead of disappearing.
+    expect((component as any).isNearViewport('a1')).toBe(true);
+    expect((component as any).isNearViewport('q1')).toBe(false);
+    const frame = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    expect(frame.classList.contains('active')).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-nav-id="q1"]')).toBeNull();
+  });
+
+  it('marks the edited node as the current (frame) node in the navbar', async () => {
+    await openStory();
+    fixture.detectChanges();
+    const editSession = TestBed.inject(NodeEditSession);
+    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
+    fixture.detectChanges();
+
+    const edited = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    expect((component as any).isNearViewport('a1')).toBe(true);
+    expect(edited.classList.contains('active')).toBe(true);
+    expect(edited.querySelector('.nav-edit-dot')).not.toBeNull();
+    expect(edited.classList.contains('editing')).toBe(true);
+  });
+
+  it('falls back to the next visible navbar node while the edited node is excluded', async () => {
+    await openStory();
+    fixture.detectChanges();
+    await chatService.patchNode('chat-1', 'q1', { excludeFromContext: true, excludeAfterSend: false });
+    const editSession = TestBed.inject(NodeEditSession);
+    await editSession.begin({ chatId: 'chat-1', nodeId: 'q1', text: 'Question', attachments: [] });
+    fixture.detectChanges();
+
+    // The excluded edited node carries no mark in the navbar — both the frame
+    // and the edit point fall to the next visible node (a1).
+    expect((component as any).isNavNodeBeingEdited('a1')).toBe(true);
+    expect((component as any).isNavNodeBeingEdited('q1')).toBe(false);
+    expect((component as any).isNearViewport('a1')).toBe(true);
+
+    const next = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    expect(next.querySelector('.nav-edit-dot')).not.toBeNull();
+    expect(next.classList.contains('editing')).toBe(true);
+    expect(next.classList.contains('active')).toBe(true);
+  });
+
   /** Seed a story with two assistant answers and make it the active chat. */
   async function openStory(): Promise<void> {
     seedApi(api, {

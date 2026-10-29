@@ -580,6 +580,20 @@ describe('ChatNodeComponent', () => {
       expect(fixture.nativeElement.querySelector('.inline-content-editor')).not.toBeNull();
     });
 
+    it('re-includes an excluded node in the model stream the moment it is edited', async () => {
+      await openChat([
+        node({ id: 'q1', content: 'Question', excludeFromContext: true }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer one', excludeAfterSend: true }),
+      ]);
+      createFixture(chatService.nodes().find(n => n.id === 'q1')!);
+      await startEditing();
+      fixture.detectChanges();
+
+      // Both exclusion flags are cleared as soon as the editor opens.
+      expect(chatService.nodes().find(n => n.id === 'q1')?.excludeFromContext).toBe(false);
+      expect(chatService.nodes().find(n => n.id === 'q1')?.excludeAfterSend).toBe(false);
+    });
+
     it('opens the editor from the edit button', async () => {
       createFixture(node({ content: 'Hello' }));
       const edit = titleButton('Edit this section in place');

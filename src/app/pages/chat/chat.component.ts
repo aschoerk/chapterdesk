@@ -103,7 +103,24 @@ export class ChatComponent implements OnInit {
   }
 
   isNavNodeBeingEdited(id: string): boolean {
-    return this.editSession.editingNodeId() === id;
+    const editingId = this.editSession.editingNodeId();
+    if (editingId === null) return false;
+    return this.navMarkFallback(editingId) === id;
+  }
+
+  /** Map a target node id to the VISIBLE navbar node that should carry its
+   *  mark. Excluded-from-context nodes are hidden from the navbar, so their
+   *  mark (the "being edited" point, the "current" frame) falls to the next
+   *  visible node in the active path — or is dropped when there is none. */
+  private navMarkFallback(id: string | null): string | null {
+    if (!id) return null;
+    const path = this.getActivePath();
+    const i = path.findIndex(n => n.id === id);
+    if (i < 0) return null;
+    for (let k = i; k < path.length; k++) {
+      if (!path[k].excludeFromContext) return path[k].id;
+    }
+    return null;
   }
 
   /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
@@ -975,7 +992,15 @@ export class ChatComponent implements OnInit {
   }
 
   protected isNearViewport(id: string): boolean {
-    return this.visibleNodeId() === id;
+    // While a node is being edited it is the "current" node: its frame is
+    // shown in the navbar even when it was excluded (the flag is cleared as
+    // soon as editing starts, but this also covers the instant before the
+    // patch lands). Otherwise the frame follows the node scrolled to top.
+    const editingId = this.editSession.editingNodeId();
+    if (editingId !== null) {
+      return this.navMarkFallback(editingId) === id;
+    }
+    return this.navMarkFallback(this.visibleNodeId()) === id;
   }
 
   private syncVisibleNode(): void {
