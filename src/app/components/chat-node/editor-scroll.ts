@@ -8,7 +8,7 @@
  * code stays testable and the component stays thin.
  */
 import { textareaCharMetrics } from '../../core/util/dom-metrics';
-import { markFragmentInSource } from '../../core/util/mark-fragment';
+import { markerMapOf, markFragmentInSource, squash } from '../../core/util/mark-fragment';
 
 /**
  * The vertical band that counts as "visible" for `el`: the band of its nearest
@@ -90,6 +90,128 @@ export function captureRoSourceOffset(
   if (!fragment) return null;
   const loc = markFragmentInSource(source, fragment);
   return loc ? loc.index : null;
+}
+
+/**
+ * The source offset of the character the user clicked inside the read-only
+ * content element (`root`). Uses a caret range at the click point to find the
+ * rendered text node + offset, builds a fragment starting there, and maps it
+ * back to the markdown source via the marker map (normalized text → source
+ * offset). Returns null when the click cannot be mapped (no text at the point
+ * — blank area / image — or no layout, e.g. jsdom).
+ */
+export function sourceOffsetAtPoint(
+  root: HTMLElement | null | undefined,
+  source: string,
+  clientX: number,
+  clientY: number
+): number | null {
+  if (!root || !source.trim()) return null;
+  const caret = caretRangeAtPoint(clientX, clientY);
+  if (!caret) return null;
+  const container = caret.startContainer;
+  let textNode: Node | null = null;
+  let inText = 0;
+  if (container.nodeType === Node.TEXT_NODE) {
+    textNode = container;
+    inText = caret.startOffset;
+  } else if (container.nodeType === Node.ELEMENT_NODE) {
+    // Click on block padding / between blocks: the caret lands on the element
+    // (offset = child index at the point). Anchor on the text nearest it.
+    textNode = textNodeNear(container as Element, caret.startOffset);
+  }
+  if (!textNode) return null;
+  const fragment = fragmentFromTextNode(root, textNode, inText);
+  if (!fragment) return null;
+  // Map the fragment back to the source via the marker map (normalized text →
+  // source offset). Unlike `markFragmentInSource` we do NOT fold emphasis
+  // markers into the range: that folding is meant for rewrite replacement
+  // (remove both `**` when replacing a selection) and would shift the caret
+  // BEFORE the opening marker. For caret placement the raw source offset of
+  // the clicked character is what we want — e.g. clicking bold text puts the
+  // caret right AFTER the `**`, at the start of the visible text.
+  const map = markerMapOf(source);
+  const nf = squash(fragment);
+  if (!nf) return null;
+  const idx = map.text.indexOf(nf);
+  if (idx < 0) return null;
+  return map.sourceOf[idx];
+}
+
+/** A caret range at the given viewport point (Chrome/Safari + Firefox). */
+function caretRangeAtPoint(clientX: number, clientY: number): Range | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    caretPositionFromPoint?: (x: number, y: number) =>
+      { offsetNode: Node; offset: number } | null;
+  };
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    return doc.caretRangeFromPoint(clientX, clientY);
+  }
+  if (typeof doc.caretPositionFromPoint === 'function') {
+    const pos = doc.caretPositionFromPoint(clientX, clientY);
+    if (!pos) return null;
+    const range = doc.createRange();
+    range.setStart(pos.offsetNode, pos.offset);
+    return range;
+  }
+  return null;
+}
+
+/** The first text node at/after the child index `offset` inside `el`. */
+function textNodeNear(el: Element, offset: number): Node | null {
+  const children = el.childNodes;
+  // The caret offset is the child index at the point; the point often sits on
+  // the boundary between blocks, so check the child, its predecessor and its
+  // successor.
+  const candidates = [children[offset], children[offset - 1], children[offset + 1]];
+  for (const c of candidates) {
+    if (!c) continue;
+    if (c.nodeType === Node.TEXT_NODE) return c;
+    if (c.nodeType === Node.ELEMENT_NODE) {
+      const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
+      const first = walker.nextNode();
+      if (first) return first;
+    }
+  }
+  return null;
+}
+
+/**
+ * The rendered text starting at `offset` inside `textNode`, extended forward
+ * (~120 chars) so it maps back to the source unambiguously (mirrors
+ * `firstVisibleRoText`, but starts at the caret instead of the top of the
+ * visible band). Returns null when nothing readable follows.
+ */
+function fragmentFromTextNode(
+  root: HTMLElement,
+  textNode: Node,
+  offset: number
+): string | null {
+  const parts: string[] = [];
+  let len = 0;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let collecting = false;
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    if (n === textNode) {
+      collecting = true;
+      const t = (n.textContent ?? '').slice(offset).replace(/\s+/g, ' ').trim();
+      if (t) {
+        parts.push(t);
+        len += t.length + 1;
+      }
+      continue;
+    }
+    if (!collecting) continue;
+    const t = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    parts.push(t);
+    len += t.length + 1;
+    if (len >= 120) break;
+  }
+  const fragment = parts.join(' ');
+  return fragment.trim() ? fragment : null;
 }
 
 /**

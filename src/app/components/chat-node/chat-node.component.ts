@@ -54,7 +54,8 @@ import {
   ensureEditorTopOnScreen,
   followLiveScroll,
   scrollTextareaToOffset,
-  scrollTopForOffset as draftScrollTopForOffset
+  scrollTopForOffset as draftScrollTopForOffset,
+  sourceOffsetAtPoint
 } from './editor-scroll';
 
 /**
@@ -282,7 +283,8 @@ export class ChatNodeComponent implements OnDestroy {
     const maxHeight = window.innerHeight * 0.55;
     textarea.style.height = `${Math.min(textarea.scrollHeight + 4, maxHeight)}px`;
     // Scroll continuity: once the editor has rendered, restore the ro view's
-    // top-visible sentence as the FIRST visible line of the textarea.
+    // target spot (the clicked caret offset, else the top-visible sentence) as
+    // the FIRST visible line of the textarea.
     if (this.pendingScrollOffset != null) {
       this.scrollTextareaToSourceOffset(textarea, this.pendingScrollOffset);
       this.pendingScrollOffset = null;
@@ -302,6 +304,22 @@ export class ChatNodeComponent implements OnDestroy {
       this.readContent()?.nativeElement,
       this.node().content ?? '',
       this.scrollParentOf.bind(this)
+    );
+  }
+
+  /**
+   * The source offset of the character the user clicked in the read-only view
+   * (click-to-edit). Returns null when the click can't be mapped to a source
+   * offset (no text at the point, no layout). A delegate over the shared
+   * `editor-scroll` module helper (kept as a method so specs can stub the
+   * caret look-up).
+   */
+  private captureRoClickOffset(clientX: number, clientY: number): number | null {
+    return sourceOffsetAtPoint(
+      this.readContent()?.nativeElement,
+      this.node().content ?? '',
+      clientX,
+      clientY
     );
   }
 
@@ -340,8 +358,8 @@ export class ChatNodeComponent implements OnDestroy {
 
   private scheduleResize(): void {
     // Capture the scroll-restore target BEFORE the resize consumes it: the
-    // read-only view's top-visible sentence must stay the editor's first
-    // visible line AND the caret must sit there.
+    // ro view's target spot (clicked caret offset, else top-visible sentence)
+    // must stay the editor's first visible line AND the caret must sit there.
     const savedOffset = this.pendingScrollOffset;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -406,16 +424,22 @@ export class ChatNodeComponent implements OnDestroy {
     if (this.chatService.isGenerating(this.node().id)) {
       return;
     }
-    this.startEdit();
+    // Capture the exact clicked character so the editor opens with the caret
+    // there and keeps that spot on screen (scroll continuity ro → editor).
+    const caretOffset = this.captureRoClickOffset(event.clientX, event.clientY);
+    this.startEdit('user', caretOffset);
   }
 
-  async startEdit(source: 'user' | 'auto' = 'user'): Promise<void> {
+  async startEdit(source: 'user' | 'auto' = 'user', caretOffset?: number | null): Promise<void> {
     if (this.isEditing()) return;
     const n = this.node();
     // Remember where the read-only view was scrolled so the editor can open on
     // the SAME first visible sentence. Captured BEFORE the session flips into
     // edit mode — the ro content is replaced by the textarea as soon as it does.
-    this.pendingScrollOffset = this.captureRoScrollOffset();
+    // A click-to-edit caret offset (the exact clicked character) wins over the
+    // top-visible sentence: the editor then opens with the caret at that spot
+    // and scrolls so that spot is its first visible line.
+    this.pendingScrollOffset = caretOffset ?? this.captureRoScrollOffset();
     const ok = await this.editSession.begin({
       chatId: n.chatId,
       nodeId: n.id,

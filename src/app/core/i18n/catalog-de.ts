@@ -324,6 +324,7 @@ export const DE: typeof EN = {
     waiting: 'Warten auf das Modell…',
     thought: 'Gedanke',
     clickToWrite: 'Klicken, um die nächste Frage zu schreiben',
+    clickToEdit: 'Klicken, um diesen Abschnitt zu bearbeiten',
     writeNext: 'Schreiben Sie die nächste Anweisung…',
     stopped: 'Erzeugung gestoppt',
     regenerate: 'Neu erzeugen',

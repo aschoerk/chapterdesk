@@ -321,6 +321,7 @@ export const EN = {
     waiting: 'Waiting for the model…',
     thought: 'Thought',
     clickToWrite: 'Click to write the next question',
+    clickToEdit: 'Click to edit this section',
     writeNext: 'Write the next direction…',
     stopped: 'Generation stopped',
     regenerate: 'Regenerate',

@@ -600,6 +600,36 @@ describe('ChatNodeComponent', () => {
       expect(component.isEditing()).toBe(true);
     });
 
+    it('starts editing when the chapter content is clicked', async () => {
+      createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
+      const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      expect(area).not.toBeNull();
+      area.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(component.isEditing()).toBe(true);
+    });
+
+    it('captures the clicked caret offset and passes it to startEdit', async () => {
+      createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(7);
+      const start = vi.spyOn(component, 'startEdit').mockResolvedValue(undefined);
+      const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      area.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      expect(start).toHaveBeenCalledWith('user', 7);
+    });
+
+    it('uses the clicked caret offset as the editor scroll/caret target', async () => {
+      createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(7);
+      const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      area.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      await fixture.whenStable();
+      // The rAF polyfill ran before the editor rendered (no textarea yet), so
+      // the restore target is still pending — it must be the clicked offset.
+      expect((component as any).pendingScrollOffset).toBe(7);
+    });
+
     it('prefills the draft with the current content', async () => {
       createFixture(node({ content: 'Original' }));
       await startEditing(node({ content: 'Original' }));

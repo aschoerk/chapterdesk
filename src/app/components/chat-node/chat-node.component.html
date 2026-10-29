@@ -451,7 +451,9 @@
                [innerHTML]="renderedHtml()"></div>
         </div>
       } @else {
-        <div #readContent class="node-content"
+        <div #readContent class="node-content click-to-edit"
+             [title]="i18n.t('node.clickToEdit')"
+             (click)="onContentClick($event)"
              [innerHTML]="renderedHtml()"></div>
       }
     } @else if (isThinkingLive()) {
