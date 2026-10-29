@@ -478,6 +478,8 @@ export const EN = {
     ctxCreateImage: 'Create image of selection…',
     ctxPrepend: 'Prepend director',
     ctxExcludeFromContext: 'Exclude from model context',
+    excluded: 'Excluded from model context',
+    excludedTitle: 'This section is kept for reading only — it is NOT sent to the model as context and is hidden from the navigation bar.',
     ctxChapterDescriptions: 'Chapter descriptions…',
     ctxRemove: 'Remove section',
     ctxDelete: 'Delete section & following',

@@ -3,6 +3,7 @@
   [class.question-node]="node().role === 'user'"
   [class.answer-node]="node().role === 'assistant'"
   [class.structural-node]="node().role === 'structural'"
+  [class.excluded]="node().excludeFromContext === true"
   [class.editing]="isEditing()"
   [class.draft]="isUnsentQuestion()"
   [attr.data-node-id]="node().id"
@@ -18,6 +19,13 @@
           [class.structural]="node().role === 'structural'">
           {{ node().role === 'user' ? i18n.t('node.dir') : node().role === 'assistant' ? i18n.t('node.ch') : i18n.t('node.structure') }}
     </span>
+
+    @if (node().excludeFromContext) {
+      <span class="meta excluded-badge"
+            [title]="i18n.t('node.excludedTitle')">
+        {{ i18n.t('node.excluded') }}
+      </span>
+    }
 
     @if (node().modelId) {
       <span class="meta">{{ node().modelId }}</span>

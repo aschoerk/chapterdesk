@@ -245,10 +245,11 @@ export class ChatComponent implements OnInit {
   }
 
   /** The two visible navbar nodes around a paste button: the node itself
-   *  (left) and the next visible node (right, or null when pasting at the end). */
+   *  (left) and the next visible node (right, or null when pasting at the end).
+   *  Excluded-from-context nodes are skipped — they are not shown in the nav-bar. */
   private navPasteTargets(nodeId: string): { leftId: string; rightId: string | null } | null {
     if (!this.clipboard.hasContent()) return null;
-    const path = this.getActivePath();
+    const path = this.navPath();
     const i = path.findIndex(n => n.id === nodeId);
     if (i < 0) return null; // no longer a visible nav node
     const right = i + 1 < path.length ? path[i + 1] : null;
@@ -1118,6 +1119,14 @@ export class ChatComponent implements OnInit {
 
 // just delegate
   getActivePath()          { return this.chatService.getActivePath(); }
+
+  /** Active path WITHOUT nodes excluded from the model context — the navbar
+   *  only shows sections that are relevant to the LLM; excluded ones stay in
+   *  the tree below but are hidden from the nav-bar. */
+  navPath(): ChatNode[] {
+    return this.chatService.getActivePath().filter(n => !n.excludeFromContext);
+  }
+
   getActiveChildId(pid: string | null)    { return this.chatService.getActiveChildId(pid); }
   setActiveChild(pid: string | null, cid: string) { this.chatService.setActiveChild(pid, cid); }
   getChildren(pid: string | null)         { return this.chatService.getChildren(pid); }

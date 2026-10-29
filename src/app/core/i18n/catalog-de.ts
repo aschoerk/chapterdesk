@@ -482,6 +482,8 @@ export const DE: typeof EN = {
     ctxCreateImage: 'Bild der Auswahl erstellen…',
     ctxPrepend: 'Direktor voranstellen',
     ctxExcludeFromContext: 'Aus dem Modell-Kontext ausschließen',
+    excluded: 'Aus dem Modell-Kontext ausgeschlossen',
+    excludedTitle: 'Dieser Abschnitt dient nur zum Nachlesen — er wird dem Modell NICHT als Kontext geschickt und ist in der Navigationsleiste ausgeblendet.',
     ctxChapterDescriptions: 'Kapitelbeschreibungen…',
     ctxRemove: 'Abschnitt entfernen',
     ctxDelete: 'Abschnitt & Folgetexte löschen',
