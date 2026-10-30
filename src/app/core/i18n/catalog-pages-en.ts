@@ -120,6 +120,27 @@ export const EN_PAGES = {
     addFailed: 'Could not add environment to topic',
     removeFailed: 'Could not remove environment from topic',
   },
+  textVersions: {
+    title: 'Version history',
+    loading: 'Loading versions…',
+    empty:
+      'No versions recorded yet. Changing this text captures the previous content here, so you can compare and restore it later.',
+    emptyPreview: '(empty)',
+    compare: 'Compare',
+    restore: 'Restore',
+    restoreTitle: 'Restore version?',
+    restoreMessage:
+      'This replaces the current text with version {{version}}. The current text is kept as a new version, so the restore can be undone.',
+    restored: 'Restored version {{version}}',
+    restoreFailed: 'Could not restore the version',
+    deleteTitle: 'Delete version entry?',
+    deleteMessage:
+      'Remove version {{version}} from history? This only removes the entry, it does not change the current text.',
+    deleted: 'Version deleted',
+    deleteFailed: 'Could not delete the version',
+    current: 'Current',
+    historical: 'Version {{version}}',
+  },
   sort: {
     alpha: 'Sort A–Z',
     alphaAZ: 'Sorted A–Z – click for Z–A',

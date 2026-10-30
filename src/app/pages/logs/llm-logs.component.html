@@ -105,6 +105,11 @@
               <span class="log-section-title">{{ i18n.t('logs.images', { count: received.length }) }}</span>
               <div class="log-section-actions">
                 <button type="button" class="btn small"
+                        (click)="downloadLogImage(received[0], 0); $event.stopPropagation()"
+                        [title]="i18n.t('logs.downloadImage')">
+                  {{ i18n.t('logs.download') }}
+                </button>
+                <button type="button" class="btn small"
                         (click)="openLogImages(received, 0); $event.stopPropagation()">
                   {{ i18n.t('logs.viewImages') }}
                 </button>
@@ -113,12 +118,17 @@
             <div class="log-thumbs">
               @for (url of received; track $index; let i = $index) {
                 @if (i < 12) {
-                  <img class="log-thumb"
-                       [src]="url"
-                       [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: received.length })"
-                       alt=""
-                       (click)="openLogImages(received, i); $event.stopPropagation()"
-                       loading="lazy" />
+                  <div class="log-thumb-wrap">
+                    <img class="log-thumb"
+                         [src]="url"
+                         [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: received.length })"
+                         alt=""
+                         (click)="openLogImages(received, i); $event.stopPropagation()"
+                         loading="lazy" />
+                    <button type="button" class="log-thumb-download"
+                            [title]="i18n.t('logs.downloadImage')"
+                            (click)="downloadLogImage(url, i); $event.stopPropagation()">⬇</button>
+                  </div>
                 }
               }
             </div>
@@ -133,6 +143,11 @@
               <span class="log-section-title">{{ i18n.t('logs.sentImages', { count: sent.length }) }}</span>
               <div class="log-section-actions">
                 <button type="button" class="btn small"
+                        (click)="downloadLogImage(sent[0], 0); $event.stopPropagation()"
+                        [title]="i18n.t('logs.downloadImage')">
+                  {{ i18n.t('logs.download') }}
+                </button>
+                <button type="button" class="btn small"
                         (click)="openLogImages(sent, 0); $event.stopPropagation()">
                   {{ i18n.t('logs.viewImages') }}
                 </button>
@@ -141,12 +156,17 @@
             <div class="log-thumbs">
               @for (url of sent; track $index; let i = $index) {
                 @if (i < 12) {
-                  <img class="log-thumb"
-                       [src]="url"
-                       [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: sent.length })"
-                       alt=""
-                       (click)="openLogImages(sent, i); $event.stopPropagation()"
-                       loading="lazy" />
+                  <div class="log-thumb-wrap">
+                    <img class="log-thumb"
+                         [src]="url"
+                         [title]="i18n.t('logs.imagesOpenTitle', { n: i + 1, total: sent.length })"
+                         alt=""
+                         (click)="openLogImages(sent, i); $event.stopPropagation()"
+                         loading="lazy" />
+                    <button type="button" class="log-thumb-download"
+                            [title]="i18n.t('logs.downloadImage')"
+                            (click)="downloadLogImage(url, i); $event.stopPropagation()">⬇</button>
+                  </div>
                 }
               }
             </div>

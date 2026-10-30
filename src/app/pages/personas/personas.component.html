@@ -205,6 +205,16 @@
           ></textarea>
         </label>
 
+        @if (editingId()) {
+          <app-text-version-panel
+            [entityType]="'persona'"
+            [entityId]="editingId()"
+            [attributes]="personaVersionAttributes()"
+            [currentValues]="{ description: editedPersona()?.description ?? null }"
+            (restored)="onVersionRestored($event)"
+          />
+        }
+
         <app-avatar-picker
           [value]="form.avatar"
           (valueChange)="form.avatar = $event"

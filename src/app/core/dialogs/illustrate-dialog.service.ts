@@ -94,14 +94,18 @@ export class IllustrateDialogService {
       storyboardHistoryNodes: clampHistoryNodes(options.storyboardHistoryNodes),
       // Pure picture mode REQUIRES the derived descriptions (raw story prose
       // must never reach the image model), so planning is forced back on.
-      planDescriptions: options.purePictures ? true : (options.planDescriptions !== false)
+      planDescriptions: options.purePictures ? true : (options.planDescriptions !== false),
+      // Reference images are forwarded to the caller (the orchestration) but
+      // are NOT remembered/persisted (binaries are too large for localStorage).
+      attachments: options.attachments ?? []
     };
     // The scene text (the marked part of the node) IS returned to the caller
     // as the scene override, but it is NOT remembered: a stale mark must
     // never resurface as the scene on the next dialog open. The remembered /
-    // persisted options therefore drop it entirely.
+    // persisted options therefore drop it (and the reference images) entirely.
     const remembered: IllustrateOptions = { ...clamped };
     delete remembered.sceneText;
+    delete remembered.attachments;
     this.last.set(remembered);
     persist(remembered);
     this.modal.close(clamped);

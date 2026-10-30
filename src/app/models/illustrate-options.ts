@@ -2,6 +2,8 @@
  * User choices captured by the Illustrate dialog. The values are persisted
  * (last-used) so the next Illustrate starts from the previous configuration.
  */
+import type { NodeAttachment } from './chat';
+
 export interface IllustrateOptions {
   /**
    * The scene text to depict — normally the WHOLE content of the chapter
@@ -82,6 +84,14 @@ export interface IllustrateOptions {
    * the derived descriptions.
    */
   planDescriptions: boolean;
+  /**
+   * Reference images the user attached in the dialog (uploaded files or
+   * images picked from the current chat). Forwarded to the IMAGE model as
+   * `image_url` parts so it can keep characters / setting / style consistent
+   * with existing pictures. NEVER persisted (binaries are too large for
+   * localStorage) — each dialog open starts without reference images.
+   */
+  attachments?: NodeAttachment[];
 }
 
 export type IllustrateHistoryMode = IllustrateOptions['historyMode'];

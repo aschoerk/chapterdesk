@@ -4,10 +4,12 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
-import { seedApi } from '../../../../test-helpers/factories';
+import { seedApi, makeAttachment } from '../../../../test-helpers/factories';
 import { SettingsService } from '../../core/settings/settings.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.service';
+import { ChatImagePickerService } from '../../core/dialogs/chat-image-picker.service';
+import { ChatImagesService } from '../../core/chat/chat-images.service';
 import { IllustrateDialogComponent } from './illustrate-dialog.component';
 
 describe('IllustrateDialogComponent', () => {
@@ -24,10 +26,14 @@ describe('IllustrateDialogComponent', () => {
       models: [
         {
           id: 'img-1', displayName: 'Image One', modelId: 'alpha/image',
-          architecture: { input_modalities: ['text'], output_modalities: ['image'] }
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] }
         },
         {
           id: 'img-2', displayName: 'Image Two', modelId: 'beta/image',
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] }
+        },
+        {
+          id: 'img-3', displayName: 'Text-Only Input Image', modelId: 'gamma/image',
           architecture: { input_modalities: ['text'], output_modalities: ['image'] }
         },
         {
@@ -94,7 +100,8 @@ describe('IllustrateDialogComponent', () => {
       historyMode: 'single',
       historyNodes: 1,
       storyboardHistoryNodes: 1,
-      planDescriptions: true
+      planDescriptions: true,
+      attachments: []
     });
     expect(fixture.nativeElement.querySelector('.illustrate-dialog')).toBeNull();
   });
@@ -482,5 +489,133 @@ describe('IllustrateDialogComponent', () => {
     });
     // A stale mark is NOT remembered for the next dialog open.
     expect(dialog.last().sceneText).toBeUndefined();
+  });
+
+  it('addFromChat() adds images picked from the current chat as references', async () => {
+    const picker = TestBed.inject(ChatImagePickerService);
+    const chatImages = TestBed.inject(ChatImagesService);
+    const chatImage = makeAttachment({
+      id: 'chat-img', name: 'chat.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,QUFB'
+    });
+    vi.spyOn(chatImages, 'imagesInCurrentChat').mockReturnValue([
+      { attachment: chatImage, nodeId: 'a1', nodeRole: 'assistant', nodeLabel: 'Chapter' }
+    ]);
+    vi.spyOn(picker, 'open').mockResolvedValue([chatImage]);
+
+    const p = dialog.open();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await component.addFromChat();
+    expect(component.images()).toHaveLength(1);
+    expect(component.images()[0].id).toBe('chat-img');
+    dialog.cancel();
+    await p;
+  });
+
+  it('submits the attached reference images with the illustration options', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    const ref = makeAttachment({
+      id: 'ref', name: 'ref.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,UkVG'
+    });
+    component.images.set([ref]);
+    component.submit();
+    fixture.detectChanges();
+
+    await expect(p).resolves.toMatchObject({
+      attachments: [ref]
+    });
+  });
+
+  it('does not remember the reference images for the next dialog open', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    const ref = makeAttachment({
+      id: 'ref', name: 'ref.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,UkVG'
+    });
+    component.images.set([ref]);
+    component.submit();
+    fixture.detectChanges();
+    await p;
+
+    expect(dialog.last().attachments).toBeUndefined();
+  });
+
+  it('offers every image model while no images are attached, including text-only-input ones', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    const values = Array.from(fixture.nativeElement.querySelectorAll('.ill-field select option'))
+      .map(o => (o as HTMLOptionElement).value);
+    expect(values).toContain('alpha/image');
+    expect(values).toContain('gamma/image'); // text-only-input is fine without images
+    dialog.cancel();
+    await p;
+  });
+
+  it('excludes text-only-input image models once reference images are attached', async () => {
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    const ref = makeAttachment({
+      id: 'ref', name: 'ref.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,UkVG'
+    });
+    component.images.set([ref]);
+    fixture.detectChanges();
+
+    const values = Array.from(fixture.nativeElement.querySelectorAll('.ill-field select option'))
+      .map(o => (o as HTMLOptionElement).value);
+    expect(values).toContain('alpha/image'); // image-input capable
+    expect(values).not.toContain('gamma/image'); // text-only input excluded
+    dialog.cancel();
+    await p;
+  });
+
+  it('auto-corrects the selected model to an image-input-capable one when images are attached', async () => {
+    const p = dialog.open({ modelId: 'gamma/image', providerId: 'prov-1' });
+    fixture.detectChanges();
+
+    const ref = makeAttachment({
+      id: 'ref', name: 'ref.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,UkVG'
+    });
+    component.images.set([ref]);
+    fixture.detectChanges();
+
+    expect(component.modelId()).not.toBe('gamma/image');
+    expect(['alpha/image', 'beta/image']).toContain(component.modelId());
+    dialog.cancel();
+    await p;
+  });
+
+  it('hides the Default (from settings) option when images are attached and no image-input-capable default exists', async () => {
+    // No image-create task model is configured in this spec, so once a
+    // reference image is attached the "Default (from settings)" empty option
+    // must disappear — it would resolve to a model that cannot see the image.
+    const p = dialog.open();
+    fixture.detectChanges();
+
+    expect(component.showDefaultOption()).toBe(true);
+    const ref = makeAttachment({
+      id: 'ref', name: 'ref.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,UkVG'
+    });
+    component.images.set([ref]);
+    fixture.detectChanges();
+
+    expect(component.showDefaultOption()).toBe(false);
+    const values = Array.from(fixture.nativeElement.querySelectorAll('.ill-field select option'))
+      .map(o => (o as HTMLOptionElement).value);
+    expect(values).not.toContain('');
+    dialog.cancel();
+    await p;
   });
 });

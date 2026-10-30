@@ -321,6 +321,16 @@
         ></textarea>
       </label>
 
+      @if (editingId()) {
+        <app-text-version-panel
+          [entityType]="'project'"
+          [entityId]="editingId()"
+          [attributes]="projectVersionAttributes()"
+          [currentValues]="currentProjectTexts()"
+          (restored)="onVersionRestored($event)"
+        />
+      }
+
       <label>
         {{ i18n.t('projects.defaultModel') }}
         <select [(ngModel)]="form.defaultModelId">

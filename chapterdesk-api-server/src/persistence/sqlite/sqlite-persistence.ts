@@ -18,6 +18,10 @@ import type {
   PromptSelection,
   PromptVersion,
   ProviderConfig,
+  RestoreTextVersionResult,
+  TextVersion,
+  TextVersionAttribute,
+  TextVersionEntityType,
   Topic,
 } from '../../domain/models.js';
 import type {
@@ -219,6 +223,18 @@ function mapPromptSelection(row: Row): PromptSelection {
   };
 }
 
+function mapTextVersion(row: Row): TextVersion {
+  return {
+    id: row.id as string,
+    entityType: row.entity_type as TextVersionEntityType,
+    entityId: row.entity_id as string,
+    entityAttribute: row.entity_attribute as TextVersionAttribute,
+    versionNumber: Number(row.version_number),
+    datetime: row.datetime as string,
+    oldContent: (row.old_content as string) ?? '',
+  };
+}
+
 export class SqlitePersistence implements PersistencePort {
   readonly kind = 'sqlite' as const;
   private readonly db: Database.Database;
@@ -243,8 +259,10 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS chat_parameters (id TEXT PRIMARY KEY, name TEXT DEFAULT '', temperature REAL, top_k INTEGER, top_m REAL, top_p REAL, stream INTEGER, thinking INTEGER, thinking_level TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS prompt_versions (id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS prompt_selections (prompt_id TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(prompt_id, scope, topic_id));
+      CREATE TABLE IF NOT EXISTS text_versions (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, entity_attribute TEXT NOT NULL, version_number INTEGER NOT NULL, datetime TEXT NOT NULL, old_content TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(prompt_id);
       CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
+      CREATE INDEX IF NOT EXISTS idx_text_versions_entity ON text_versions(entity_type, entity_id, entity_attribute);
     `);
     this.addColumn('projects', 'main_topic_id', 'TEXT');
     this.addColumn('projects', 'chat_parameters_id', 'TEXT');
@@ -410,6 +428,132 @@ export class SqlitePersistence implements PersistencePort {
     return row;
   }
 
+  // ---------------------------------------------------------------------------
+  // Versioned general texts (text_versions)
+  // ---------------------------------------------------------------------------
+
+  /** Append the previous content of a tracked attribute as a new version entry. */
+  private recordTextVersion(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+    oldContent: string,
+  ): void {
+    const maxRow = this.row(
+      'SELECT MAX(version_number) AS max_ver FROM text_versions WHERE entity_type=? AND entity_id=? AND entity_attribute=?',
+      entityType,
+      entityId,
+      entityAttribute,
+    ) as Row;
+    const versionNumber = Number(maxRow?.max_ver ?? 0) + 1;
+    this.db
+      .prepare(
+        'INSERT INTO text_versions(id,entity_type,entity_id,entity_attribute,version_number,datetime,old_content) VALUES(?,?,?,?,?,?,?)',
+      )
+      .run(randomUUID(), entityType, entityId, entityAttribute, versionNumber, now(), oldContent);
+  }
+
+  private newestTextVersion(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+  ): TextVersion | null {
+    const row = this.row(
+      'SELECT * FROM text_versions WHERE entity_type=? AND entity_id=? AND entity_attribute=? ORDER BY version_number DESC LIMIT 1',
+      entityType,
+      entityId,
+      entityAttribute,
+    );
+    return row ? mapTextVersion(row) : null;
+  }
+
+  private requireEntityForText(entityType: TextVersionEntityType, entityId: string): void {
+    if (entityType === 'topic') this.requireRow('topic', entityId, 'topics');
+    else if (entityType === 'project') this.requireRow('project', entityId, 'projects');
+    else this.requireRow('persona', entityId, 'personas');
+  }
+
+  private readTextValue(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+  ): string {
+    if (entityType === 'topic') {
+      const row = this.requireRow('topic', entityId, 'topics');
+      return (row.default_system_prompt as string) ?? '';
+    }
+    if (entityType === 'project') {
+      const row = this.requireRow('project', entityId, 'projects');
+      return entityAttribute === 'greeting'
+        ? ((row.greeting as string) ?? '')
+        : ((row.system_prompt as string) ?? '');
+    }
+    const row = this.requireRow('persona', entityId, 'personas');
+    return (row.description as string) ?? '';
+  }
+
+  private writeTextValue(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+    value: string,
+  ): void {
+    const ts = now();
+    if (entityType === 'topic') {
+      this.requireRow('topic', entityId, 'topics');
+      this.db
+        .prepare('UPDATE topics SET default_system_prompt=?, updated_at=? WHERE id=?')
+        .run(value, ts, entityId);
+    } else if (entityType === 'project') {
+      this.requireRow('project', entityId, 'projects');
+      const column = entityAttribute === 'greeting' ? 'greeting' : 'system_prompt';
+      this.db
+        .prepare(`UPDATE projects SET ${column}=?, updated_at=? WHERE id=?`)
+        .run(value, ts, entityId);
+    } else {
+      this.requireRow('persona', entityId, 'personas');
+      this.db
+        .prepare('UPDATE personas SET description=?, updated_at=? WHERE id=?')
+        .run(value, ts, entityId);
+    }
+  }
+
+  async getTextVersions(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute?: TextVersionAttribute,
+  ): Promise<TextVersion[]> {
+    this.requireEntityForText(entityType, entityId);
+    const sql = entityAttribute
+      ? 'SELECT * FROM text_versions WHERE entity_type=? AND entity_id=? AND entity_attribute=? ORDER BY version_number DESC'
+      : 'SELECT * FROM text_versions WHERE entity_type=? AND entity_id=? ORDER BY version_number DESC';
+    const args = entityAttribute
+      ? [entityType, entityId, entityAttribute]
+      : [entityType, entityId];
+    return this.rows(sql, ...args).map(mapTextVersion);
+  }
+
+  async restoreTextVersion(id: string): Promise<RestoreTextVersionResult> {
+    const version = this.requireRow('text-version', id, 'text_versions');
+    const entityType = version.entity_type as TextVersionEntityType;
+    const entityId = version.entity_id as string;
+    const entityAttribute = version.entity_attribute as TextVersionAttribute;
+    const restoredContent = (version.old_content as string) ?? '';
+    const current = this.readTextValue(entityType, entityId, entityAttribute);
+    let undoVersion: TextVersion | null = null;
+    if (current !== restoredContent) {
+      this.recordTextVersion(entityType, entityId, entityAttribute, current);
+      undoVersion = this.newestTextVersion(entityType, entityId, entityAttribute);
+    }
+    this.writeTextValue(entityType, entityId, entityAttribute, restoredContent);
+    return { entityType, entityId, entityAttribute, value: restoredContent, undoVersion };
+  }
+
+  async deleteTextVersion(id: string): Promise<void> {
+    this.requireRow('text-version', id, 'text_versions');
+    this.db.prepare('DELETE FROM text_versions WHERE id=?').run(id);
+  }
+
   async getProjects(): Promise<Project[]> {
     return this.rows('SELECT * FROM projects ORDER BY rowid').map((row) => this.project(row));
   }
@@ -451,14 +595,16 @@ export class SqlitePersistence implements PersistencePort {
   async updateProject(id: string, data: UpdateProjectRequest): Promise<Project> {
     const old = this.requireRow('project', id, 'projects');
     const topicIds = data.topicIds ?? (data.topicId ? [data.topicId] : this.projectTopicIds(id));
+    const nextGreeting = data.greeting ?? old.greeting;
+    const nextSystemPrompt = data.systemPrompt ?? old.system_prompt;
     this.db
       .prepare(
         'UPDATE projects SET name=?,greeting=?,system_prompt=?,default_model_id=?,avatar=?,persona_ids=?,main_topic_id=?,chat_parameters_id=?,updated_at=? WHERE id=?',
       )
       .run(
         data.name ?? old.name,
-        data.greeting ?? old.greeting,
-        data.systemPrompt ?? old.system_prompt,
+        nextGreeting,
+        nextSystemPrompt,
         data.defaultModelId !== undefined ? data.defaultModelId : old.default_model_id,
         data.avatar ?? old.avatar,
         data.personaIds ? JSON.stringify(data.personaIds) : old.persona_ids,
@@ -467,6 +613,10 @@ export class SqlitePersistence implements PersistencePort {
         now(),
         id,
       );
+    if (nextGreeting !== old.greeting)
+      this.recordTextVersion('project', id, 'greeting', (old.greeting as string) ?? '');
+    if (nextSystemPrompt !== old.system_prompt)
+      this.recordTextVersion('project', id, 'systemPrompt', (old.system_prompt as string) ?? '');
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM topic_projects WHERE project_id=?').run(id);
       for (const topicId of topicIds)
@@ -486,6 +636,7 @@ export class SqlitePersistence implements PersistencePort {
           .prepare('UPDATE chats SET project_id=NULL,updated_at=? WHERE project_id=?')
           .run(now(), id);
       this.db.prepare('DELETE FROM topic_projects WHERE project_id=?').run(id);
+      this.db.prepare('DELETE FROM text_versions WHERE entity_type=? AND entity_id=?').run('project', id);
       this.db.prepare('DELETE FROM projects WHERE id=?').run(id);
     });
     tx();
@@ -933,6 +1084,7 @@ export class SqlitePersistence implements PersistencePort {
   }
   async updatePersona(id: string, data: UpdatePersonaRequest): Promise<Persona> {
     const old = this.requireRow('persona', id, 'personas');
+    const nextDescription = data.description ?? old.description;
     this.db
       .prepare(
         'UPDATE personas SET name=?,short_name=?,description=?,avatar=?,main_topic_id=?,updated_at=? WHERE id=?',
@@ -940,16 +1092,19 @@ export class SqlitePersistence implements PersistencePort {
       .run(
         data.name ?? old.name,
         data.shortName ?? old.short_name,
-        data.description ?? old.description,
+        nextDescription,
         data.avatar ?? old.avatar,
         data.mainTopicId !== undefined ? data.mainTopicId : old.main_topic_id,
         now(),
         id,
       );
+    if (nextDescription !== old.description)
+      this.recordTextVersion('persona', id, 'description', (old.description as string) ?? '');
     return mapPersona(this.requireRow('persona', id, 'personas'));
   }
   async deletePersona(id: string): Promise<void> {
     this.requireRow('persona', id, 'personas');
+    this.db.prepare('DELETE FROM text_versions WHERE entity_type=? AND entity_id=?').run('persona', id);
     this.db.prepare('DELETE FROM personas WHERE id=?').run(id);
   }
 
@@ -982,6 +1137,7 @@ export class SqlitePersistence implements PersistencePort {
   }
   async updateTopic(id: string, data: UpdateTopicRequest): Promise<Topic> {
     const old = this.requireRow('topic', id, 'topics');
+    const nextSystemPrompt = data.defaultSystemPrompt ?? old.default_system_prompt;
     this.db
       .prepare(
         'UPDATE topics SET name=?,description=?,default_model_id=?,chat_parameters_id=?,default_system_prompt=?,icon=?,updated_at=? WHERE id=?',
@@ -991,11 +1147,13 @@ export class SqlitePersistence implements PersistencePort {
         data.description ?? old.description,
         data.defaultModelId !== undefined ? data.defaultModelId : old.default_model_id,
         data.chatParametersId !== undefined ? data.chatParametersId : old.chat_parameters_id,
-        data.defaultSystemPrompt ?? old.default_system_prompt,
+        nextSystemPrompt,
         data.icon ?? old.icon,
         now(),
         id,
       );
+    if (nextSystemPrompt !== old.default_system_prompt)
+      this.recordTextVersion('topic', id, 'defaultSystemPrompt', (old.default_system_prompt as string) ?? '');
     return this.topic(this.requireRow('topic', id, 'topics'));
   }
   async deleteTopic(id: string): Promise<void> {
@@ -1003,6 +1161,7 @@ export class SqlitePersistence implements PersistencePort {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM topic_projects WHERE topic_id=?').run(id);
       this.db.prepare('UPDATE projects SET main_topic_id=NULL WHERE main_topic_id=?').run(id);
+      this.db.prepare('DELETE FROM text_versions WHERE entity_type=? AND entity_id=?').run('topic', id);
       this.db.prepare('DELETE FROM topics WHERE id=?').run(id);
     });
     tx();

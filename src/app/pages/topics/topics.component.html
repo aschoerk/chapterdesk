@@ -175,6 +175,16 @@
           ></textarea>
         </label>
 
+        @if (editingId()) {
+          <app-text-version-panel
+            [entityType]="'topic'"
+            [entityId]="editingId()"
+            [attributes]="topicVersionAttributes()"
+            [currentValues]="{ defaultSystemPrompt: editedTopic()?.defaultSystemPrompt ?? null }"
+            (restored)="onVersionRestored($event)"
+          />
+        }
+
         <div class="modal-actions">
           <button class="btn" (click)="requestClose()" [disabled]="saving()">{{ i18n.t('common.cancel') }}</button>
           <button

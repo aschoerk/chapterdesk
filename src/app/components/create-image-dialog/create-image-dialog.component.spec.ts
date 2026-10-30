@@ -4,10 +4,12 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
-import { seedApi, makeNode } from '../../../../test-helpers/factories';
+import { seedApi, makeNode, makeAttachment } from '../../../../test-helpers/factories';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
+import { ChatImagePickerService } from '../../core/dialogs/chat-image-picker.service';
+import { ChatImagesService } from '../../core/chat/chat-images.service';
 import { CreateImageDialogComponent } from './create-image-dialog.component';
 
 describe('CreateImageDialogComponent', () => {
@@ -34,10 +36,14 @@ describe('CreateImageDialogComponent', () => {
       models: [
         {
           id: 'm-img', displayName: 'Image Cap', modelId: 'alpha/image',
-          architecture: { input_modalities: ['text'], output_modalities: ['image'] }
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] }
         },
         {
           id: 'm-img2', displayName: 'Second Image', modelId: 'beta/image',
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['image'] }
+        },
+        {
+          id: 'm-img3', displayName: 'Text-Only Input Image', modelId: 'gamma/image',
           architecture: { input_modalities: ['text'], output_modalities: ['image'] }
         },
         {
@@ -255,6 +261,107 @@ describe('CreateImageDialogComponent', () => {
 
     expect(component.modelId()).toBe('beta/image');
     expect(component.providerId()).toBe('prov-1'); // derived fresh, not 'gone-provider'
+    dialog.cancel();
+    await p;
+  });
+
+  it('addFromChat() adds images picked from the current chat as references', async () => {
+    const picker = TestBed.inject(ChatImagePickerService);
+    const chatImages = TestBed.inject(ChatImagesService);
+    const chatImage = makeAttachment({
+      id: 'chat-img', name: 'chat.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,QUFB'
+    });
+    vi.spyOn(chatImages, 'imagesInCurrentChat').mockReturnValue([
+      { attachment: chatImage, nodeId: 'a1', nodeRole: 'assistant', nodeLabel: 'Chapter' }
+    ]);
+    vi.spyOn(picker, 'open').mockResolvedValue([chatImage]);
+
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await component.addFromChat();
+    expect(component.images()).toHaveLength(1);
+    expect(component.images()[0].id).toBe('chat-img');
+    dialog.cancel();
+    await p;
+  });
+
+  it('addFromChat() does not duplicate an already-added chat image', async () => {
+    const picker = TestBed.inject(ChatImagePickerService);
+    const chatImages = TestBed.inject(ChatImagesService);
+    const chatImage = makeAttachment({
+      id: 'chat-img', name: 'chat.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,QUFB'
+    });
+    vi.spyOn(chatImages, 'imagesInCurrentChat').mockReturnValue([
+      { attachment: chatImage, nodeId: 'a1', nodeRole: 'assistant', nodeLabel: 'Chapter' }
+    ]);
+    vi.spyOn(picker, 'open').mockResolvedValue([chatImage]);
+
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.images.set([chatImage]);
+    await component.addFromChat();
+    expect(component.images()).toHaveLength(1); // still one, not duplicated
+    dialog.cancel();
+    await p;
+  });
+
+  it('offers every image model while no images are attached, including text-only-input ones', async () => {
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const values = Array.from(fixture.nativeElement.querySelectorAll('select option'))
+      .map(o => (o as HTMLOptionElement).value);
+    expect(values).toContain('alpha/image');
+    expect(values).toContain('gamma/image'); // text-only-input is fine without images
+    dialog.cancel();
+    await p;
+  });
+
+  it('excludes text-only-input image models once reference images are attached', async () => {
+    localStorage.setItem('chat.createImage.imagesByChatId', JSON.stringify({
+      'chat-1': [{ id: 'r1', name: 'memo.png', mimeType: 'image/png', size: 12, dataUrl: 'data:image/png;base64,UkVG' }]
+    }));
+
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const values = Array.from(fixture.nativeElement.querySelectorAll('select option'))
+      .map(o => (o as HTMLOptionElement).value);
+    expect(values).toContain('alpha/image'); // image-input capable
+    expect(values).not.toContain('gamma/image'); // text-only input excluded
+    dialog.cancel();
+    await p;
+  });
+
+  it('auto-corrects the selected model to an image-input-capable one when images are attached', async () => {
+    // The remembered model is gamma/image (text-only input) — invalid once
+    // images are attached. The dialog must switch to an image-input model.
+    localStorage.setItem('chat.createImage.model.v1', JSON.stringify({
+      modelId: 'gamma/image', providerId: 'prov-1'
+    }));
+    localStorage.setItem('chat.createImage.imagesByChatId', JSON.stringify({
+      'chat-1': [{ id: 'r1', name: 'memo.png', mimeType: 'image/png', size: 12, dataUrl: 'data:image/png;base64,UkVG' }]
+    }));
+
+    const p = openState();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.modelId()).not.toBe('gamma/image');
+    expect(['alpha/image', 'beta/image']).toContain(component.modelId());
     dialog.cancel();
     await p;
   });

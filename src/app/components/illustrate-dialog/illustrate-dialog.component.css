@@ -70,6 +70,68 @@
   line-height: 1.35;
 }
 
+/* Reference images (uploaded files / chat images) attached in the dialog. */
+.ill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+}
+
+.ill-chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 14rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 999px;
+  background: var(--bg-hover, #f8fafc);
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.ill-chips .thumb {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.ill-chips .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ill-chips .remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.ill-chips .add-attach {
+  border: 1px dashed var(--color-input-border, #ccc);
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+  color: var(--text-muted, #64748b);
+}
+
+.ill-chips .add-attach:hover {
+  color: var(--text);
+  border-color: var(--accent, #2563eb);
+}
+
 /* Context radio group — how much of the chat reaches the image model. */
 .ill-radio-group {
   border: 1px solid var(--color-input-border, #ccc);

@@ -13,6 +13,10 @@ import type {
   PromptSelection,
   PromptVersion,
   ProviderConfig,
+  RestoreTextVersionResult,
+  TextVersion,
+  TextVersionAttribute,
+  TextVersionEntityType,
   Topic
 } from './models.js';
 import type {
@@ -142,6 +146,28 @@ export interface ChatApiPort {
     scope: PromptScope,
     topicId?: string | null,
   ): Promise<void>;
+
+  // Versioned general texts (compare / restore).
+
+  /**
+   * All recorded versions for an entity (optionally narrowed to one attribute),
+   * newest first. New versions are appended automatically whenever a tracked
+   * attribute (topic.defaultSystemPrompt, project.systemPrompt, project.greeting,
+   * persona.description) actually changes.
+   */
+  getTextVersions(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute?: TextVersionAttribute,
+  ): Promise<TextVersion[]>;
+  /**
+   * Restore an attribute to the content captured by the given version. The
+   * pre-restore value is itself appended as a new version first, so the
+   * restore stays reversible.
+   */
+  restoreTextVersion(id: string): Promise<RestoreTextVersionResult>;
+  /** Remove a single recorded version entry. */
+  deleteTextVersion(id: string): Promise<void>;
 }
 
 export type PersistenceKind = 'memory' | 'sqlite' | 'firebase';

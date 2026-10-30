@@ -1,0 +1,54 @@
+@if (picker.current(); as data) {
+  <div
+    class="picker-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="picker-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="picker-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="picker-title">{{ i18n.t('chatImagePicker.title') }}</h3>
+      <p class="picker-hint">{{ i18n.t('chatImagePicker.hint') }}</p>
+
+      @if (data.images.length === 0) {
+        <p class="picker-empty">{{ i18n.t('chatImagePicker.empty') }}</p>
+      } @else {
+        <div class="picker-grid">
+          @for (entry of data.images; track entry.attachment.id) {
+            <button
+              type="button"
+              class="picker-item"
+              [class.selected]="isSelected(entry.attachment.id)"
+              [title]="entry.attachment.name"
+              (click)="toggle(entry.attachment)"
+            >
+              <img [src]="entry.attachment.dataUrl" [alt]="entry.attachment.name" />
+              <span class="picker-item-label">{{ entry.nodeLabel }}</span>
+              <span class="picker-item-check" aria-hidden="true">✓</span>
+            </button>
+          }
+        </div>
+      }
+
+      <div class="picker-actions">
+        <button class="btn" type="button" (click)="picker.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button
+          class="btn primary"
+          type="button"
+          [disabled]="selected().length === 0"
+          (click)="submit()"
+        >
+          {{ i18n.t('chatImagePicker.add', { n: selected().length }) }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

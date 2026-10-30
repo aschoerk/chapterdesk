@@ -248,6 +248,50 @@ describe('Chat', () => {
     expect(next.classList.contains('active')).toBe(true);
   });
 
+  it('keeps excluded nodes that have siblings in the navbar so branches stay visible', async () => {
+    await openStory(); // q1 → a1 (active), a2 is a sibling of a1
+    fixture.detectChanges();
+    await chatService.patchNode('chat-1', 'a1', { excludeFromContext: true, excludeAfterSend: false });
+    component.visibleNodeId.set('a1');
+    fixture.detectChanges();
+
+    // a1 is excluded but has a sibling (a2) → it STAYS a visible nav node and
+    // carries the "current" frame itself (no fallback to the next node).
+    const a1 = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    expect(a1).not.toBeNull();
+    expect((component as any).isNearViewport('a1')).toBe(true);
+    expect((component as any).isNearViewport('a2')).toBe(false);
+    expect(a1.classList.contains('active')).toBe(true);
+    // The branch indicator stays visible on the active nav node (1/2), so the
+    // branch structure is not concealed by the exclusion.
+    const badge = a1.querySelector('.nav-branch-count');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain('1');
+    expect(badge!.textContent).toContain('2');
+    // a2 is a NON-active sibling: it is not a nav node itself.
+    expect(fixture.nativeElement.querySelector('[data-nav-id="a2"]')).toBeNull();
+  });
+
+  it('keeps the mark on an excluded node that has siblings while it is edited', async () => {
+    await openStory(); // a1 has sibling a2
+    fixture.detectChanges();
+    await chatService.patchNode('chat-1', 'a1', { excludeFromContext: true, excludeAfterSend: false });
+    const editSession = TestBed.inject(NodeEditSession);
+    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
+    fixture.detectChanges();
+
+    // a1 is visible in the navbar (has siblings) → both the edit point and the
+    // frame stay ON a1 instead of falling to a2.
+    const a1 = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
+    expect(a1).not.toBeNull();
+    expect((component as any).isNavNodeBeingEdited('a1')).toBe(true);
+    expect((component as any).isNavNodeBeingEdited('a2')).toBe(false);
+    expect((component as any).isNearViewport('a1')).toBe(true);
+    expect(a1.querySelector('.nav-edit-dot')).not.toBeNull();
+    expect(a1.classList.contains('editing')).toBe(true);
+    expect(a1.classList.contains('active')).toBe(true);
+  });
+
   /** Seed a story with two assistant answers and make it the active chat. */
   async function openStory(): Promise<void> {
     seedApi(api, {

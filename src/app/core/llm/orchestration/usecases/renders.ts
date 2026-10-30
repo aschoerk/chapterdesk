@@ -1,7 +1,6 @@
-import type { ChatMessage, NodeAttachment } from '../../../../models/chat';
+import type { ChatMessage } from '../../../../models/chat';
 import type { EvalSlots } from '../types';
-import { isImageMime, resolvedMime, type MessagePart } from '../../llm-message';
-import { renderMessages, wrapImagesAsStoryboard } from './render-pipeline';
+import { renderMessages, referenceImageParts, wrapImagesAsStoryboard } from './render-pipeline';
 import type { UsecaseEnv } from './env';
 
 // ---------------------------------------------------------------------------
@@ -72,17 +71,6 @@ async function imageGeneration(env: UsecaseEnv): Promise<EvalSlots> {
 // (they are occasional references, not the primary input). The picture is
 // attached to the assistant node by the caller.
 // ---------------------------------------------------------------------------
-/** The image_url message parts of the reference images attached in the dialog. */
-function referenceImageParts(attachments: NodeAttachment[] | undefined | null): MessagePart[] {
-  const parts: MessagePart[] = [];
-  for (const a of attachments ?? []) {
-    if (isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:') && a.dataUrl.includes(',')) {
-      parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
-    }
-  }
-  return parts;
-}
-
 async function imageSend(env: UsecaseEnv): Promise<EvalSlots> {
   const prompt = (env.cx.vars.promptText ?? '').trim();
   const refs = referenceImageParts(env.cx.vars.attachments);

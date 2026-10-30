@@ -84,7 +84,8 @@ describe('IllustrateDialogService', () => {
       historyMode: 'window',
       historyNodes: 8,
       storyboardHistoryNodes: 12,
-      planDescriptions: false
+      planDescriptions: false,
+      attachments: []
     });
     expect(service.current()).toBeNull();
     expect(service.last()).toEqual({

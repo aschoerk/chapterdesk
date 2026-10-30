@@ -9,6 +9,7 @@ type Schema = {
   required?: string[];
   items?: Schema;
   $ref?: string;
+  anyOf?: Schema[];
   enum?: Array<string | number | boolean>;
   additionalProperties?: boolean | Schema;
   example?: unknown;
@@ -120,6 +121,7 @@ export const openApiSpec: OpenApiDocument = {
     { name: 'Models', description: 'Catalog entries' },
     { name: 'ChatParameters', description: 'Sampling / thinking settings' },
     { name: 'Prompts', description: 'Editable prompt templates (named versions + selections)' },
+    { name: 'TextVersions', description: 'Versioned general texts (compare / restore)' },
     { name: 'Proxy', description: 'Streaming LLM forwarder (not on ChatApiPort)' }
   ],
   paths: {
@@ -739,6 +741,35 @@ export const openApiSpec: OpenApiDocument = {
         responses: noContent,
       },
     },
+    '/api/text-versions': {
+      get: {
+        tags: ['TextVersions'],
+        summary: 'List recorded versions of a versioned text, newest first',
+        operationId: 'getTextVersions',
+        parameters: [
+          { name: 'entityType', in: 'query', required: true, schema: { type: 'string', enum: ['topic', 'project', 'persona'] } },
+          { name: 'entityId', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'attribute', in: 'query', required: false, schema: { type: 'string', enum: ['defaultSystemPrompt', 'systemPrompt', 'greeting', 'description'] } },
+        ],
+        responses: ok({ type: 'array', items: ref('TextVersion') }),
+      },
+    },
+    '/api/text-versions/{id}': {
+      post: {
+        tags: ['TextVersions'],
+        summary: 'Restore an attribute to the content captured by a version',
+        operationId: 'restoreTextVersion',
+        parameters: [idParam()],
+        responses: ok(ref('RestoreTextVersionResult')),
+      },
+      delete: {
+        tags: ['TextVersions'],
+        summary: 'Remove a single recorded version entry',
+        operationId: 'deleteTextVersion',
+        parameters: [idParam()],
+        responses: noContent,
+      },
+    },
   },
   components: {
     schemas: {
@@ -1176,6 +1207,33 @@ export const openApiSpec: OpenApiDocument = {
           scope: { type: 'string', enum: ['user', 'topic'] },
           topicId: { type: 'string', nullable: true },
           versionId: { type: 'string' },
+        },
+      },
+      TextVersion: {
+        type: 'object',
+        required: ['id', 'entityType', 'entityId', 'entityAttribute', 'versionNumber', 'datetime', 'oldContent'],
+        properties: {
+          id: { type: 'string' },
+          entityType: { type: 'string', enum: ['topic', 'project', 'persona'] },
+          entityId: { type: 'string' },
+          entityAttribute: { type: 'string', enum: ['defaultSystemPrompt', 'systemPrompt', 'greeting', 'description'] },
+          versionNumber: { type: 'integer', description: '1-based, sequential per (entityType, entityId, entityAttribute)' },
+          datetime: { type: 'string', format: 'date-time' },
+          oldContent: { type: 'string', description: 'The content active before the change (this version\'s snapshot)' },
+        },
+      },
+      RestoreTextVersionResult: {
+        type: 'object',
+        required: ['entityType', 'entityId', 'entityAttribute', 'value', 'undoVersion'],
+        properties: {
+          entityType: { type: 'string', enum: ['topic', 'project', 'persona'] },
+          entityId: { type: 'string' },
+          entityAttribute: { type: 'string', enum: ['defaultSystemPrompt', 'systemPrompt', 'greeting', 'description'] },
+          value: { type: 'string', description: 'The content now active after restoration' },
+          undoVersion: {
+            description: 'Newest version row recording the pre-restore content (null when unchanged)',
+            anyOf: [{ $ref: '#/components/schemas/TextVersion' }, { type: 'null' }],
+          },
         },
       },
     },

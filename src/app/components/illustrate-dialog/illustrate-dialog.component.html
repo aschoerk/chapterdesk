@@ -24,9 +24,11 @@
           (ngModelChange)="onModelChange($event)"
           [title]="i18n.t('illustrateDialog.modelTitle')"
         >
-          <option value="">
-            {{ i18n.t('illustrateDialog.modelDefault') }}{{ defaultModelName() ? ' — ' + defaultModelName() : '' }}
-          </option>
+          @if (showDefaultOption()) {
+            <option value="">
+              {{ i18n.t('illustrateDialog.modelDefault') }}{{ defaultModelName() ? ' — ' + defaultModelName() : '' }}
+            </option>
+          }
           @for (model of imageModels(); track model.id) {
             <option [value]="model.modelId">{{ model.displayName }}</option>
           }
@@ -176,6 +178,41 @@
           [placeholder]="i18n.t('illustrateDialog.stylePh')"
         />
       </label>
+
+      <!-- 7. Reference images — uploaded files or images from the current
+           chat, forwarded to the image model so it can keep characters /
+           setting / style consistent with existing pictures. -->
+      <div class="ill-field">
+        <span>{{ i18n.t('illustrateDialog.imagesLabel') }}</span>
+        <div class="ill-chips">
+          @for (img of images(); track img.id) {
+            <div class="chip">
+              <img [src]="img.dataUrl" class="thumb" [alt]="img.name" />
+              <span class="name" [title]="img.name">{{ img.name }}</span>
+              <button type="button" class="remove"
+                      [title]="i18n.t('illustrateDialog.removeImage')"
+                      (click)="removeImage(img.id)">×</button>
+            </div>
+          }
+          <button class="btn-icon add-attach" type="button"
+                  [title]="i18n.t('illustrateDialog.addImage')"
+                  (click)="imageFileInput.click()">
+            📎
+          </button>
+          <button class="btn-icon add-attach" type="button"
+                  [title]="i18n.t('illustrateDialog.addFromChat')"
+                  (click)="addFromChat()">
+            💬
+          </button>
+          <input #imageFileInput
+                 type="file"
+                 multiple
+                 hidden
+                 accept="image/*"
+                 (change)="onFilesSelected($event)" />
+        </div>
+        <small class="ill-hint">{{ i18n.t('illustrateDialog.imagesHint') }}</small>
+      </div>
 
       <div class="illustrate-actions">
         <button class="btn" type="button" (click)="dialog.cancel()">

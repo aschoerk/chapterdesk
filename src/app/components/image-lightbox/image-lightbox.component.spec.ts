@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
@@ -77,5 +77,25 @@ describe('ImageLightboxComponent', () => {
     img.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     // Target is the image, not the backdrop → stays open.
     expect(lightbox.current()).not.toBeNull();
+  });
+
+  it('downloads the currently shown image', () => {
+    const click = vi.fn();
+    const originalCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      if (tag === 'a') {
+        return { href: '', download: '', click, remove: vi.fn() } as unknown as HTMLAnchorElement;
+      }
+      return originalCreate(tag) as HTMLElement;
+    });
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => ({} as HTMLElement));
+
+    lightbox.open(['data:image/png;base64,AAA']);
+    fixture.detectChanges();
+    const btn = fixture.nativeElement.querySelector('.lightbox-download') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    btn.click();
+    expect(click).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
   });
 });

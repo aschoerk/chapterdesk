@@ -6,6 +6,8 @@ import type {
   ChatParametersDraft,
   CreateNodeRequest,
   NodeUsageSummary,
+  TextVersionAttribute,
+  TextVersionEntityType,
   ThinkingLevel,
 } from '../domain/models.js';
 import type {
@@ -723,6 +725,56 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
         ? String(req.query.topicId)
         : null;
       await api.deletePromptSelection(promptId, scope as 'user' | 'topic', topicId);
+      res.status(204).end();
+    }),
+  );
+
+  // Versioned general texts (compare / restore).
+  //   GET    /api/text-versions?entityType=&entityId=[&attribute=]
+  //   POST   /api/text-versions/:id/restore
+  //   DELETE /api/text-versions/:id
+  const TEXT_ENTITY_TYPES = new Set<string>(['topic', 'project', 'persona']);
+  const TEXT_ATTRIBUTES = new Set<string>([
+    'defaultSystemPrompt',
+    'systemPrompt',
+    'greeting',
+    'description',
+  ]);
+
+  app.get(
+    '/api/text-versions',
+    wrap(async (req, res) => {
+      const entityType = String(req.query.entityType ?? '');
+      const entityId = String(req.query.entityId ?? '');
+      if (!TEXT_ENTITY_TYPES.has(entityType)) {
+        throw badRequest('entityType query param must be one of topic, project, persona');
+      }
+      if (!entityId) throw badRequest('entityId query param is required');
+      let attribute: TextVersionAttribute | undefined;
+      if (req.query.attribute !== undefined) {
+        const attr = String(req.query.attribute);
+        if (!TEXT_ATTRIBUTES.has(attr)) {
+          throw badRequest(
+            'attribute query param must be one of defaultSystemPrompt, systemPrompt, greeting, description',
+          );
+        }
+        attribute = attr as TextVersionAttribute;
+      }
+      res.json(
+        await api.getTextVersions(entityType as TextVersionEntityType, entityId, attribute),
+      );
+    }),
+  );
+  app.post(
+    '/api/text-versions/:id/restore',
+    wrap(async (req, res) => {
+      res.json(await api.restoreTextVersion(param(req, 'id')));
+    }),
+  );
+  app.delete(
+    '/api/text-versions/:id',
+    wrap(async (req, res) => {
+      await api.deleteTextVersion(param(req, 'id'));
       res.status(204).end();
     }),
   );

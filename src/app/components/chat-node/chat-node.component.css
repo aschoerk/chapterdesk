@@ -582,6 +582,20 @@
   cursor: pointer;
 }
 
+.attachment-chips .chip-download {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+
+.attachment-chips .chip-download:hover {
+  color: var(--text, #0f172a);
+}
+
 .attachment-chips .name {
   overflow: hidden;
   text-overflow: ellipsis;

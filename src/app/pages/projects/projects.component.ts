@@ -20,6 +20,7 @@ import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
+import { TextVersionPanelComponent } from '../../components/text-version-panel/text-version-panel.component';
 import { isImageRef } from '../../core/util/image-ref';
 import {
   ChatParametersDraft,
@@ -31,6 +32,7 @@ import {PersonaService} from '../../core/persona.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/settings/topic-selection.service';
 import { SortPreferencesService, SortMode } from '../../core/settings/sort-preferences.service';
+import type { TextVersionAttribute } from '../../models/text-version';
 
 /** localStorage-backed sort preference key for this (Projects) page. */
 const SORT_PAGE = 'projects';
@@ -38,7 +40,14 @@ const SORT_PAGE = 'projects';
 @Component({
   selector: 'app-projects',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatParametersEditorComponent, AvatarPickerComponent, AvatarViewComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ChatParametersEditorComponent,
+    AvatarPickerComponent,
+    AvatarViewComponent,
+    TextVersionPanelComponent
+  ],
   templateUrl: './projects.component.html',
   styleUrl: './projects.component.css'
 })
@@ -144,6 +153,28 @@ export class ProjectsComponent implements OnInit {
   readonly projectParamsOverride = signal(false);
   readonly projectParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
   readonly projectParamsInherited = signal<ResolvedChatParameters | null>(null);
+
+  /** The environment currently open in the editor (null = creating or closed). */
+  readonly editedProject = computed(() =>
+    this.projects().find(p => p.id === this.editingId()) ?? null
+  );
+
+  /** Tracked versioned texts of an environment (definition + greeting). */
+  readonly projectVersionAttributes = computed(() => [
+    { attribute: 'systemPrompt' as TextVersionAttribute, label: this.i18n.t('projects.definition') },
+    { attribute: 'greeting' as TextVersionAttribute, label: this.i18n.t('projects.greeting') }
+  ]);
+
+  /** Currently saved values per tracked environment attribute (for compare). */
+  readonly currentProjectTexts = computed(() => ({
+    systemPrompt: this.editedProject()?.systemPrompt ?? null,
+    greeting: this.editedProject()?.greeting ?? null
+  }));
+
+  onVersionRestored(event: { attribute: TextVersionAttribute; value: string }): void {
+    if (event.attribute === 'systemPrompt') this.form.systemPrompt = event.value;
+    else if (event.attribute === 'greeting') this.form.greeting = event.value;
+  }
 
   // Search is applied inside `visibleProjects` (below), so it composes with
   // the topic filter and the sort mode.

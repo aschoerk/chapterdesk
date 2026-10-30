@@ -8,6 +8,7 @@ import { LlmLogResendService, ResendResult } from '../../core/llm/llm-log-resend
 import { ToastService } from '../../core/toast/toast.service';
 import { extractLlmImages } from '../../core/llm/llm-message';
 import { LlmLogService, LlmLogEntry, LlmLogMessage, LLM_LOG_LIMIT } from '../../core/llm/llm-log.service';
+import { downloadUrl, filenameFromUrl } from '../../core/util/download';
 
 @Component({
   selector: 'app-logs',
@@ -318,6 +319,11 @@ export class LlmLogsComponent implements OnDestroy {
   openLogImages(urls: string[], index = 0): void {
     if (urls.length === 0) return;
     this.lightbox.open(urls, Math.min(Math.max(index, 0), urls.length - 1));
+  }
+
+  /** Download one log image (data: or http(s): URL) under a derived name. */
+  downloadLogImage(url: string, index = 0): void {
+    downloadUrl(url, filenameFromUrl(url, `log-image-${index + 1}.png`));
   }
 
   /** True while the "Copied" flash is active for the given button. */

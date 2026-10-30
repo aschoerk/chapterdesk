@@ -513,6 +513,9 @@
             @if (a.mimeType.startsWith('image/')) {
               <img [src]="a.dataUrl" class="thumb" [alt]="a.name"
                    (click)="onAttachmentImageClick(a, $event)" />
+              <button type="button" class="chip-download"
+                      [title]="i18n.t('node.downloadImage', { name: a.name })"
+                      (click)="downloadAttachment(a, $event)">⬇</button>
             } @else if (isPromptAttachment(a)) {
               <button type="button" class="prompt-toggle"
                       (click)="onAttachmentPromptClick(a, $event)">

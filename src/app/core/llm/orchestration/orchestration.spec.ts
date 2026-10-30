@@ -1590,6 +1590,64 @@ describe('LLM orchestration — planned-scenes pipeline (use case 3)', () => {
     expect(serialized).not.toContain('HANDIMAGE');
   });
 
+  it('forwards user-chosen reference images to the image model in an illustration', async () => {
+    // The user explicitly attached a reference image in the Illustrate dialog
+    // (`vars.attachments`). Unlike prior illustrations / hand-attached chat
+    // images (never auto-forwarded), the user-chosen reference MUST reach the
+    // image model as an image_url part alongside the anchor prompt.
+    api.models = [
+      makeModel({
+        id: 'img', displayName: 'Image', modelId: 'vendor/image',
+        architecture: { input_modalities: ['image'], output_modalities: ['image'] }
+      })
+    ];
+    fetchMock.mockResolvedValueOnce(completionImage(1)); // the single render
+
+    await TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: CHAT_API, useValue: api }
+      ]
+    }).compileComponents();
+    TestBed.inject(I18nService).setLocale('en');
+    const settings = TestBed.inject(SettingsService);
+    await settings.loadAll();
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('image-create', { providerId: 'prov-1', modelId: 'vendor/image' });
+
+    const chatService = TestBed.inject(ChatService);
+    const now = new Date().toISOString();
+    const refImage = makeAttachment({
+      id: 'ref', name: 'reference.png', mimeType: 'image/png',
+      dataUrl: 'data:image/png;base64,REFIMAGE'
+    });
+    api.chats.push({ id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now });
+    api.nodes = [
+      makeNode({ id: 'u1', chatId: 'chat-1', parentId: null, role: 'user', content: 'A direction.' }),
+      makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true })
+    ];
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+
+    const runner = TestBed.inject(LlmUseCaseRunner);
+    await runner.run({
+      chat: { id: 'chat-1', title: 'Story', projectId: null, node_number: 2, created_at: now, updated_at: now },
+      node: makeNode({ id: 'a1', chatId: 'chat-1', parentId: 'u1', role: 'assistant', content: 'A chapter.', isCurrent: true }),
+      usecase: 'render-node',
+      vars: { count: 1, attachments: [refImage] }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: unknown }[];
+    };
+    const serialized = JSON.stringify(body.messages);
+    expect(serialized).toContain('A chapter.'); // the anchor prompt text
+    expect(serialized).toContain('image_url');
+    expect(serialized).toContain('REFIMAGE');
+  });
+
   it('keeps previously collected images when one scene is refused (partial survival)', async () => {
     // The scene one-shot batch → 0 (moderated); the per-scene fallback renders
     // scenes 1+2, scene 3 is refused → with 2 successes (>1) the unifying

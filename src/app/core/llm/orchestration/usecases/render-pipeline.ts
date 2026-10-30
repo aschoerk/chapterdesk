@@ -1,22 +1,47 @@
-import type { ChatMessage } from '../../../../models/chat';
+import type { ChatMessage, NodeAttachment } from '../../../../models/chat';
 import type { EvalSlots, ImageScene, LlmImagePart } from '../types';
+import { isImageMime, resolvedMime, type MessagePart } from '../../llm-message';
 import { makeSlot } from '../slots';
 import type { UsecaseEnv } from './env';
 
 /**
- * Build the single user message for an image render call: JUST the prompt
- * text. NO attachments are ever sent to the image model — prior illustrations
- * / hand-attached images are deliberately NOT forwarded as reference `image_url`
- * parts (binaries must never reach the image generation model).
+ * The `image_url` message parts of the reference images the user attached in
+ * the dialog (`vars.attachments`). Only data: URLs are forwarded — http(s)
+ * URLs are never shipped as binaries. Empty when nothing was attached.
  */
-export function renderMessages(env: UsecaseEnv, prompt: string): ChatMessage[] {
-  return [{ role: 'user', content: prompt }];
+export function referenceImageParts(attachments: NodeAttachment[] | undefined | null): MessagePart[] {
+  const parts: MessagePart[] = [];
+  for (const a of attachments ?? []) {
+    if (isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:') && a.dataUrl.includes(',')) {
+      parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    }
+  }
+  return parts;
 }
 
 /**
- * One image-model request. The prompt is sent as a plain single user message
- * (TEXT ONLY — no reference/attachment images ever reach the generation
- * model); optionally a text-only `prefix` (chat context) is prepended.
+ * Build the single user message for an image render call: the prompt text,
+ * plus any reference images the user attached in the dialog (`vars.attachments`)
+ * as `image_url` parts. Prior illustrations / hand-attached chat images are
+ * deliberately NOT auto-forwarded — only the images the user explicitly chose
+ * as references reach the image model.
+ */
+export function renderMessages(env: UsecaseEnv, prompt: string): ChatMessage[] {
+  const refs = referenceImageParts(env.cx.vars.attachments);
+  if (refs.length === 0) return [{ role: 'user', content: prompt }];
+  return [{
+    role: 'user',
+    content: [
+      { type: 'text', text: prompt },
+      ...refs
+    ]
+  }];
+}
+
+/**
+ * One image-model request. The prompt is sent as a single user message —
+ * TEXT plus any user-chosen reference images (see `renderMessages`); optionally
+ * a text-only `prefix` (chat context) is prepended.
  */
 export async function renderImage(
   env: UsecaseEnv,
@@ -26,7 +51,7 @@ export async function renderImage(
   return env.orch.completeImage(env.cx, {
     model: env.render.model,
     provider: env.render.provider,
-    messages: [...(opts.prefix ?? []), { role: 'user', content: prompt }],
+    messages: [...(opts.prefix ?? []), ...renderMessages(env, prompt)],
     extras: env.imageExtras
   }, { expect: 'images', prompt, scene: opts.scene, signal: env.signal });
 }

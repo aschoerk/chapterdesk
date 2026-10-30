@@ -53,6 +53,11 @@
                   (click)="imageFileInput.click()">
             📎
           </button>
+          <button class="btn-icon add-attach" type="button"
+                  [title]="i18n.t('createImageDialog.addFromChat')"
+                  (click)="addFromChat()">
+            💬
+          </button>
           <input #imageFileInput
                  type="file"
                  multiple

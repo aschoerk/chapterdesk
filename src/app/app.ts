@@ -9,6 +9,7 @@ import {ResendDialogComponent} from './components/resend-dialog/resend-dialog.co
 import {CreateImageDialogComponent} from './components/create-image-dialog/create-image-dialog.component';
 import {ChapterDescriptionsDialogComponent} from './components/chapter-descriptions-dialog/chapter-descriptions-dialog.component';
 import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox.component';
+import {ChatImagePickerComponent} from './components/chat-image-picker/chat-image-picker.component';
 import {ToastHostComponent} from './components/toast-host/toast-host.component';
 import {ShortcutHelpComponent} from './components/shortcut-help/shortcut-help.component';
 import {ThemeService} from './core/settings/theme.service';
@@ -25,7 +26,7 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, ChatImagePickerComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

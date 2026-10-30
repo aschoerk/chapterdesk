@@ -123,6 +123,27 @@ export const DE_PAGES: typeof EN_PAGES = {
     addFailed: 'Umgebung konnte dem Thema nicht hinzugefügt werden',
     removeFailed: 'Umgebung konnte nicht aus dem Thema entfernt werden',
   },
+  textVersions: {
+    title: 'Versionsverlauf',
+    loading: 'Versionen werden geladen…',
+    empty:
+      'Noch keine Versionen. Wer dieser Text geändert wird, wird der vorherige Inhalt hier festgehalten, um ihn später zu vergleichen und wiederherzustellen.',
+    emptyPreview: '(leer)',
+    compare: 'Vergleichen',
+    restore: 'Wiederherstellen',
+    restoreTitle: 'Version wiederherstellen?',
+    restoreMessage:
+      'Der aktuelle Text wird durch Version {{version}} ersetzt. Der aktuelle Text wird als neue Version beibehalten, sodass die Wiederherstellung rückgängig gemacht werden kann.',
+    restored: 'Version {{version}} wiederhergestellt',
+    restoreFailed: 'Version konnte nicht wiederhergestellt werden',
+    deleteTitle: 'Versionseintrag löschen?',
+    deleteMessage:
+      'Version {{version}} aus dem Verlauf entfernen? Es wird nur der Eintrag entfernt, der aktuelle Text bleibt unverändert.',
+    deleted: 'Version gelöscht',
+    deleteFailed: 'Version konnte nicht gelöscht werden',
+    current: 'Aktuell',
+    historical: 'Version {{version}}',
+  },
   sort: {
     alpha: 'Sortieren A–Z',
     alphaAZ: 'Sortiert A–Z – klicken für Z–A',

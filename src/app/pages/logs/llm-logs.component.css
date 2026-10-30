@@ -237,6 +237,10 @@
   margin-bottom: 0.25rem;
 }
 
+.log-thumb-wrap {
+  position: relative;
+}
+
 .log-thumb {
   width: 5.5rem;
   height: 5.5rem;
@@ -251,6 +255,35 @@
 .log-thumb:hover {
   border-color: var(--accent, #2563eb);
   transform: scale(1.03);
+}
+
+.log-thumb-download {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.log-thumb-wrap:hover .log-thumb-download {
+  opacity: 1;
+}
+
+.log-thumb-download:hover {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .log-caption {

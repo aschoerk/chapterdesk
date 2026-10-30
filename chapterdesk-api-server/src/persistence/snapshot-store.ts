@@ -14,6 +14,10 @@ import type {
   PromptSelection,
   PromptVersion,
   ProviderConfig,
+  RestoreTextVersionResult,
+  TextVersion,
+  TextVersionAttribute,
+  TextVersionEntityType,
   Topic
 } from '../domain/models.js';
 import type {
@@ -373,6 +377,23 @@ export class SnapshotPersistence implements PersistencePort {
     topicId?: string | null,
   ): Promise<void> {
     await this.memory.deletePromptSelection(promptId, scope, topicId);
+  }
+
+  // Versioned general texts are global (shared) data — like prompt versions,
+  // they live in the plain memory store and need no topic/provider flush.
+
+  async getTextVersions(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute?: TextVersionAttribute,
+  ): Promise<TextVersion[]> {
+    return this.memory.getTextVersions(entityType, entityId, entityAttribute);
+  }
+  async restoreTextVersion(id: string): Promise<RestoreTextVersionResult> {
+    return this.memory.restoreTextVersion(id);
+  }
+  async deleteTextVersion(id: string): Promise<void> {
+    await this.memory.deleteTextVersion(id);
   }
 }
 

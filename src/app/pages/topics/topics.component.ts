@@ -16,9 +16,13 @@ import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { Topic } from '../../models/chat';
 import { AvatarPickerComponent } from '../../components/avatar-picker/avatar-picker.component';
 import { AvatarViewComponent } from '../../components/avatar-view/avatar-view.component';
+import { TextVersionPanelComponent } from '../../components/text-version-panel/text-version-panel.component';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { TopicSelectionService } from '../../core/settings/topic-selection.service';
 import { SortPreferencesService, SortMode } from '../../core/settings/sort-preferences.service';
+import type {
+  TextVersionAttribute
+} from '../../models/text-version';
 
 /** localStorage-backed sort preference key for this (Topics) page. */
 const SORT_PAGE = 'topics';
@@ -26,7 +30,13 @@ const SORT_PAGE = 'topics';
 @Component({
   selector: 'app-topics',
   standalone: true,
-  imports: [CommonModule, FormsModule, AvatarPickerComponent, AvatarViewComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    AvatarPickerComponent,
+    AvatarViewComponent,
+    TextVersionPanelComponent
+  ],
   templateUrl: './topics.component.html',
   styleUrl: './topics.component.css'
 })
@@ -88,6 +98,25 @@ export class TopicsComponent implements OnInit {
     }
     return this.applyTopicSort(list);
   });
+
+  /** The topic currently open in the editor (null = creating or closed). */
+  readonly editedTopic = computed(() =>
+    this.topics().find(t => t.id === this.editingId()) ?? null
+  );
+
+  /** Tracked versioned text of a topic (its default system prompt). */
+  readonly topicVersionAttributes = computed(() => [
+    {
+      attribute: 'defaultSystemPrompt' as TextVersionAttribute,
+      label: this.i18n.t('topics.defaultSystem')
+    }
+  ]);
+
+  onVersionRestored(event: { attribute: TextVersionAttribute; value: string }): void {
+    if (event.attribute === 'defaultSystemPrompt') {
+      this.form.defaultSystemPrompt = event.value;
+    }
+  }
 
   // ------------------------------------------------------------
   // Topic list sorting (persisted per page via SortPreferencesService;

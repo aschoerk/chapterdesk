@@ -15,6 +15,10 @@ import type {
   PromptSelection,
   PromptVersion,
   ProviderConfig,
+  RestoreTextVersionResult,
+  TextVersion,
+  TextVersionAttribute,
+  TextVersionEntityType,
   Topic,
 } from '../../domain/models.js';
 import type {
@@ -88,6 +92,7 @@ export class MemoryPersistence implements PersistencePort {
   private parameters = new Map<string, ChatParameters>();
   private promptVersions = new Map<string, PromptVersion>();
   private promptSelections = new Map<string, PromptSelection>();
+  private textVersions = new Map<string, TextVersion>();
   private topicRevisions = new Map<string, SnapshotMeta>();
   private providerRevisions = new Map<string, SnapshotMeta>();
 
@@ -320,6 +325,12 @@ export class MemoryPersistence implements PersistencePort {
     const existing = this.projects.get(id);
     if (!existing) throw notFound('project', id);
     const topicIds = data.topicIds ?? (data.topicId ? [data.topicId] : existing.topicIds);
+    if (data.greeting !== undefined && data.greeting !== existing.greeting) {
+      this.recordTextVersion('project', id, 'greeting', existing.greeting);
+    }
+    if (data.systemPrompt !== undefined && data.systemPrompt !== existing.systemPrompt) {
+      this.recordTextVersion('project', id, 'systemPrompt', existing.systemPrompt);
+    }
     const next: Project = {
       ...existing,
       name: data.name ?? existing.name,
@@ -342,6 +353,10 @@ export class MemoryPersistence implements PersistencePort {
   async deleteProject(id: string, deleteChats = false): Promise<void> {
     if (!this.projects.has(id)) throw notFound('project', id);
     this.projects.delete(id);
+    for (const key of [...this.textVersions.keys()]) {
+      const v = this.textVersions.get(key) as TextVersion;
+      if (v.entityType === 'project' && v.entityId === id) this.textVersions.delete(key);
+    }
     for (const topic of this.topics.values()) {
       topic.projectIds = topic.projectIds.filter((pid) => pid !== id);
     }
@@ -650,6 +665,9 @@ export class MemoryPersistence implements PersistencePort {
   async updatePersona(id: string, data: UpdatePersonaRequest): Promise<Persona> {
     const existing = this.personas.get(id);
     if (!existing) throw notFound('persona', id);
+    if (data.description !== undefined && data.description !== existing.description) {
+      this.recordTextVersion('persona', id, 'description', existing.description);
+    }
     const next: Persona = {
       ...existing,
       ...data,
@@ -662,6 +680,10 @@ export class MemoryPersistence implements PersistencePort {
   async deletePersona(id: string): Promise<void> {
     if (!this.personas.has(id)) throw notFound('persona', id);
     this.personas.delete(id);
+    for (const key of [...this.textVersions.keys()]) {
+      const v = this.textVersions.get(key) as TextVersion;
+      if (v.entityType === 'persona' && v.entityId === id) this.textVersions.delete(key);
+    }
   }
 
   async getTopics(): Promise<Topic[]> {
@@ -689,6 +711,9 @@ export class MemoryPersistence implements PersistencePort {
   async updateTopic(id: string, data: UpdateTopicRequest): Promise<Topic> {
     const existing = this.topics.get(id);
     if (!existing) throw notFound('topic', id);
+    if (data.defaultSystemPrompt !== undefined && data.defaultSystemPrompt !== existing.defaultSystemPrompt) {
+      this.recordTextVersion('topic', id, 'defaultSystemPrompt', existing.defaultSystemPrompt);
+    }
     const next: Topic = { ...existing, ...data, updatedAt: now() };
     this.topics.set(id, next);
     return clone(next);
@@ -697,6 +722,10 @@ export class MemoryPersistence implements PersistencePort {
   async deleteTopic(id: string): Promise<void> {
     if (!this.topics.has(id)) throw notFound('topic', id);
     this.topics.delete(id);
+    for (const key of [...this.textVersions.keys()]) {
+      const v = this.textVersions.get(key) as TextVersion;
+      if (v.entityType === 'topic' && v.entityId === id) this.textVersions.delete(key);
+    }
     for (const project of this.projects.values()) {
       project.topicIds = (project.topicIds ?? []).filter((tid) => tid !== id);
       if (project.mainTopicId === id) project.mainTopicId = null;
@@ -924,6 +953,136 @@ export class MemoryPersistence implements PersistencePort {
     topicId?: string | null,
   ): Promise<void> {
     this.promptSelections.delete(this.selectionKey(promptId, scope, topicId));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Versioned general texts
+  // ---------------------------------------------------------------------------
+
+  private textVersionEntries(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute?: TextVersionAttribute,
+  ): TextVersion[] {
+    return [...this.textVersions.values()]
+      .filter(
+        (v) =>
+          v.entityType === entityType &&
+          v.entityId === entityId &&
+          (entityAttribute === undefined || v.entityAttribute === entityAttribute),
+      )
+      .sort((a, b) => b.versionNumber - a.versionNumber);
+  }
+
+  private recordTextVersion(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+    oldContent: string,
+  ): TextVersion {
+    const entries = this.textVersionEntries(entityType, entityId, entityAttribute);
+    const versionNumber = entries.reduce((max, v) => Math.max(max, v.versionNumber), 0) + 1;
+    const version: TextVersion = {
+      id: randomUUID(),
+      entityType,
+      entityId,
+      entityAttribute,
+      versionNumber,
+      datetime: now(),
+      oldContent: String(oldContent),
+    };
+    this.textVersions.set(version.id, version);
+    return clone(version);
+  }
+
+  private newestTextVersion(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+  ): TextVersion | null {
+    return this.textVersionEntries(entityType, entityId, entityAttribute)[0] ?? null;
+  }
+
+  private requireEntityForText(entityType: TextVersionEntityType, entityId: string): void {
+    if (entityType === 'topic' && !this.topics.has(entityId)) throw notFound('topic', entityId);
+    else if (entityType === 'project' && !this.projects.has(entityId))
+      throw notFound('project', entityId);
+    else if (entityType === 'persona' && !this.personas.has(entityId))
+      throw notFound('persona', entityId);
+  }
+
+  private readTextValue(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+  ): string {
+    if (entityType === 'topic') {
+      const topic = this.topics.get(entityId);
+      if (!topic) throw notFound('topic', entityId);
+      return topic.defaultSystemPrompt ?? '';
+    }
+    if (entityType === 'project') {
+      const project = this.projects.get(entityId);
+      if (!project) throw notFound('project', entityId);
+      return entityAttribute === 'greeting' ? (project.greeting ?? '') : (project.systemPrompt ?? '');
+    }
+    const persona = this.personas.get(entityId);
+    if (!persona) throw notFound('persona', entityId);
+    return persona.description ?? '';
+  }
+
+  private writeTextValue(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute: TextVersionAttribute,
+    value: string,
+  ): void {
+    const ts = now();
+    if (entityType === 'topic') {
+      const topic = this.topics.get(entityId);
+      if (!topic) throw notFound('topic', entityId);
+      topic.defaultSystemPrompt = value;
+      topic.updatedAt = ts;
+    } else if (entityType === 'project') {
+      const project = this.projects.get(entityId);
+      if (!project) throw notFound('project', entityId);
+      if (entityAttribute === 'greeting') project.greeting = value;
+      else project.systemPrompt = value;
+      project.updatedAt = ts;
+    } else {
+      const persona = this.personas.get(entityId);
+      if (!persona) throw notFound('persona', entityId);
+      persona.description = value;
+      persona.updatedAt = ts;
+    }
+  }
+
+  async getTextVersions(
+    entityType: TextVersionEntityType,
+    entityId: string,
+    entityAttribute?: TextVersionAttribute,
+  ): Promise<TextVersion[]> {
+    this.requireEntityForText(entityType, entityId);
+    return this.textVersionEntries(entityType, entityId, entityAttribute).map(clone);
+  }
+
+  async restoreTextVersion(id: string): Promise<RestoreTextVersionResult> {
+    const existing = this.textVersions.get(id);
+    if (!existing) throw notFound('text-version', id);
+    const { entityType, entityId, entityAttribute, oldContent } = existing;
+    const restoredContent = oldContent ?? '';
+    const current = this.readTextValue(entityType, entityId, entityAttribute);
+    let undoVersion: TextVersion | null = null;
+    if (current !== restoredContent) {
+      undoVersion = this.recordTextVersion(entityType, entityId, entityAttribute, current);
+    }
+    this.writeTextValue(entityType, entityId, entityAttribute, restoredContent);
+    return { entityType, entityId, entityAttribute, value: restoredContent, undoVersion };
+  }
+
+  async deleteTextVersion(id: string): Promise<void> {
+    if (!this.textVersions.has(id)) throw notFound('text-version', id);
+    this.textVersions.delete(id);
   }
 
   private requireChat(id: string): Chat {

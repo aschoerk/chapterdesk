@@ -1,0 +1,88 @@
+<div class="tvp" [class.open]="open()">
+  <button type="button" class="tvp-toggle" (click)="toggle()">
+    <span class="tvp-toggle-label">{{ t('textVersions.title') }}</span>
+    <span class="tvp-toggle-count" [class.empty]="versions().length === 0">{{ versions().length }}</span>
+    <span class="tvp-chevron">{{ open() ? '▾' : '▸' }}</span>
+  </button>
+
+  @if (open()) {
+    <div class="tvp-body">
+      @if (attributes().length > 1) {
+        <div class="tvp-attr">
+          @for (attr of attributes(); track attr.attribute) {
+            <button
+              type="button"
+              class="tvp-attr-btn"
+              [class.active]="activeAttribute()?.attribute === attr.attribute"
+              (click)="selectAttribute(attr.attribute)"
+            >
+              {{ attr.label }}
+            </button>
+          }
+        </div>
+      }
+
+      @if (loadError()) {
+        <p class="tvp-state">{{ loadError() }}</p>
+      } @else if (loading()) {
+        <p class="tvp-state">{{ t('textVersions.loading') }}</p>
+      } @else if (versions().length === 0) {
+        <p class="tvp-state">{{ t('textVersions.empty') }}</p>
+      } @else {
+        <ul class="tvp-list">
+          @for (version of versions(); track version.id) {
+            <li class="tvp-row" [class.compare-open]="isCompare(version)">
+              <div class="tvp-row-head">
+                <span class="tvp-version-badge">V{{ version.versionNumber }}</span>
+                <span class="tvp-date">{{ formatDate(version.datetime) }}</span>
+                <span class="tvp-preview">
+                  {{
+                    preview(version.oldContent) ||
+                    t('textVersions.emptyPreview')
+                  }}
+                </span>
+                <div class="tvp-actions">
+                  <button type="button" class="btn small" (click)="toggleCompare(version)">
+                    {{ isCompare(version) ? t('common.close') : t('textVersions.compare') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn small primary"
+                    [disabled]="busyId() !== null"
+                    (click)="restore(version)"
+                  >
+                    {{ t('textVersions.restore') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn small danger"
+                    [disabled]="busyId() !== null"
+                    (click)="remove(version)"
+                    [title]="t('textVersions.deleteTitle')"
+                  >
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
+              </div>
+
+              @if (isCompare(version)) {
+                <div class="tvp-compare">
+                  <div class="tvp-compare-col">
+                    <span class="tvp-compare-label">{{ t('textVersions.current') }}</span>
+                    <pre class="tvp-text">{{ currentText() }}</pre>
+                  </div>
+                  <div class="tvp-compare-col">
+                    <span class="tvp-compare-label">{{
+                      t('textVersions.historical', { version: version.versionNumber })
+                    }}</span>
+                    <pre class="tvp-text">{{ version.oldContent }}</pre>
+                  </div>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  }
+</div>

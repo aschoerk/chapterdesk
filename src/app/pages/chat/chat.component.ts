@@ -109,16 +109,18 @@ export class ChatComponent implements OnInit {
   }
 
   /** Map a target node id to the VISIBLE navbar node that should carry its
-   *  mark. Excluded-from-context nodes are hidden from the navbar, so their
-   *  mark (the "being edited" point, the "current" frame) falls to the next
-   *  visible node in the active path — or is dropped when there is none. */
+   *  mark. Hidden nodes (excluded from context AND not part of a branch) are
+   *  absent from the navbar, so their mark (the "being edited" point, the
+   *  "current" frame) falls to the next visible node — or is dropped when
+   *  there is none. Excluded nodes with siblings stay visible and keep their
+   *  own mark. */
   private navMarkFallback(id: string | null): string | null {
     if (!id) return null;
     const path = this.getActivePath();
     const i = path.findIndex(n => n.id === id);
     if (i < 0) return null;
     for (let k = i; k < path.length; k++) {
-      if (!path[k].excludeFromContext) return path[k].id;
+      if (this.isNavVisible(path[k])) return path[k].id;
     }
     return null;
   }
@@ -1145,11 +1147,18 @@ export class ChatComponent implements OnInit {
 // just delegate
   getActivePath()          { return this.chatService.getActivePath(); }
 
-  /** Active path WITHOUT nodes excluded from the model context — the navbar
-   *  only shows sections that are relevant to the LLM; excluded ones stay in
-   *  the tree below but are hidden from the nav-bar. */
+  /** The navbar shows the active path. Nodes excluded from the model context
+   *  are hidden UNLESS they sit in a branch (have siblings) — a hidden branch
+   *  point would conceal the parallel continuations. */
   navPath(): ChatNode[] {
-    return this.chatService.getActivePath().filter(n => !n.excludeFromContext);
+    return this.chatService.getActivePath().filter(n => this.isNavVisible(n));
+  }
+
+  /** A node appears in the navbar when it is included in the model context,
+   *  or when it is excluded but has siblings — hiding the latter would make
+   *  the branch structure unclear. */
+  private isNavVisible(n: ChatNode): boolean {
+    return !n.excludeFromContext || this.getChildren(n.parentId ?? null).length > 1;
   }
 
   getActiveChildId(pid: string | null)    { return this.chatService.getActiveChildId(pid); }

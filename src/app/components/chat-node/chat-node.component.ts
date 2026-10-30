@@ -47,6 +47,7 @@ import { LlmLogService } from '../../core/llm/llm-log.service';
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
 import { nearestScrollParent } from '../../core/util/dom-metrics';
+import { downloadUrl, filenameFromUrl } from '../../core/util/download';
 import { buildCtxMenuItems, type CtxMenuItem } from './context-menu';
 import { filesToAttachments as convertFilesToAttachments } from './attachments';
 import {
@@ -1287,6 +1288,10 @@ export class ChatNodeComponent implements OnDestroy {
       historyMode,
       historyNodes: activeHistoryNodes,
       planDescriptions,
+      // Reference images the user attached in the dialog (uploaded files or
+      // images picked from the current chat) — forwarded to the image model
+      // so it can keep characters / setting / style consistent.
+      attachments: options.attachments ?? [],
       // The marked scene text (if any) overrides the whole chapter as the
       // scene — in ALL illustration use cases, planned / direct / pure.
       content: sceneText || anchorText,
@@ -2862,6 +2867,12 @@ export class ChatNodeComponent implements OnDestroy {
     }
     this.openImage(a.dataUrl);
     event.stopPropagation();
+  }
+
+  /** Download an image attachment (data URL) as a file. */
+  downloadAttachment(a: NodeAttachment, event: MouseEvent): void {
+    event.stopPropagation();
+    downloadUrl(a.dataUrl, a.name || filenameFromUrl(a.dataUrl, 'image.png'));
   }
 
   onAttachmentPromptClick(a: NodeAttachment, event: MouseEvent): void {

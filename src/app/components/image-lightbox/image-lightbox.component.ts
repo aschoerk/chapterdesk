@@ -1,6 +1,7 @@
 import { Component, HostListener, inject } from '@angular/core';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { downloadUrl, filenameFromUrl } from '../../core/util/download';
 
 @Component({
   selector: 'app-image-lightbox',
@@ -14,6 +15,15 @@ export class ImageLightboxComponent {
 
   onBackdrop(ev: MouseEvent): void {
     if (ev.target === ev.currentTarget) this.lightbox.close();
+  }
+
+  /** Download the image currently shown in the lightbox. */
+  downloadCurrent(): void {
+    const lb = this.lightbox.current();
+    if (!lb) return;
+    const url = lb.urls[lb.index];
+    if (!url) return;
+    downloadUrl(url, filenameFromUrl(url, `image-${lb.index + 1}.png`));
   }
 
   @HostListener('document:keydown', ['$event'])

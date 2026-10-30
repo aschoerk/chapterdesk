@@ -10,6 +10,16 @@
       ✕
     </button>
 
+    <button
+      class="lightbox-download"
+      type="button"
+      (click)="downloadCurrent()"
+      [title]="i18n.t('lightbox.download')"
+      aria-label="download"
+    >
+      ⬇
+    </button>
+
     @if (lb.urls.length > 1) {
       <button
         class="lightbox-nav prev"

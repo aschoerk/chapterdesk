@@ -38,7 +38,8 @@
 }
 
 .lightbox-close,
-.lightbox-nav {
+.lightbox-nav,
+.lightbox-download {
   position: fixed;
   display: flex;
   align-items: center;
@@ -61,6 +62,14 @@
   font-size: 1.1rem;
 }
 
+.lightbox-download {
+  top: 16px;
+  right: 68px;
+  width: 42px;
+  height: 42px;
+  font-size: 1.1rem;
+}
+
 .lightbox-nav {
   top: 50%;
   transform: translateY(-50%);
@@ -78,6 +87,7 @@
 }
 
 .lightbox-close:hover,
-.lightbox-nav:hover {
+.lightbox-nav:hover,
+.lightbox-download:hover {
   background: rgba(255, 255, 255, 0.2);
 }
