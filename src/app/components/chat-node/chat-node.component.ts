@@ -129,6 +129,12 @@ export class ChatNodeComponent implements OnDestroy {
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
+  /**
+   * Selection range (in the draft) captured when "Check my English" was
+   * invoked with a MARKED part of the direction; null when the whole
+   * direction is checked. Used to replace only that range on apply.
+   */
+  private readonly englishSelection = signal<{ start: number; end: number } | null>(null);
   readonly showPreview = signal(false);
   /** Set by Cancel so auto-open does not immediately re-enter edit. */
   readonly editDismissed = signal(false);
@@ -1794,11 +1800,25 @@ export class ChatNodeComponent implements OnDestroy {
     if (this.node().role !== 'user' || !this.isEditing()) return;
     if (this.checkingEnglish() || this.isLoading()) return;
 
-    const text = this.contentDraft().trim();
-    if (!text) {
+    // When the user has MARKED a part of the direction, check only that
+    // marked text (mirroring the rewrite-selection flow) so the suggestions
+    // replace just the selection instead of the whole direction.
+    let selection: { start: number; end: number } | null = null;
+    const ta = this.editArea()?.nativeElement;
+    if (ta) {
+      const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+      const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+      if (e > s) selection = { start: s, end: e };
+    }
+
+    const draft = this.contentDraft();
+    const fragment = selection ? draft.slice(selection.start, selection.end) : draft;
+    if (!fragment.trim()) {
       this.toast.error(this.i18n.t('node.englishEmpty'));
       return;
     }
+    const text = fragment.trim();
+    this.englishSelection.set(selection);
 
     // 1. Prefer the model configured for the language-check task.
     let model = this.generation.modelFor('language-check');
@@ -1855,16 +1875,34 @@ export class ChatNodeComponent implements OnDestroy {
     }
   }
 
-  /** Replace the draft with a chosen variant and close the panel. */
+  /**
+   * Replace the draft — or just the marked range when the check was started
+   * on a selection — with a chosen variant and close the panel.
+   */
   applyEnglishSuggestion(text: string): void {
-    this.contentDraft.set(text);
-    this.editSession.patch(this.node().id, text, this.editAttachments());
+    const selection = this.englishSelection();
+    const draft = this.contentDraft();
+    const next = selection
+      ? draft.slice(0, selection.start) + text + draft.slice(selection.end)
+      : text;
+    this.contentDraft.set(next);
+    this.editSession.patch(this.node().id, next, this.editAttachments());
     this.englishSuggestions.set(null);
+    this.englishSelection.set(null);
     this.scheduleResize();
+    // Restore focus and place the cursor around the inserted replacement.
+    const ta = this.editArea()?.nativeElement;
+    if (ta && selection) {
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.setSelectionRange(selection.start, selection.start + text.length);
+      });
+    }
   }
 
   dismissEnglishCheck(): void {
     this.englishSuggestions.set(null);
+    this.englishSelection.set(null);
   }
 
   /**
