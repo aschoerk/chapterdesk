@@ -16,8 +16,13 @@
 
 import { beforeEach, describe, expect, test } from 'vitest';
 import request from 'supertest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import type { Express } from 'express';
 import { makeApp } from './helpers/app.js';
+import { SqlitePersistence } from '../src/persistence/sqlite/sqlite-persistence.js';
 
 let app: Express;
 
@@ -131,6 +136,57 @@ describe('POST /api/chats/:id/clone', () => {
   test('404 when the chat does not exist', async () => {
     const res = await request(app).post('/api/chats/missing/clone');
     expect(res.status).toBe(404);
+  });
+
+  test('clone is independent of the physical chat column order (legacy DB regression)', async () => {
+    // A fresh SqlitePersistence creates `chats` with created_at/updated_at LAST.
+    // Long-lived databases (e.g. the live chapterdesk.sqlite) have a different
+    // physical column order because the original table predates the migration
+    // and later columns were appended via ALTER TABLE. cloneChat's
+    // `INSERT INTO chats SELECT …` used to omit a target column list, so SQLite
+    // mapped values POSITIONALLY and node_number landed in chat_parameters_id,
+    // tripping the FK check → 500 on POST /api/chats/:id/clone.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chapterly-legacy-'));
+    const file = path.join(dir, 'legacy.sqlite');
+    try {
+      const boot = new Database(file);
+      boot.exec(`
+        CREATE TABLE chats (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          node_number INTEGER DEFAULT 1,
+          chat_parameters_id TEXT REFERENCES chat_parameters(id) ON DELETE SET NULL,
+          lore TEXT,
+          auto_exclude_directions INTEGER DEFAULT 0,
+          prompt_tokens INTEGER,
+          completion_tokens INTEGER,
+          cached_tokens INTEGER,
+          total_tokens INTEGER,
+          total_cost REAL
+        );
+      `);
+      boot.close();
+
+      const store = new SqlitePersistence(file);
+      await store.init();
+      const chat = await store.createChat('Legacy Column Order', null);
+      const q = await store.createNode(chat.id, { content: 'Q?', role: 'user' });
+      await store.createNode(chat.id, { content: 'A friend.', role: 'assistant', parentId: q.id });
+
+      const copy = await store.cloneChat(chat.id);
+      expect(copy.id).not.toBe(chat.id);
+      expect(copy.title).toBe('Legacy Column Order (copy)');
+      const nodes = await store.getNodes(copy.id);
+      expect(nodes).toHaveLength(2);
+      const copyQ = nodes.find((n) => n.role === 'user');
+      const copyA = nodes.find((n) => n.role === 'assistant');
+      expect(copyA?.parentId).toBe(copyQ?.id);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -677,7 +677,7 @@ export class SqlitePersistence implements PersistencePort {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          'INSERT INTO chats SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
+          'INSERT INTO chats(id,title,project_id,chat_parameters_id,lore,auto_exclude_directions,node_number,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,created_at,updated_at) SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
         )
         .run(id, ' (copy)', ts, ts, chatId);
       const insert = this.db.prepare(
