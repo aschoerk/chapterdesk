@@ -59,7 +59,7 @@ async function typeAndSend(page: import('@playwright/test').Page, text: string):
     .locator('.node-content.empty-draft.click-to-edit')
     .filter({ hasText: 'Write the next direction…' })
     .first();
-  await draft.click();
+  await draft.dblclick();
   const editor = page.locator('.editor-textarea').first();
   await expect(editor).toBeVisible();
   await editor.fill(text);
@@ -89,7 +89,7 @@ test('UC7 append-with-images — attached image is interpreted, then the answer 
     .locator('.node-content.empty-draft.click-to-edit')
     .filter({ hasText: 'Write the next direction…' })
     .first();
-  await draft.click();
+  await draft.dblclick();
   const editor = page.locator('.editor-textarea').first();
   await expect(editor).toBeVisible();
   await page.locator('.inline-content-editor input[type="file"]').setInputFiles({

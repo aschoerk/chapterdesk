@@ -604,40 +604,76 @@ describe('ChatNodeComponent', () => {
       expect(component.isEditing()).toBe(true);
     });
 
-    it('starts editing when the empty question content is clicked', async () => {
-      createFixture(node({ role: 'user', content: '' }));
+    it('a single click activates the node without opening the editor', async () => {
+      createFixture(node({ id: 'n1', role: 'assistant', content: 'A chapter with text.' }));
+      const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      expect(area).not.toBeNull();
+      area.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      // The node becomes active, but the editor stays closed.
+      expect(emitted).toEqual(['n1']);
+      expect(component.isEditing()).toBe(false);
+      expect(fixture.nativeElement.querySelector('.inline-content-editor')).toBeNull();
+    });
+
+    it('a single click on the empty question activates without opening the editor', async () => {
+      createFixture(node({ id: 'n1', role: 'user', content: '' }));
       const area = fixture.nativeElement.querySelector('.empty-draft.click-to-edit') as HTMLElement;
       expect(area).not.toBeNull();
       area.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await fixture.whenStable();
       fixture.detectChanges();
-      expect(component.isEditing()).toBe(true);
+      expect(emitted).toEqual(['n1']);
+      expect(component.isEditing()).toBe(false);
     });
 
-    it('starts editing when the chapter content is clicked', async () => {
-      createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
+    it('a single click inside a link does not activate the node', async () => {
+      createFixture(node({ id: 'n1', role: 'assistant', content: 'A chapter with text.' }));
       const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      const link = document.createElement('a');
+      link.href = '#';
+      area.appendChild(link);
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      await fixture.whenStable();
+      expect(emitted).toEqual([]);
+      expect(component.isEditing()).toBe(false);
+    });
+
+    it('starts editing when the empty question content is double-clicked', async () => {
+      createFixture(node({ role: 'user', content: '' }));
+      const area = fixture.nativeElement.querySelector('.empty-draft.click-to-edit') as HTMLElement;
       expect(area).not.toBeNull();
-      area.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      area.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
       await fixture.whenStable();
       fixture.detectChanges();
       expect(component.isEditing()).toBe(true);
     });
 
-    it('captures the clicked caret offset and passes it to startEdit', async () => {
+    it('starts editing when the chapter content is double-clicked', async () => {
+      createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
+      const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
+      expect(area).not.toBeNull();
+      area.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(component.isEditing()).toBe(true);
+    });
+
+    it('captures the double-clicked caret offset and passes it to startEdit', async () => {
       createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
       vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(7);
       const start = vi.spyOn(component, 'startEdit').mockResolvedValue(undefined);
       const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
-      area.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      area.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 40, clientY: 40 }));
       expect(start).toHaveBeenCalledWith('user', 7);
     });
 
-    it('uses the clicked caret offset as the editor scroll/caret target', async () => {
+    it('uses the double-clicked caret offset as the editor scroll/caret target', async () => {
       createFixture(node({ role: 'assistant', content: 'A chapter with text.' }));
       vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(7);
       const area = fixture.nativeElement.querySelector('.node-content.click-to-edit') as HTMLElement;
-      area.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 40 }));
+      area.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 40, clientY: 40 }));
       await fixture.whenStable();
       // The rAF polyfill ran before the editor rendered (no textarea yet), so
       // the restore target is still pending — it must be the clicked offset.

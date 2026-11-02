@@ -446,7 +446,8 @@
       @if (node().role === 'user') {
         <div class="node-content empty-draft click-to-edit"
              [title]="i18n.t('node.clickToWrite')"
-             (click)="onContentClick($event)">
+             (click)="onContentClick($event)"
+             (dblclick)="onContentDblClick($event)">
           <div #readContent class="node-content"
                [innerHTML]="renderedHtml()"></div>
         </div>
@@ -454,6 +455,7 @@
         <div #readContent class="node-content click-to-edit"
              [title]="i18n.t('node.clickToEdit')"
              (click)="onContentClick($event)"
+             (dblclick)="onContentDblClick($event)"
              [innerHTML]="renderedHtml()"></div>
       }
     } @else if (isThinkingLive()) {
@@ -461,7 +463,8 @@
     } @else if (node().role === 'user') {
       <div class="node-content empty-draft click-to-edit"
            [title]="i18n.t('node.clickToWrite')"
-           (click)="onContentClick($event)">
+           (click)="onContentClick($event)"
+           (dblclick)="onContentDblClick($event)">
         <em>{{ i18n.t('node.writeNext') }}</em>
       </div>
     } @else {

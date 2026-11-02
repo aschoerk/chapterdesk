@@ -56,7 +56,7 @@ export async function askQuestion(page: Page, text: string): Promise<void> {
     .locator('.node-content.empty-draft.click-to-edit')
     .filter({ hasText: 'Write the next direction…' })
     .first();
-  await draft.click();
+  await draft.dblclick();
   const editor = page.locator('.editor-textarea').first();
   await expect(editor).toBeVisible();
   await editor.fill(text);

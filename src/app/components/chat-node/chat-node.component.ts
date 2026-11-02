@@ -427,6 +427,12 @@ export class ChatNodeComponent implements OnDestroy {
     ensureEditorTopOnScreen(textarea, this.scrollParentOf.bind(this));
   }
 
+  /**
+   * Single click on the read-only content: make the node ACTIVE (the active
+   * child under its parent, shown in the navbar) without opening the editor.
+   * The tree stays scrollable with the keyboard — entering the editor is
+   * reserved for a double click (see onContentDblClick).
+   */
   onContentClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (target?.closest('a, button, input, textarea, .chip, .file-link')) {
@@ -434,6 +440,22 @@ export class ChatNodeComponent implements OnDestroy {
     }
     const selection = window.getSelection();
     if (selection && selection.toString().trim().length > 0) {
+      return;
+    }
+    if (this.chatService.isGenerating(this.node().id)) {
+      return;
+    }
+    this.activate.emit(this.node().id);
+  }
+
+  /**
+   * Double click on the read-only content: open the inline editor. A double
+   * click normally selects a word, so unlike the single click there is no
+   * text-selection guard here — the user's intent is clearly to edit.
+   */
+  onContentDblClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('a, button, input, textarea, .chip, .file-link')) {
       return;
     }
     if (this.chatService.isGenerating(this.node().id)) {
