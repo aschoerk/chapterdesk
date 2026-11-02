@@ -30,65 +30,68 @@
       <div class="conversation">
 
         @if (currentChatId()) {
-          <!-- Title / book-view + streaming preferences -->
+          <!-- Title / book-view + streaming preferences. The stream controls
+               are only relevant while an answer is actually streaming (the
+               reveal pump is running), so they are shown only then — and the
+               container query hides them too when there is no room. -->
           <div class="title-row">
             <chat-title-editor></chat-title-editor>
 
-            <div class="view-prefs">
-              <div class="view-prefs-row">
-                <label>
-                  <input type="checkbox"
-                         [checked]="chatService.followStreaming()"
-                         (change)="chatService.setFollowStreaming($any($event.target).checked)" />
-                  {{ i18n.t('chat.followStreaming') }}
-                </label>
-                <label>
-                  <input type="checkbox"
-                         [checked]="chatService.followThinking()"
-                         (change)="chatService.setFollowThinking($any($event.target).checked)" />
-                  {{ i18n.t('chat.followThinking') }}
-                </label>
-                <label>
-                  <input type="checkbox"
-                         [checked]="chatService.alwaysOpenAtLeaf()"
-                         (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
-                  {{ i18n.t('chat.alwaysOpenAtLeaf') }}
-                </label>
-                <label>
-                  <input type="checkbox"
-                         [checked]="chatService.paceAfterComplete()"
-                         (change)="chatService.setPaceAfterComplete($any($event.target).checked)" />
-                  {{ i18n.t('chat.paceAfterComplete') }}
-                </label>
-                <span class="gen-spinner"
-                      [class.on]="!!chatService.generatingNodeId()"
-                      [title]="i18n.t('chat.generating')"
-                      aria-live="polite"
-                      [attr.aria-hidden]="chatService.generatingNodeId() ? null : 'true'"></span>
-              </div>
+            @if (chatService.generatingNodeId()) {
+              <div class="view-prefs">
+                <div class="view-prefs-row">
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.followStreaming()"
+                           (change)="chatService.setFollowStreaming($any($event.target).checked)" />
+                    {{ i18n.t('chat.followStreaming') }}
+                  </label>
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.followThinking()"
+                           (change)="chatService.setFollowThinking($any($event.target).checked)" />
+                    {{ i18n.t('chat.followThinking') }}
+                  </label>
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.alwaysOpenAtLeaf()"
+                           (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
+                    {{ i18n.t('chat.alwaysOpenAtLeaf') }}
+                  </label>
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.paceAfterComplete()"
+                           (change)="chatService.setPaceAfterComplete($any($event.target).checked)" />
+                    {{ i18n.t('chat.paceAfterComplete') }}
+                  </label>
+                  <span class="gen-spinner on"
+                        [title]="i18n.t('chat.generating')"
+                        aria-live="polite"></span>
+                </div>
 
-              <div class="view-prefs-row stream-speed-row">
-                <label class="stream-speed">
-                  {{ i18n.t('chat.reveal') }}
-                  <select
-                    [ngModel]="chatService.streamSpeedUnit()"
-                    (ngModelChange)="chatService.setStreamSpeedUnit($event)">
-                    <option value="char">{{ i18n.t('chat.charsPerSec') }}</option>
-                    <option value="word">{{ i18n.t('chat.wordsPerSec') }}</option>
-                  </select>
-                  <input
-                    type="range"
-                    min="0"
-                    [max]="chatService.streamSpeedUnit() === 'word' ? 30 : 160"
-                    [step]="chatService.streamSpeedUnit() === 'word' ? 1 : 5"
-                    [ngModel]="chatService.streamSpeed()"
-                    (ngModelChange)="chatService.setStreamSpeed(+$event)" />
-                  <span class="speed-val">
-                    {{ chatService.streamSpeed() === 0 ? i18n.t('chat.instant') : chatService.streamSpeed() }}
-                  </span>
-                </label>
+                <div class="view-prefs-row stream-speed-row">
+                  <label class="stream-speed">
+                    {{ i18n.t('chat.reveal') }}
+                    <select
+                      [ngModel]="chatService.streamSpeedUnit()"
+                      (ngModelChange)="chatService.setStreamSpeedUnit($event)">
+                      <option value="char">{{ i18n.t('chat.charsPerSec') }}</option>
+                      <option value="word">{{ i18n.t('chat.wordsPerSec') }}</option>
+                    </select>
+                    <input
+                      type="range"
+                      min="0"
+                      [max]="chatService.streamSpeedUnit() === 'word' ? 30 : 160"
+                      [step]="chatService.streamSpeedUnit() === 'word' ? 1 : 5"
+                      [ngModel]="chatService.streamSpeed()"
+                      (ngModelChange)="chatService.setStreamSpeed(+$event)" />
+                    <span class="speed-val">
+                      {{ chatService.streamSpeed() === 0 ? i18n.t('chat.instant') : chatService.streamSpeed() }}
+                    </span>
+                  </label>
+                </div>
               </div>
-            </div>
+            }
           </div>
           <!-- Chat params / structure / lore / search / trash toolbar -->
           <div class="params-bar">

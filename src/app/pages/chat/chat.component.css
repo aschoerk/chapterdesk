@@ -94,6 +94,9 @@ body.sidebar-resizing * {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Size container for the title-row so the stream controls can be hidden
+     when the conversation area is too narrow to fit them next to the title. */
+  container-type: inline-size;
 }
 
 .tree {
@@ -928,6 +931,17 @@ body.nav-resizing * {
 .view-prefs .speed-val {
   min-width: 3.2rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* The stream controls (follow streaming/thinking, reveal speed, …) are
+   fixed-width and would overlap the chat title when the conversation area
+   is too narrow. They are already only rendered while an answer streams
+   (template @if on generatingNodeId); this query additionally hides them
+   when there is no room even during a stream. */
+@container (max-width: 820px) {
+  .view-prefs {
+    display: none;
+  }
 }
 
 .title-row chat-title-editor,

@@ -345,6 +345,28 @@ describe('Chat', () => {
     expect(navigate).toHaveBeenCalledWith(['/read'], { state: { activeNodeId: 'q1' } });
   });
 
+  it('shows the stream controls only while an answer is streaming', async () => {
+    await openStory();
+    fixture.detectChanges();
+
+    const prefs = (): HTMLElement | null =>
+      fixture.nativeElement.querySelector('.view-prefs') as HTMLElement | null;
+
+    // Idle: no streaming → controls are not rendered at all.
+    expect(prefs()).toBeNull();
+
+    // Streaming: the reveal pump is running → controls appear.
+    chatService.startGeneration('a1');
+    fixture.detectChanges();
+    expect(prefs()).not.toBeNull();
+    expect(prefs()!.querySelector('.gen-spinner')).not.toBeNull();
+
+    // Generation finished → controls disappear again.
+    chatService.clearGeneration();
+    fixture.detectChanges();
+    expect(prefs()).toBeNull();
+  });
+
   it('generates a title that wraps the whole story', async () => {
     await openStory();
     orch.completion.mockResolvedValueOnce({
