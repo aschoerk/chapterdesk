@@ -475,6 +475,8 @@ export const DE: typeof EN = {
     ctxEdit: 'Bearbeiten',
     ctxRewriteSelection: 'Auswahl umschreiben…',
     ctxPriorVersions: 'Frühere Versionen',
+    ctxCompareVersions: 'Versionen vergleichen…',
+    ctxCompareSiblings: 'Geschwister vergleichen…',
     ctxContinue: 'Weiter',
     ctxSwitchCharacters: 'Charakter wechseln',
     ctxHeading: 'Überschrift hinzufügen',

@@ -31,6 +31,7 @@ import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.servic
 import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
+import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
 import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
@@ -147,6 +148,7 @@ export class ChatNodeComponent implements OnDestroy {
   /** The stored director text for the current node (custom prefix). */
   readonly prependText = signal('');
   private readonly prependDialog = inject(PrependDialogService);
+  private readonly versionDiffDialog = inject(NodeVersionDiffDialogService);
 
   private readonly editArea = viewChild<ElementRef<HTMLTextAreaElement>>('editArea');
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
@@ -232,6 +234,12 @@ export class ChatNodeComponent implements OnDestroy {
 
   get hasSiblings(): boolean {
     return this.siblings.length > 1;
+  }
+
+  /** Siblings (other than this node) that have content worth comparing. */
+  comparableSiblings(): ChatNode[] {
+    const n = this.node();
+    return this.siblings.filter((s) => s.id !== n.id && !!s.content?.trim());
   }
 
   get siblingIndex(): { current: number; total: number } {
@@ -2468,12 +2476,16 @@ export class ChatNodeComponent implements OnDestroy {
       showClosedContinue: this.showClosedContinue(),
       isUnsentQuestion: this.isUnsentQuestion(),
       hasPriorVersions: this.priorVersions().length > 0,
+      hasComparableSiblings: this.comparableSiblings().length > 0,
+      notEditing: !this.isEditing(),
       t: (key, params) => this.i18n.t(key, params),
       actions: {
         copy: () => void this.copyContent(),
         edit: () => void this.startEdit(),
         rewrite: () => void this.openReadRewriteDialog(),
         togglePriorVersions: () => this.showPriorVersions.set(!this.showPriorVersions()),
+        compareVersions: () => void this.openVersionDiffDialog(),
+        compareSiblings: () => void this.openCompareSiblingsDialog(),
         toggleExclude: () => void this.toggleExcludeFromContext(),
         heading: () => void this.generateHeading(),
         regenerate: () => void this.regenerateAnswer(),
@@ -2683,6 +2695,82 @@ export class ChatNodeComponent implements OnDestroy {
     if (!cleaned) return; // cleared — no generation
 
     await this.generatePrependNodes(node, cleaned);
+  }
+
+  /**
+   * Open the "Compare versions" dialog.
+   *
+   * While the inline editor is open the dialog compares the UNSAVED draft
+   * against a prior version; on Apply the result stays in the draft (temporary
+   * until OK/Save). From the read-only view it compares the node's CURRENT
+   * content against a prior version; on Apply the edited result is persisted
+   * immediately as a new version (mirroring saveAsVersion).
+   */
+  async openVersionDiffDialog(): Promise<void> {
+    const node = this.node();
+    const versions = this.chatService.getPriorVersions(node);
+    if (versions.length === 0) return;
+    const newText = this.isEditing() ? this.contentDraft() : (node.content ?? '');
+    const result = await this.versionDiffDialog.open({ newText, versions });
+    if (result == null) return;
+
+    if (this.isEditing()) {
+      // Keep it temporary in the unsaved draft — the user presses OK/Save later.
+      this.applyDialogToDraft(node.id, result);
+      return;
+    }
+    await this.persistDialogAsVersion(node, result);
+  }
+
+  /**
+   * Open the "Compare siblings" dialog: compare THIS node against one of its
+   * siblings (the current sibling is the editable side). Mirrors the compare-
+   * versions dialog: draft-apply while editing, persist-as-new-version from
+   * the read-only view.
+   */
+  async openCompareSiblingsDialog(): Promise<void> {
+    const node = this.node();
+    const siblings = this.comparableSiblings();
+    if (siblings.length === 0) return;
+    const newText = this.isEditing() ? this.contentDraft() : (node.content ?? '');
+    const result = await this.versionDiffDialog.open({ newText, siblings });
+    if (result == null) return;
+
+    if (this.isEditing()) {
+      this.applyDialogToDraft(node.id, result);
+      return;
+    }
+    await this.persistDialogAsVersion(node, result);
+  }
+
+  /** Write a dialog result into the open editor's unsaved draft. */
+  private applyDialogToDraft(nodeId: string, result: string): void {
+    this.contentDraft.set(result);
+    this.editSession.patch(nodeId, result, this.editAttachments());
+    requestAnimationFrame(() => this.resizeTextarea());
+  }
+
+  /** Persist a dialog result as a new version of the node (read-only path). */
+  private async persistDialogAsVersion(node: ChatNode, result: string): Promise<void> {
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    if (result.trim() === (node.content ?? '').trim()) return; // nothing changed
+    this.isLoading.set(true);
+    this.pendingAction.set('version');
+    try {
+      const saved =
+        node.role === 'assistant' || node.role === 'system' || node.role === 'structural'
+          ? await this.chatService.editAssistant(chatId, node.id, result, node.attachments)
+          : await this.chatService.editUser(chatId, node.id, result, node.attachments);
+      this.activate.emit(saved.id);
+      this.toast.success(this.i18n.t('node.versioned'));
+    } catch (err: any) {
+      console.error(err);
+      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
+    } finally {
+      this.isLoading.set(false);
+      this.pendingAction.set(null);
+    }
   }
 
   /**

@@ -471,6 +471,8 @@ export const EN = {
     ctxEdit: 'Edit',
     ctxRewriteSelection: 'Rewrite selection…',
     ctxPriorVersions: 'Prior versions',
+    ctxCompareVersions: 'Compare versions…',
+    ctxCompareSiblings: 'Compare siblings…',
     ctxContinue: 'Continue',
     ctxSwitchCharacters: 'Switch characters',
     ctxHeading: 'Add heading',

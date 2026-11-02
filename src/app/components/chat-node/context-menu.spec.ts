@@ -8,6 +8,8 @@ const LABELS: Record<string, string> = {
   'node.ctxEdit': 'Edit',
   'node.ctxRewriteSelection': 'Rewrite selection…',
   'node.ctxPriorVersions': 'Prior versions',
+  'node.ctxCompareVersions': 'Compare versions…',
+  'node.ctxCompareSiblings': 'Compare siblings…',
   'node.ctxExcludeFromContext': 'Exclude from context',
   'node.ctxHeading': 'Add heading',
   'node.ctxRegenerate': 'Regenerate',
@@ -25,12 +27,13 @@ const t = (key: string): string => LABELS[key] ?? key;
 
 function ctx(
   overrides: Partial<
-    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions'>
+    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions' | 'hasComparableSiblings'>
   > = {}
 ): CtxMenuContext {
   const noop = () => undefined;
   const actions: CtxMenuContext['actions'] = {
     copy: noop, edit: noop, rewrite: noop, togglePriorVersions: noop,
+    compareVersions: noop, compareSiblings: noop,
     toggleExclude: noop, heading: noop, regenerate: noop, regenerateInPlace: noop,
     illustrate: noop, createImage: noop, continueDraft: noop, switchCharacters: noop,
     chapterDescriptions: noop, prepend: noop, remove: noop, delete: noop,
@@ -43,6 +46,8 @@ function ctx(
     showClosedContinue: false,
     isUnsentQuestion: false,
     hasPriorVersions: false,
+    hasComparableSiblings: false,
+    notEditing: true,
     t,
     actions,
     ...overrides,
@@ -67,15 +72,18 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     const items = buildCtxMenuItems(ctx({
       node: makeNode({ role: 'assistant', content: 'Chapter' }),
       hasPriorVersions: true,
+      hasComparableSiblings: true,
       canIllustrate: true,
     }));
     expect(labels(items)).toEqual([
-      'Copy', 'Edit', 'Rewrite selection…', 'Prior versions',
+      'Copy', 'Edit', 'Rewrite selection…', 'Prior versions', 'Compare versions…', 'Compare siblings…',
       'Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…',
       'Remove section', 'Delete section & following',
     ]);
     expect(items.filter(i => i.divider).length).toBe(2);
     expect(items.find(i => i.label === 'Regenerate')?.disabled).toBe(false);
+    expect(items.find(i => i.label === 'Compare versions…')?.disabled).toBe(false);
+    expect(items.find(i => i.label === 'Compare siblings…')?.disabled).toBe(false);
   });
 
   it('disables the role + destructive actions while busy (copy/edit stay enabled)', () => {

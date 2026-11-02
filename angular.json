@@ -23,6 +23,11 @@
               {
                 "glob": "**/*",
                 "input": "public"
+              },
+              {
+                "glob": "**/*",
+                "input": "node_modules/monaco-editor",
+                "output": "/assets/monaco/"
               }
             ],
             "styles": [
@@ -36,7 +41,7 @@
                 {
                   "type": "initial",
                   "maximumWarning": "1200kB",
-                  "maximumError": "1500kB"
+                  "maximumError": "1600kB"
                 },
                 {
                   "type": "anyComponentStyle",

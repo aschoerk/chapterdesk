@@ -42,6 +42,10 @@ export interface CtxMenuContext {
   isUnsentQuestion: boolean;
   /** The node has prior versions to show. */
   hasPriorVersions: boolean;
+  /** The node has sibling continuations worth comparing. */
+  hasComparableSiblings: boolean;
+  /** The node is not in an editing state (compare works from read-only). */
+  notEditing: boolean;
   /** Translation function (`I18nService.t`). */
   t: (key: string, params?: Record<string, string | number>) => string;
   /** Action callbacks — each closes the menu first (see `runCtxAction`). */
@@ -50,6 +54,8 @@ export interface CtxMenuContext {
     edit: () => void;
     rewrite: () => void;
     togglePriorVersions: () => void;
+    compareVersions: () => void;
+    compareSiblings: () => void;
     toggleExclude: () => void;
     heading: () => void;
     regenerate: () => void;
@@ -84,6 +90,18 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
     common.push({
       label: ctx.t('node.ctxPriorVersions'),
       action: () => ctx.actions.togglePriorVersions()
+    });
+    common.push({
+      label: ctx.t('node.ctxCompareVersions'),
+      action: () => ctx.actions.compareVersions(),
+      disabled: ctx.busy || !ctx.notEditing
+    });
+  }
+  if (ctx.hasComparableSiblings) {
+    common.push({
+      label: ctx.t('node.ctxCompareSiblings'),
+      action: () => ctx.actions.compareSiblings(),
+      disabled: ctx.busy || !ctx.notEditing
     });
   }
 

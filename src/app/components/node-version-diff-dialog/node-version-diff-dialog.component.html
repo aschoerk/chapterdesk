@@ -1,0 +1,120 @@
+@if (dialog.current(); as d) {
+  <div
+    class="nvd-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      #dialogEl
+      class="nvd-dialog"
+      [class.resizing]="resizing()"
+      [style.width.px]="size()?.w ?? null"
+      [style.height.px]="size()?.h ?? null"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nvd-title"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="nvd-head">
+        <h3 id="nvd-title">{{ i18n.t(isSiblingMode() ? 'nodeVersionDiff.titleSiblings' : 'nodeVersionDiff.title') }}</h3>
+        <label class="nvd-version-select">
+          <span>{{ i18n.t(isSiblingMode() ? 'nodeVersionDiff.siblingLabel' : 'nodeVersionDiff.versionLabel') }}</span>
+          <select
+            [ngModel]="selectedVersionId()"
+            (ngModelChange)="onVersionChange($event)"
+          >
+            @for (v of versions(); track v.id) {
+              <option [value]="v.id">{{ optionLabel(v) }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      @if (versions().length === 0) {
+        <p class="nvd-state">{{ i18n.t(isSiblingMode() ? 'nodeVersionDiff.noSiblings' : 'nodeVersionDiff.noVersions') }}</p>
+      } @else {
+        <!-- Nav toolbar: move between changes + restore the current one -->
+        <div class="nvd-toolbar">
+          <button
+            class="btn small"
+            type="button"
+            [disabled]="!hasDiff()"
+            (click)="prevChange()"
+            [title]="i18n.t('nodeVersionDiff.prevChangeTitle')"
+          >
+            ← {{ i18n.t('nodeVersionDiff.prevChange') }}
+          </button>
+          <span class="nvd-change-pos">
+            {{
+              hasDiff()
+                ? i18n.t('nodeVersionDiff.changeXOfY', { current: changeIndex() + 1, total: info().count })
+                : i18n.t('nodeVersionDiff.noDiff')
+            }}
+          </span>
+          <button
+            class="btn small"
+            type="button"
+            [disabled]="!hasDiff()"
+            (click)="nextChange()"
+            [title]="i18n.t('nodeVersionDiff.nextChangeTitle')"
+          >
+            {{ i18n.t('nodeVersionDiff.nextChange') }} →
+          </button>
+
+          <button
+            class="btn small primary"
+            type="button"
+            [disabled]="!hasDiff()"
+            (click)="restoreCurrentChange()"
+            [title]="i18n.t('nodeVersionDiff.restoreChangeTitle')"
+          >
+            {{ i18n.t('nodeVersionDiff.restoreChange') }}
+          </button>
+
+          @if (hasDiff()) {
+            <span class="nvd-summary">
+              <span class="nvd-sum-added">{{ i18n.t('nodeVersionDiff.added', { n: info().added }) }}</span>
+              <span class="nvd-sum-removed">{{ i18n.t('nodeVersionDiff.removed', { n: info().removed }) }}</span>
+            </span>
+          }
+        </div>
+
+        <!-- Monaco diff editor: old (read-only) left, editable new right -->
+        <div class="nvd-body">
+          <ngx-monaco-diff-editor
+            [options]="options"
+            [originalModel]="originalModel()"
+            [modifiedModel]="modifiedModel()"
+            (onInit)="onInit($event)"
+            style="height: 100%"
+          />
+        </div>
+
+        <p class="nvd-hint">{{ i18n.t(isSiblingMode() ? 'nodeVersionDiff.readonlyHintSiblings' : 'nodeVersionDiff.readonlyHint') }}</p>
+      }
+
+      <div class="nvd-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button
+          class="btn primary"
+          type="button"
+          [disabled]="versions().length === 0"
+          (click)="apply()"
+        >
+          {{ i18n.t('nodeVersionDiff.apply') }}
+        </button>
+      </div>
+
+      <!-- Resize handle -->
+      <div
+        class="nvd-resize-handle"
+        (mousedown)="startResize($event)"
+        [title]="i18n.t('nodeVersionDiff.resizeTitle')"
+      ></div>
+    </div>
+  </div>
+}
