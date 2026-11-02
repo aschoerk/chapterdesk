@@ -713,6 +713,38 @@ describe('SideBarComponent', () => {
       expect(component.isExpanded('p-1')).toBe(true);
     });
 
+    it('create-chat seeds the system node from the sidebar-selected topic only', async () => {
+      await setup(a => {
+        a.projects.push(project({
+          id: 'p-1',
+          systemPrompt: 'You are a world-building assistant.',
+          greeting: 'Welcome'
+        }));
+        a.topics.push(makeTopic({
+          id: 't-a',
+          name: 'Gothic',
+          defaultSystemPrompt: 'Prompt A',
+          projectIds: ['p-1']
+        }));
+        a.topics.push(makeTopic({
+          id: 't-b',
+          name: 'Epic',
+          defaultSystemPrompt: 'Prompt B',
+          projectIds: ['p-1']
+        }));
+      });
+      component.selectTopicFilter('t-a');
+      const newBtn = btn(projectBlock('Env A'), 'sidebar.newStory')!;
+      newBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await settle();
+
+      const nodes = api.nodes.filter(n => n.chatId === api.chats[0].id);
+      const systemNode = nodes.find(n => n.role === 'system');
+      expect(systemNode).toBeDefined();
+      expect(systemNode!.content).toBe('Prompt A');
+      expect(systemNode!.content).not.toContain('Prompt B');
+    });
+
     it('creates a chat through the chat service (inserting into the list)', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1' }));

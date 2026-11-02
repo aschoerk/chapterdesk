@@ -634,6 +634,7 @@ export class SideBarComponent implements OnInit {
     const drafts = buildSeedNodeDrafts({
       project,
       topics: this.topics(),
+      currentTopicId: this.selectedTopicId(),
       getPersona: id => this.personaService.getPersona(id),
       currentUserPersona: this.currentPersona()
     });

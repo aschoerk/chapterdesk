@@ -52,15 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional: quiet the NodeGit warning
-          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
-          # Code-signing (optional). When CSC_LINK / CSC_KEY_PASSWORD are set
-          # as repository secrets, electron-builder signs the Windows NSIS
-          # app exe (and macOS builds) with them automatically. Leave unset
-          # for unsigned development builds.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache         
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -75,8 +67,36 @@ jobs:
             dist/*.blockmap
           if-no-files-found: warn
 
-  release:
+  sign-windows:
     needs: build
+    runs-on: ubuntu-latest
+    environment: signing          # damit die Secrets verfügbar sind
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: chapterdesk-windows
+          path: dist
+
+      - name: Install ssign
+        run: |
+          curl -sL https://github.com/Le-Syl21/ssign/releases/latest/download/ssign-linux-x86_64.tar.gz | tar xz
+          sudo install -m755 ssign /usr/local/bin/ssign
+
+      - name: Sign Windows binaries
+        env:
+          CERTUM_EMAIL: ${{ secrets.CERTUM_EMAIL }}
+          CERTUM_OTP:   ${{ secrets.CERTUM_OTP }}
+        run: ssign dist/*.exe
+
+      - name: Upload signed Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chapterdesk-windows-signed
+          path: dist/*
+
+  release:
+    needs: [build, sign-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux artifacts
@@ -88,7 +108,7 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: chapterdesk-windows
+          name: chapterdesk-windows-signed
           path: release-artifacts/windows
 
       - name: Upload artifacts to GitHub Release

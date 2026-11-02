@@ -98,7 +98,7 @@ describe('buildSeedNodeDrafts — topics', () => {
     expect(drafts[0].content).not.toContain('TOPIC DESCRIPTION');
   });
 
-  it('joins several matching topic prompts in topic-list order', () => {
+  it('uses the first connected topic as the default when no main topic is set', () => {
     const drafts = seed({
       project: env,
       topics: [
@@ -107,7 +107,87 @@ describe('buildSeedNodeDrafts — topics', () => {
         topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1', 'env-x'] })
       ]
     });
-    expect(drafts).toEqual([{ role: 'system', content: 'Prompt A\n\nPrompt B' }]);
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt A' }]);
+  });
+
+  it('uses ONLY the environment main topic system prompt, not all member topics', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'b' }),
+      topics: [
+        topic({ id: 'a', name: 'A', defaultSystemPrompt: 'Prompt A', projectIds: ['env-1'] }),
+        topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1', 'env-x'] })
+      ]
+    });
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt B' }]);
+  });
+
+  it('skips the system node when the main topic has no system prompt, even if another member topic has one', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'a' }),
+      topics: [
+        topic({ id: 'a', name: 'A', defaultSystemPrompt: '   ', projectIds: ['env-1'] }),
+        topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1'] })
+      ]
+    });
+    expect(drafts).toEqual([]);
+  });
+
+  it('falls back to the first connected topic when the main topic id is unknown', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'unknown' }),
+      topics: [topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1'] })]
+    });
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt B' }]);
+  });
+});
+
+describe('buildSeedNodeDrafts — sidebar current topic', () => {
+  it('uses the sidebar-selected topic prompt even when it is not the main topic', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'a' }),
+      topics: [
+        topic({ id: 'a', name: 'A', defaultSystemPrompt: 'Prompt A', projectIds: ['env-1'] }),
+        topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1'] })
+      ],
+      currentTopicId: 'b'
+    });
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt B' }]);
+  });
+
+  it('ignores a sidebar selection that is not connected to the environment (falls back to main topic)', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'a' }),
+      topics: [
+        topic({ id: 'a', name: 'A', defaultSystemPrompt: 'Prompt A', projectIds: ['env-1'] }),
+        topic({ id: 'x', name: 'X', defaultSystemPrompt: 'Prompt X', projectIds: ['env-other'] })
+      ],
+      currentTopicId: 'x'
+    });
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt A' }]);
+  });
+
+  it('falls back to the main topic when the sidebar shows "all topics"', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'b' }),
+      topics: [
+        topic({ id: 'a', name: 'A', defaultSystemPrompt: 'Prompt A', projectIds: ['env-1'] }),
+        topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1'] })
+      ],
+      currentTopicId: 'all'
+    });
+    expect(drafts).toEqual([{ role: 'system', content: 'Prompt B' }]);
+  });
+
+  it('suppresses the system node when the sidebar-selected topic has no prompt, even if the main topic has one', () => {
+    const drafts = seed({
+      project: project({ id: 'env-1', name: 'Castle', mainTopicId: 'b' }),
+      topics: [
+        topic({ id: 'b', name: 'B', defaultSystemPrompt: 'Prompt B', projectIds: ['env-1'] }),
+        topic({ id: 'c', name: 'C', defaultSystemPrompt: '   ', projectIds: ['env-1'] })
+      ],
+      currentTopicId: 'c'
+    });
+    expect(drafts).toEqual([]);
   });
 });
 

@@ -3,6 +3,8 @@ import { Chat, ChatMessage, ChatNode } from '../../../../models/chat';
 import { ChatService } from '../../../chat/chat.service';
 import { PromptDefaultsService } from '../../../prompts/prompt-defaults.service';
 import { ProjectService } from '../../../settings/project.service';
+import { TopicSelectionService } from '../../../settings/topic-selection.service';
+import { resolveCurrentTopic } from '../../llm-context';
 import {
   isImageMime,
   messageText,
@@ -33,6 +35,7 @@ export class ContextMessageBuilderService {
   private readonly projectService = inject(ProjectService);
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly topicService = inject(ContextTopicService);
+  private readonly topicSelection = inject(TopicSelectionService);
 
   // -------------------------------------------------- context messages
 
@@ -206,14 +209,24 @@ export class ContextMessageBuilderService {
     return out;
   }
 
-  /** Topic system prompt for a chat (reuses legacy helper conceptually). */
+  /**
+   * Topic system prompt for a chat: only the environment's CURRENT topic (the
+   * sidebar-selected topic when connected; else its main topic; else the first
+   * connected topic) — the other member topics are NOT pooled.
+   */
   topicSystemPrompt(chat: Chat | null): string | null {
     const projectId = chat?.projectId;
     if (!projectId) return null;
-    const parts = this.projectService.topics()
-      .filter(t => t.projectIds?.includes(projectId) && t.defaultSystemPrompt?.trim())
-      .map(t => t.defaultSystemPrompt.trim());
-    return parts.length ? parts.join('\n\n') : null;
+    const topics = this.projectService.topics();
+    const project = this.projectService.getProject(projectId) ?? null;
+    const currentTopic = resolveCurrentTopic(
+      projectId,
+      project?.mainTopicId,
+      this.topicSelection.selectedTopicId(),
+      topics
+    );
+    const sys = currentTopic?.defaultSystemPrompt?.trim();
+    return sys ?? null;
   }
 
   // -------------------------------------------------- image interpretation
