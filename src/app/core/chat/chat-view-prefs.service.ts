@@ -19,7 +19,6 @@ export class ChatViewPrefsService {
   }
 
   readonly followStreaming = signal(this.loadViewPref('chat.view.followStreaming', true));
-  readonly followThinking = signal(this.loadViewPref('chat.view.followThinking', true));
   readonly alwaysOpenAtLeaf = signal(this.loadViewPref('chat.view.alwaysOpenAtLeaf', false));
 
   setFollowStreaming(on: boolean) {
@@ -27,22 +26,18 @@ export class ChatViewPrefsService {
     localStorage.setItem('chat.view.followStreaming', on ? '1' : '0');
   }
 
-  setFollowThinking(on: boolean) {
-    this.followThinking.set(on);
-    localStorage.setItem('chat.view.followThinking', on ? '1' : '0');
-  }
-
   setAlwaysOpenAtLeaf(on: boolean) {
     this.alwaysOpenAtLeaf.set(on);
     localStorage.setItem('chat.view.alwaysOpenAtLeaf', on ? '1' : '0');
   }
 
-  /** After the LLM finishes, keep revealing leftover text at streamSpeed. */
-  readonly paceAfterComplete = signal(this.loadViewPref('chat.view.paceAfterComplete', true));
-
-  setPaceAfterComplete(on: boolean) {
-    this.paceAfterComplete.set(on);
-    localStorage.setItem('chat.view.paceAfterComplete', on ? '1' : '0');
+  /**
+   * After the LLM finishes, keep revealing leftover text at streamSpeed.
+   * There is no separate toggle anymore: pacing-after-complete is assumed to
+   * be checked whenever "follow streaming" is checked.
+   */
+  paceAfterComplete(): boolean {
+    return this.followStreaming();
   }
 
   readonly streamSpeedUnit = signal<'char' | 'word'>(

@@ -290,7 +290,7 @@ export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
   });
 
   const deps: HeldAnswerStreamDeps = {
-    prefs: env.chatService,
+    prefs: env.chatService.streamRevealPrefs(),
     createPlaceholderNode: async () => {
       const node = await env.chatService.addNode(chatId, {
         parentId: question.id,

@@ -527,6 +527,88 @@ describe('ChatNodeComponent', () => {
       expect(component.hasThinking()).toBe(false);
       expect(fixture.nativeElement.querySelector('.thinking-toggle')).toBeNull();
     });
+
+    it('thinking is hidden by default and stays open once the user opens it (even while live)', async () => {
+      // jsdom has no scrollIntoView (not even defined); the live
+      // follow-thinking path calls it.
+      const original = (HTMLElement.prototype as any).scrollIntoView;
+      (HTMLElement.prototype as any).scrollIntoView = () => {};
+      try {
+        const cn = node({ id: 'n1', role: 'assistant', content: '', thinking: 'Chain of thought' });
+        await openChat([cn]);
+        // Presented (live) node — but thinking must STILL be hidden by default.
+        chatService.setPresentedNode(cn.id);
+        createFixture(cn);
+        await fixture.whenStable();
+        await new Promise(r => setTimeout(r, 0)); // flush afterRenderEffect
+        fixture.detectChanges();
+
+        expect(component.thinkingClosed()).toBe(true); // default hidden
+        expect(fixture.nativeElement.querySelector('.thinking-body')).toBeNull();
+
+        // The user OPENS it — it appears and stays open while live.
+        const toggle = fixture.nativeElement.querySelector('.thinking-toggle') as HTMLButtonElement;
+        toggle.click();
+        fixture.detectChanges();
+        await new Promise(r => setTimeout(r, 0)); // flush afterRenderEffect
+        expect(component.thinkingClosed()).toBe(false);
+        expect(fixture.nativeElement.querySelector('.thinking-body')).not.toBeNull();
+
+        // The user CLOSES it again.
+        toggle.click();
+        fixture.detectChanges();
+        await new Promise(r => setTimeout(r, 0)); // flush afterRenderEffect
+        expect(component.thinkingClosed()).toBe(true);
+        expect(fixture.nativeElement.querySelector('.thinking-body')).toBeNull();
+      } finally {
+        (HTMLElement.prototype as any).scrollIntoView = original;
+      }
+    });
+
+    it('pauses auto-follow (content + thinking) once the user scrolls, so the large toggle stays reachable', async () => {
+      const original = (HTMLElement.prototype as any).scrollIntoView;
+      (HTMLElement.prototype as any).scrollIntoView = () => {};
+      try {
+        const cn = node({ id: 'n1', role: 'assistant', content: '', thinking: 'Chain of thought' });
+        await openChat([cn]);
+        chatService.setPresentedNode(cn.id);
+        createFixture(cn);
+        await fixture.whenStable();
+        await new Promise(r => setTimeout(r, 0)); // arm the follow listener
+        fixture.detectChanges();
+        expect((component as any).followPausedByUser).toBe(false);
+
+        // The user scrolls (wheel) — auto-follow must pause so the view
+        // stops re-snapping (allowing them to scroll up to the close toggle).
+        document.dispatchEvent(new WheelEvent('wheel', { deltaY: 120 }));
+        expect((component as any).followPausedByUser).toBe(true);
+      } finally {
+        (HTMLElement.prototype as any).scrollIntoView = original;
+      }
+    });
+  });
+
+  describe('generating assistant (incl. background buffer)', () => {
+    it('shows a spinner instead of "Generation stopped" for a generating but NOT presented node', () => {
+      // A background buffer of the presenter queue: an active LLM stream, but
+      // NOT the presented (revealed) node.
+      chatService.startGeneration('n1');
+      createFixture(node({ id: 'n1', role: 'assistant', content: '', thinking: '' }));
+
+      expect(component.isGeneratingAssistant()).toBe(true);
+      expect(component.isThinkingLive()).toBe(false); // not the presented node
+      const empty = fixture.nativeElement.querySelector('.empty-answer.generating');
+      expect(empty).not.toBeNull();
+      expect(empty.querySelector('.spinner')).not.toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain('Generation stopped');
+      chatService.stopGeneration();
+    });
+
+    it('still shows "Generation stopped" only for an idle empty assistant', () => {
+      createFixture(node({ id: 'n1', role: 'assistant', content: '', thinking: '' }));
+      expect(component.isGeneratingAssistant()).toBe(false);
+      expect(fixture.nativeElement.textContent).toContain('Generation stopped');
+    });
   });
 
   describe('prior versions toggle', () => {
@@ -1965,9 +2047,10 @@ describe('ChatNodeComponent', () => {
       createFixture(q1);
 
       // Enable pacing so there is a tail-reveal window after the LLM stops.
+      // Pacing-after-complete is tied to "follow streaming", so enable that.
       const viewPrefs = TestBed.inject(ChatViewPrefsService);
       viewPrefs.setStreamSpeed(5);
-      viewPrefs.setPaceAfterComplete(true);
+      viewPrefs.setFollowStreaming(true);
 
       // Manual rAF queue: we control when the reveal advances, so we can prove
       // the next LLM call fires BEFORE the current tail drains.

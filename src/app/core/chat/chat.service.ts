@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary } from '../../models/chat';
+import type { StreamRevealPrefs } from '../llm/stream-reveal';
 import { NodeEditSession } from './node-edit-session';
 import { ChatViewPrefsService } from './chat-view-prefs.service';
 import { ChatOperationService } from './chat-operation.service';
@@ -250,18 +251,35 @@ export class ChatService {
   // -------------------------------------------------- view preferences
 
   readonly followStreaming = this.viewPrefs.followStreaming;
-  readonly followThinking = this.viewPrefs.followThinking;
   readonly alwaysOpenAtLeaf = this.viewPrefs.alwaysOpenAtLeaf;
-  readonly paceAfterComplete = this.viewPrefs.paceAfterComplete;
   readonly streamSpeedUnit = this.viewPrefs.streamSpeedUnit;
   readonly streamSpeed = this.viewPrefs.streamSpeed;
 
   setFollowStreaming(on: boolean) { this.viewPrefs.setFollowStreaming(on); }
-  setFollowThinking(on: boolean) { this.viewPrefs.setFollowThinking(on); }
   setAlwaysOpenAtLeaf(on: boolean) { this.viewPrefs.setAlwaysOpenAtLeaf(on); }
-  setPaceAfterComplete(on: boolean) { this.viewPrefs.setPaceAfterComplete(on); }
   setStreamSpeedUnit(unit: 'char' | 'word') { this.viewPrefs.setStreamSpeedUnit(unit); }
   setStreamSpeed(rate: number) { this.viewPrefs.setStreamSpeed(rate); }
+
+  /** After the LLM finishes, keep revealing leftover text at streamSpeed —
+   *  tied to "follow streaming" (no separate toggle anymore). */
+  paceAfterComplete(): boolean { return this.viewPrefs.paceAfterComplete(); }
+
+  /**
+   * Reveal-pacing prefs fed to the streaming pumps (StreamReveal /
+   * RevealQueue). The configured OUTPUT SPEED only takes effect while
+   * "follow streaming" is checked — when it is off the reveal is instant (0),
+   * so a non-following user can scroll freely without a typewriter pace and
+   * without the view fighting them. Pacing-after-complete likewise derives
+   * from follow streaming.
+   */
+  streamRevealPrefs(): StreamRevealPrefs {
+    return {
+      // `followStreaming()` short-circuits into a plain 0 → instant reveal.
+      streamSpeed: () => (this.followStreaming() ? this.viewPrefs.streamSpeed() : 0),
+      streamSpeedUnit: () => this.viewPrefs.streamSpeedUnit(),
+      paceAfterComplete: () => this.followStreaming()
+    };
+  }
 
   getSavedScroll(chatId: string | null | undefined): number | null {
     return this.viewPrefs.getSavedScroll(chatId);

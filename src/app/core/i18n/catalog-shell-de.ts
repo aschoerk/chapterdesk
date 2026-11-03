@@ -63,7 +63,6 @@ export const DE_SHELL: typeof EN_SHELL = {
     selectOrCreate: 'Wählen Sie eine Geschichte oder legen Sie eine neue an',
     resizeSidebar: 'Ziehen, um die Seitenleiste zu verändern',
     followStreaming: 'Streaming folgen',
-    followThinking: 'Denkspur folgen',
     alwaysOpenAtLeaf: 'immer am letzten Abschnitt öffnen',
     generating: 'Wird erzeugt…',
     reveal: 'anzeigen',

@@ -148,6 +148,7 @@ export class ChatNodeComponent implements OnDestroy {
   readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
+  /** Closed by default — thinking is hidden unless the user opens it. */
   readonly thinkingClosed = signal(true);
   private static readonly LS_PREPEND = 'chat.prependByNodeId';
   readonly prependEnabled = signal(false);
@@ -160,6 +161,7 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly streamEnd = viewChild<ElementRef<HTMLElement>>('streamEnd');
   private readonly readContent = viewChild<ElementRef<HTMLElement>>('readContent');
   private readonly ctxMenuEl = viewChild<ElementRef<HTMLElement>>('ctxMenu');
+  private readonly thinkingBody = viewChild<ElementRef<HTMLElement>>('thinkingBody');
 
   /**
    * Source offset captured from the read-only view just before entering the
@@ -226,6 +228,18 @@ export class ChatNodeComponent implements OnDestroy {
     // buffer (filling invisibly in a queue) must not surface a "waiting for the
     // model" spinner on an empty, not-yet-revealed bubble.
     return n.role === 'assistant' && this.chatService.presentedNodeId() === n.id;
+  }
+
+  /**
+   * True while an ASSISTANT node has an active LLM stream — including a
+   * BACKGROUND buffer of the presenter queue (generating but not yet revealed).
+   * Such a node must show a spinner instead of a misleading "Generation
+   * stopped" label, and it must not be followed/scrolled into view (follow
+   * only targets the PRESENTED node).
+   */
+  isGeneratingAssistant(): boolean {
+    const n = this.node();
+    return n.role === 'assistant' && this.chatService.isGenerating(n.id);
   }
 
 
@@ -771,7 +785,7 @@ export class ChatNodeComponent implements OnDestroy {
     // iteration's LLM runs in the background BUFFERING its text (nothing
     // paints), and the queue reveals it in order once the previous head has
     // fully revealed.
-    const queue = new RevealQueue(this.chatService, (slot, content, thinking) => {
+    const queue = new RevealQueue(this.chatService.streamRevealPrefs(), (slot, content, thinking) => {
       this.paintAnswer(slot.targetId, content, thinking);
     }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
     try {
@@ -1675,7 +1689,7 @@ export class ChatNodeComponent implements OnDestroy {
     // words/s instead of painting the whole buffer on every chunk (restores
     // the legacy LlmService behaviour lost when streaming moved into the
     // orchestration flows). Painting is a view concern.
-    const reveal = new StreamReveal(this.chatService, (content, thinking) => {
+    const reveal = new StreamReveal(this.chatService.streamRevealPrefs(), (content, thinking) => {
       this.paintAnswer(answerNode.id, content, thinking);
     });
     try {
@@ -1791,7 +1805,7 @@ export class ChatNodeComponent implements OnDestroy {
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
 
     const deps: HeldAnswerStreamDeps = {
-      prefs: this.chatService,
+      prefs: this.chatService.streamRevealPrefs(),
       createPlaceholderNode: async () => {
         const answerNode = await this.chatService.addNode(chatId, {
           parentId: question.id,
@@ -2802,6 +2816,10 @@ export class ChatNodeComponent implements OnDestroy {
       const id = this.node().id;
       this.prependEnabled.set(this.isPrependStored(id));
       this.prependText.set(this.storedPrependText(id));
+      // A new node (fresh generation / versioned answer) means auto-follow
+      // starts again — any previous user-scroll pause is cleared.
+      this.followPausedByUser = false;
+      this.removeFollowScrollListener();
     });
 
     afterRenderEffect(() => {
@@ -2816,10 +2834,16 @@ export class ChatNodeComponent implements OnDestroy {
             && (this.chatService.isGenerating(n.id)
               || this.chatService.generatingNodeId() === n.id));
       if (!live) return;
-      if (this.chatService.followThinking() && n.thinking?.trim()) {
-        this.thinkingClosed.set(false);
-      }
-      if (this.chatService.followStreaming() || (this.chatService.followThinking() && !n.content?.trim())) {
+      // Auto-follow (content + thinking) is ONLY active when the "follow
+      // streaming" checkbox is checked. When it is off, the user scrolls
+      // freely — the thinking body can grow large, so we must never fight
+      // the scroll. Follow-thinking additionally requires the thought to be
+      // open (thinking is hidden by default; the user opens/closes it).
+      if (!this.chatService.followStreaming()) return;
+      const hasThinking = !!n.thinking?.trim();
+      if (hasThinking && !this.thinkingClosed()) {
+        this.followThinking();
+      } else {
         this.followLive();
       }
     });
@@ -2844,6 +2868,7 @@ export class ChatNodeComponent implements OnDestroy {
     if (ChatNodeComponent.openMenu === this) {
       ChatNodeComponent.openMenu = null;
     }
+    this.removeFollowScrollListener();
   }
 
   /**
@@ -3059,9 +3084,63 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   private followLive(): void {
+    if (this.followPausedByUser) return;
     const anchor = this.streamEnd()?.nativeElement;
     if (!anchor) return;
+    this.applyFollowScroll(anchor);
+  }
+
+  /** Keep the OPEN thinking body in view while the model is thinking. */
+  private followThinking(): void {
+    if (this.followPausedByUser) return;
+    const anchor = this.thinkingBody()?.nativeElement ?? this.streamEnd()?.nativeElement;
+    if (!anchor) return;
+    this.applyFollowScroll(anchor);
+  }
+
+  /** Perform ONE follow scroll and (first time only) arm the user-scroll detector. */
+  private applyFollowScroll(anchor: HTMLElement): void {
+    this.ensureFollowScrollListener(anchor);
     followLiveScroll(anchor, this.scrollParentOf.bind(this));
+  }
+
+  /**
+   * User-scroll-stops-follow: once the user scrolls the streaming scroller by
+   * hand (mouse wheel / trackpad / touch), auto-follow (content + thinking)
+   * pauses so they can reach the thinking toggle / older content without the
+   * view re-snapping on every chunk. Gesture events (wheel/touchmove) are used
+   * because programmatic `scrollTop` assignment never fires them — so there is
+   * no ambiguity with our own follow scrolling. Resets when a new node is
+   * shown (a fresh generation mounts a new node).
+   */
+  private followPausedByUser = false;
+  private followScrollCleanup: (() => void) | null = null;
+
+  /** Attach ONE gesture listener to the streaming scroller (or document). */
+  private ensureFollowScrollListener(anchor: HTMLElement): void {
+    if (this.followScrollCleanup) return;
+    const scroller = this.scrollParentOf(anchor);
+    const onScroll = () => { this.followPausedByUser = true; };
+    if (!scroller || scroller === document.scrollingElement) {
+      document.addEventListener('wheel', onScroll, { passive: true, capture: true });
+      document.addEventListener('touchmove', onScroll, { passive: true, capture: true });
+      this.followScrollCleanup = () => {
+        document.removeEventListener('wheel', onScroll, { capture: true } as any);
+        document.removeEventListener('touchmove', onScroll, { capture: true } as any);
+      };
+      return;
+    }
+    scroller.addEventListener('wheel', onScroll, { passive: true });
+    scroller.addEventListener('touchmove', onScroll, { passive: true });
+    this.followScrollCleanup = () => {
+      scroller.removeEventListener('wheel', onScroll);
+      scroller.removeEventListener('touchmove', onScroll);
+    };
+  }
+
+  private removeFollowScrollListener(): void {
+    this.followScrollCleanup?.();
+    this.followScrollCleanup = null;
   }
 
   updateRendered(content: string): void {

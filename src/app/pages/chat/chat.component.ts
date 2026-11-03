@@ -1598,7 +1598,7 @@ export class ChatComponent implements OnInit {
       // step's LLM call runs in the background BUFFERING its text (nothing
       // paints), and the queue reveals it in order once the current head has
       // fully revealed. Any batch producer can reuse this exact pattern.
-      const queue = new RevealQueue(this.chatService, (slot, content, thinking) => {
+      const queue = new RevealQueue(this.chatService.streamRevealPrefs(), (slot, content, thinking) => {
         this.chatService.updateNodes(list =>
           list.map(n => (n.id === slot.targetId ? { ...n, content, thinking } : n))
         );

@@ -436,7 +436,7 @@
           }
         </button>
         @if (!thinkingClosed() && hasThinking()) {
-          <pre class="thinking-body">{{ node().thinking }}</pre>
+          <pre #thinkingBody class="thinking-body">{{ node().thinking }}</pre>
         }
       </div>
     }
@@ -466,6 +466,12 @@
            (click)="onContentClick($event)"
            (dblclick)="onContentDblClick($event)">
         <em>{{ i18n.t('node.writeNext') }}</em>
+      </div>
+    } @else if (isGeneratingAssistant()) {
+      <!-- Background buffer of the queue: generating but not yet revealed —
+           show a spinner (a building chapter), never "Generation stopped". -->
+      <div class="node-content empty-answer generating">
+        <span class="spinner"></span>
       </div>
     } @else {
       <div class="node-content empty-answer">

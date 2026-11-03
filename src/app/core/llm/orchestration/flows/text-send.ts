@@ -223,7 +223,7 @@ export async function streamAnswerNode(
   // the legacy LlmService behaviour that was lost when streaming moved into
   // the orchestration flows. Painting is a view concern — the pump only
   // decides how much of the accumulated buffer the node shows right now.
-  const reveal = new StreamReveal(chatService, (content, thinking) => {
+  const reveal = new StreamReveal(chatService.streamRevealPrefs(), (content, thinking) => {
     chatService.updateNodes(list =>
       list.map(n => (n.id === answerNode.id ? { ...n, content, thinking } : n))
     );
