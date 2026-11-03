@@ -1,6 +1,6 @@
 {
   "name": "chapterdeskhelpers",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Andreas Schörk",
   "main": "electron/main.js",
   "scripts": {

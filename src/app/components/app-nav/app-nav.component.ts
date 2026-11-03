@@ -44,7 +44,7 @@ export class AppNavComponent {
 
   constructor() {
     // Keep the window / tab headline (Electron title bar + browser tab) in
-    // sync: "Story title — ChapterDesk (1.0.3)".
+    // sync: "Story title — ChapterDesk (1.0.4)".
     effect(() => {
       const title = this.currentChatTitle();
       const brand = `ChapterDesk (${APP_VERSION})`;
