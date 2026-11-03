@@ -640,6 +640,49 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(answer.content).toBe('Elaborated chapter.');
   });
 
+  it('send-elaborate (HELD): runHeld starts the stream, finalize persists the answer, drain completes', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Elaborated ', 'chapter.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Chapters' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true, modelId: 'alpha/model' })
+    ]);
+    const anchor = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const run = await runner.runHeld({
+      chat: api.chats[0],
+      node: anchor,
+      usecase: 'send-elaborate',
+      vars: { content: 'elaborate on chapter 1', modelId: 'beta/model', providerId: 'prov-1' }
+    });
+
+    // The question is created up front; the placeholder answer node exists.
+    const question = chatService.nodes().find(n => n.role === 'user' && n.content === 'elaborate on chapter 1');
+    expect(question).toBeDefined();
+    expect(question!.parentId).toBe('a1');
+    expect(run.questionNodeId).toBe(question!.id);
+    expect(run.placeholderNodeId).toBeDefined();
+    expect(run.answerNodeId).toBeNull(); // not finalized yet
+
+    // The stream resolves (the LLM stopped); the answer is not yet persisted.
+    const raw = await run.streamDone;
+    expect(raw.text?.value).toBe('Elaborated chapter.');
+
+    // finalize persists the full answer (versioned) and returns the flow result.
+    const slots = await run.finalize();
+    const answerId = slots.flow!.value!.answerNodeId;
+    expect(run.answerNodeId).toBe(answerId);
+    const answer = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answer.parentId).toBe(question!.id);
+    expect(answer.content).toBe('Elaborated chapter.');
+    expect(answer.modelId).toBe('beta/model'); // dialog-chosen model wins
+    expect(slots.flow?.value?.questionNodeId).toBe(question!.id);
+    expect(slots.flow?.value?.activateId).toBe(answerId);
+
+    // drain completes (instant reveal in the rAF-less test env).
+    await run.drain();
+  });
+
   it('send-chapter-descriptions: branches a sibling question with the request and streams the list (previous chat content as history)', async () => {
     fetchMock.mockResolvedValueOnce(sseResponse(['1. ', 'One — start.\n2. Two — continue.']));
     const chatService = await openChat([
@@ -1354,7 +1397,26 @@ describe('LLM synchronization — excludeFromContext flag in the request builder
     expect(text).toContain('Next beat.');
   });
 
-  it('inlines a text attachment on the current question into the final user message', async () => {
+  it('history overrides replace a (clamped) previous answer with its FULL text', async () => {
+  const chatService = await openChat([
+    makeNode({ id: 'a0', role: 'assistant', content: 'The door opens.', isCurrent: true }),
+    makeNode({ id: 'q1', parentId: 'a0', role: 'user', content: 'Next beat.', isCurrent: true })
+  ]);
+  const factory = TestBed.inject(UsecaseContextFactory);
+  // The reveal pump clamps a0's DISPLAY to a partial slice while its tail is
+  // still pacing — the next step's context must read the FULL text instead.
+  const messages = factory.buildSendMessagesEx({
+    chatId: CHAT_ID,
+    nodeId: 'q1',
+    overrides: { a0: 'The door opens, revealing a long stone corridor.' }
+  });
+  const text = textOf(messages);
+  expect(text).toContain('The door opens, revealing a long stone corridor.');
+  expect(text).not.toContain('The door opens.');
+  expect(text).toContain('Next beat.');
+});
+
+it('inlines a text attachment on the current question into the final user message', async () => {
     const chatService = await openChat([
       makeNode({ id: 'a0', role: 'assistant', content: 'The door opens.', isCurrent: true }),
       makeNode({

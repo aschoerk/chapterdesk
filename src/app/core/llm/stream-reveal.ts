@@ -49,13 +49,48 @@ export class StreamReveal {
   private pumpRunning = false;
   private llmFinished = false;
   private closed = false;
+  /** When held, `update()` only buffers — nothing is painted until `activate()`. */
+  private hold = false;
 
   private readonly prefs: StreamRevealPrefs;
   private readonly paint: StreamRevealPaint;
 
-  constructor(prefs: StreamRevealPrefs, paint: StreamRevealPaint) {
+  constructor(prefs: StreamRevealPrefs, paint: StreamRevealPaint, opts: { hold?: boolean } = {}) {
     this.prefs = prefs;
     this.paint = paint;
+    this.hold = !!opts.hold;
+  }
+
+  /**
+   * Un-pause a HELD pump: the buffered content starts revealing at the
+   * configured pace from the current `committed` position (0 for a stream
+   * that was never painted). A live (non-held) pump is unaffected.
+   */
+  activate(): void {
+    if (this.closed) return;
+    this.hold = false;
+    if (this.prefs.streamSpeed() <= 0) {
+      this.flush();
+      return;
+    }
+    this.pumpRunning = true;
+    this.lastTs = 0;
+    this.scheduleFrame(this.tick);
+  }
+
+  /**
+   * Swap the accumulated buffer to a (possibly different) final text — e.g.
+   * the content actually persisted on the answer node after the evaluator
+   * cleaned it up — and clamp `committed` so the reveal continues from where
+   * it was. Paints the now-visible slice immediately (used right after a
+   * versioned finalize so the node does not flash its full text).
+   */
+  rebase(content: string, thinking: string): void {
+    if (this.closed) return;
+    this.content = content;
+    this.thinking = thinking;
+    if (this.committed > content.length) this.committed = content.length;
+    this.paintSafe();
   }
 
   /** How much of the buffer is currently revealed (useful for tests). */
@@ -73,6 +108,10 @@ export class StreamReveal {
     if (this.closed) return;
     this.content = content;
     this.thinking = thinking;
+    // A HELD pump only buffers — the background stream of the NEXT prepared
+    // content accumulates here without painting until it becomes the front
+    // item (`activate()`), so one bubble paints at a time.
+    if (this.hold) return;
     this.kickPump();
   }
 
@@ -210,12 +249,15 @@ export class StreamReveal {
   private drainReveal(signal?: AbortSignal): Promise<void> {
     return new Promise(resolve => {
       const finish = () => {
-        this.flush();
+        // A HELD pump resolves without painting — it is still buffering for a
+        // later promotion; only a live pump flushes to the full text.
+        if (!this.hold) this.flush();
         resolve();
       };
       if (
         this.closed
         || signal?.aborted
+        || this.hold
         || !this.prefs.paceAfterComplete()
         || this.prefs.streamSpeed() <= 0
         || this.committed >= this.content.length
@@ -227,6 +269,7 @@ export class StreamReveal {
         if (
           this.closed
           || signal?.aborted
+          || this.hold
           || this.committed >= this.content.length
           || this.prefs.streamSpeed() <= 0
           || !this.prefs.paceAfterComplete()

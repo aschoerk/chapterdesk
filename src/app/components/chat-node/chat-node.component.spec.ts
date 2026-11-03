@@ -24,6 +24,7 @@ import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service'
 import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
+import { ChatViewPrefsService } from '../../core/chat/chat-view-prefs.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -1956,6 +1957,90 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(component.isEditing()).toBe(false);
+    });
+
+    it('prefetches the NEXT chapter in the background while the current tail is still revealing', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      // Enable pacing so there is a tail-reveal window after the LLM stops.
+      const viewPrefs = TestBed.inject(ChatViewPrefsService);
+      viewPrefs.setStreamSpeed(5);
+      viewPrefs.setPaceAfterComplete(true);
+
+      // Manual rAF queue: we control when the reveal advances, so we can prove
+      // the next LLM call fires BEFORE the current tail drains.
+      const rafQueue: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        rafQueue.push(cb);
+        return rafQueue.length;
+      });
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      // Controllable runner: each call returns a deferred promise.
+      const calls: Array<{ resolve: (v: unknown) => void }> = [];
+      (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
+        (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+          opts?.onChunk?.({ content: 'Chapter' });
+          return new Promise(resolve => calls.push({ resolve }));
+        }
+      );
+
+      component.repeatCount.set(3);
+      const batch = component.continueDraft();
+      await new Promise(r => setTimeout(r, 0));
+
+      // Stream 1 started (front item, live).
+      expect(calls).toHaveLength(1);
+
+      // LLM 1 stops — the current chapter's tail is NOT yet fully revealed
+      // (no rAF frame has advanced the reveal).
+      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one' } });
+      await new Promise(r => setTimeout(r, 0));
+
+      // The NEXT chapter's LLM call must already be in flight (background
+      // prefetch), even though the current tail has not drained yet.
+      expect(calls).toHaveLength(2);
+
+      // Let the next chapter's LLM stop too, then drive the reveal frames so
+      // the batch drains and completes (otherwise it hangs on the manual rAF).
+      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two' } });
+      await new Promise(r => setTimeout(r, 0));
+
+      // Drive the reveal frames so the FIRST chapter's tail drains and the
+      // loop can reach iteration 3 (which prefetches the final chapter).
+      let ts = 1000;
+      for (let f = 0; f < 200 && rafQueue.length; f++) {
+        const pending = rafQueue.splice(0);
+        for (const cb of pending) cb(ts);
+        ts += 100;
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      // Stream 3 (the final chapter) is now prefetched.
+      expect(calls).toHaveLength(3);
+      calls[2].resolve({ text: { status: 'ok', value: 'Chapter three' } });
+      await new Promise(r => setTimeout(r, 0));
+
+      // Drive the reveal pump to completion.
+      for (let f = 0; f < 200 && rafQueue.length; f++) {
+        const pending = rafQueue.splice(0);
+        for (const cb of pending) cb(ts);
+        ts += 100;
+        await new Promise(r => setTimeout(r, 0));
+      }
+      await batch;
+      vi.unstubAllGlobals();
+
+      // All three chapters were finalized (the persisted content is the
+      // resolved evaluator text, not the raw chunk).
+      const answers = chatService.nodes().filter(
+        (n) => n.role === 'assistant'
+          && ['Chapter one', 'Chapter two', 'Chapter three'].includes(n.content ?? '')
+          && n.isCurrent
+      );
+      expect(answers.length).toBe(3);
     });
 
     it('a direction followed ONLY by a non-assistant node is NOT unsent — editing saves', async () => {

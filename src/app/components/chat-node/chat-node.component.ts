@@ -45,6 +45,12 @@ import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { StreamReveal } from '../../core/llm/stream-reveal';
 import { LlmLogService } from '../../core/llm/llm-log.service';
+import {
+  startHeldAnswerStream,
+  type HeldAnswerStream,
+  type HeldAnswerStreamDeps
+} from '../../core/llm/held-answer-stream';
+import { RevealQueue } from '../../core/llm/reveal-queue';
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
 import { nearestScrollParent } from '../../core/util/dom-metrics';
@@ -216,7 +222,10 @@ export class ChatNodeComponent implements OnDestroy {
 
   isThinkingLive(): boolean {
     const n = this.node();
-    return n.role === 'assistant' && this.chatService.isGenerating(n.id);
+    // Only the PRESENTED node shows the thinking/waiting spinner — a background
+    // buffer (filling invisibly in a queue) must not surface a "waiting for the
+    // model" spinner on an empty, not-yet-revealed bubble.
+    return n.role === 'assistant' && this.chatService.presentedNodeId() === n.id;
   }
 
 
@@ -751,11 +760,22 @@ export class ChatNodeComponent implements OnDestroy {
       : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
 
     // One Stop press cancels the whole batch.
-    this.chatService.beginOperation(direction === 'continue' ? 'continue' : 'switchCharacters');
+    const opSignal = this.chatService.beginOperation(direction === 'continue' ? 'continue' : 'switchCharacters');
     this.pendingAction.set(direction);
     this.isLoading.set(true);
     this.chatService.batchProgress.set({ current: 1, total: count });
+    const started: HeldAnswerStream[] = [];
+    // A shared PRESENTER QUEUE decouples presenting from generation: each
+    // iteration's answer is a slot — the first becomes the live head (its
+    // reveal slows to the input speed while the LLM fills it), every later
+    // iteration's LLM runs in the background BUFFERING its text (nothing
+    // paints), and the queue reveals it in order once the previous head has
+    // fully revealed.
+    const queue = new RevealQueue(this.chatService, (slot, content, thinking) => {
+      this.paintAnswer(slot.targetId, content, thinking);
+    }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
     try {
+      let current: HeldAnswerStream | null = null;
       for (let i = 1; i <= count; i++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop"
         // (requestGracefulStop) also ends the batch, but only AFTER the
@@ -763,39 +783,114 @@ export class ChatNodeComponent implements OnDestroy {
         if (this.chatService.shouldStopAfterCurrentStep()) break;
         this.chatService.batchProgress.set({ current: i, total: count });
 
-        // Make sure the active path ends on an empty draft question to send on.
-        await this.chatService.ensureDraftAtLeaf(chatId);
+        // The previous iteration's LLM has stopped — finalize it NOW (data
+        // model complete), so THIS iteration's context is correct even though
+        // its tail is still revealing.
+        if (current) {
+          await current.streamDone;
+          await current.finalize(opSignal);
+          // Release the single-answer generation slot so the next composer
+          // leaf can be hung below (draft housekeeping is skipped while a
+          // generation is active). The drain of the previous tail happens
+          // later on the OPERATION signal, so it is unaffected.
+          this.chatService.clearGeneration();
+        }
+
+        // Make sure the active path ends on an empty draft question to send
+        // on. The previous answer's reveal pump clamps its DISPLAYED content
+        // to the revealed slice (empty while the tail is still pacing), so
+        // `ensureDraftAtLeaf`'s content-based heuristic would treat it as an
+        // un-answered placeholder and refuse to hang the next composer. Hang
+        // the draft under the FINALIZED answer explicitly instead.
         let leaf = this.chatService.getActivePath().at(-1) ?? null;
+        const prevAnswerId = current?.answerNodeId;
+        if (prevAnswerId) {
+          const answer = this.chatService.nodes().find(n => n.id === prevAnswerId);
+          const under = answer ?? leaf;
+          if (under) {
+            const existing = this.chatService.getChildren(under.id).filter(n => n.role === 'user');
+            const draft = existing.find(n => this.chatService.isDraftQuestion(n)) ?? existing[0];
+            if (draft) {
+              this.chatService.setActiveChild(under.id, draft.id);
+              leaf = draft;
+            } else if (under.role === 'assistant') {
+              // The finalized answer is a real answered chapter — hang a fresh
+              // empty composer leaf under it.
+              const created = await this.chatService.addNode(chatId, {
+                parentId: under.id,
+                role: 'user',
+                content: '',
+                modelId: under.modelId || undefined,
+                providerId: under.providerId || undefined
+              });
+              this.chatService.setActiveChild(under.id, created.id);
+              leaf = created;
+            }
+          }
+        }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
-          // Draft housekeeping can still be settling (e.g. right after a lore
-          // send flips exclude flags async). Retry once before giving up.
+          // Fall back to the generic draft housekeeping (e.g. right after a
+          // lore send flips exclude flags async).
           await this.chatService.ensureDraftAtLeaf(chatId);
           leaf = this.chatService.getActivePath().at(-1) ?? null;
         }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
 
-        await this.sendDirectionOnce(chatId, leaf, content, model, provider);
+        // Start THIS iteration's stream. The first becomes the queue HEAD
+        // (reveals live at the pace, slowing to the input speed); every later
+        // one is a BACKGROUND slot — its LLM runs immediately but its text
+        // buffers (nothing paints) until the queue promotes it. The previous
+        // answer's FULL text is passed as a history override so THIS
+        // iteration's context is never truncated by the reveal clamp.
+        const held = await this.sendDirectionOnce(chatId, leaf, content, model, provider, {
+          queue,
+          historyOverrides: current && current.answerNodeId
+            ? { [current.answerNodeId]: current.finalContent() }
+            : undefined
+        });
+        started.push(held);
+        if (current) {
+          // Keep pacing the previous tail — `held` streams in the background;
+          // once the tail fully reveals, the queue advances to `held`.
+          await current.drain(opSignal);
+        }
+        current = held;
+      }
+      // Final iteration.
+      if (current) {
+        await current.streamDone;
+        await current.finalize(opSignal);
+        await current.drain(opSignal);
       }
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
     } finally {
+      // Abort any still-running held streams (error / hard stop).
+      for (const h of started) h.abort();
       this.chatService.batchProgress.set(null);
+      this.chatService.clearGeneration();
       this.chatService.endOperation();
       this.isLoading.set(false);
       this.pendingAction.set(null);
     }
   }
 
-  /** Persist + stream ONE direction onto a specific leaf question. */
+  /**
+   * Persist ONE direction onto a specific leaf question and start its stream.
+   * Returns a HELD answer-stream handle (the caller drives finalize/drain), so
+   * batched Continue / Switch-characters sends can pipeline: iteration N+1
+   * streams in the background while iteration N's tail is still revealing.
+   */
   private async sendDirectionOnce(
     chatId: string,
     leaf: ChatNode,
     content: string,
     model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string }
-  ): Promise<void> {
+    provider: { baseUrl: string; apiKey: string },
+    opts: { queue?: RevealQueue; historyOverrides?: Record<string, string> } = {}
+  ): Promise<HeldAnswerStream> {
     // Only the FIRST iteration targets this component's own node, where the
     // parent's (activate) binding is valid. Foreign leaves (iterations 2+)
     // are activated directly through ChatService instead.
@@ -820,8 +915,10 @@ export class ChatNodeComponent implements OnDestroy {
       }
     }
 
-    await this.streamAppendOrchestrated(chatId, saved, content, model, provider, {
-      emitActivate: isOwn
+    return this.startHeldAppendStream(chatId, saved, content, model, provider, {
+      queue: opts.queue,
+      emitActivate: isOwn,
+      historyOverrides: opts.historyOverrides
     });
   }
 
@@ -1559,6 +1656,8 @@ export class ChatNodeComponent implements OnDestroy {
     });
     this.chatService.setActiveChild(question.id, answerNode.id);
     const signal = this.chatService.startGeneration(answerNode.id);
+    // Single (raw) stream path — presented = the node being revealed.
+    this.chatService.setPresentedNode(answerNode.id);
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
 
     const usecase = opts.usecase ?? 'append';
@@ -1660,12 +1759,101 @@ export class ChatNodeComponent implements OnDestroy {
       // revealed + finalized); stop the pump either way.
       reveal.flush();
       reveal.destroy();
-      this.chatService.clearGeneration();
+      this.chatService.clearGeneration(answerNode.id);
+      if (this.chatService.presentedNodeId() === answerNode.id) this.chatService.setPresentedNode(null);
       // One-shot excluded nodes (e.g. the chat-lore node created with
       // `excludeAfterSend`) were just sent as part of this request: flip them
       // to permanently excluded so they document but never re-ship.
       await this.chatService.markSentOnceExcluded(chatId, question.id);
     }
+  }
+
+  /**
+   * HELD variant of `streamAppendOrchestrated` for the batched Continue /
+   * Switch-characters flows. The answer registers as a slot in the shared
+   * {@link RevealQueue}: the first becomes the live head (its reveal slows to
+   * the input speed while the LLM fills it), every later one is a background
+   * buffer — its LLM runs immediately but its text does NOT paint until the
+   * queue promotes it once the previous head has fully revealed (one bubble
+   * paints at a time, like a conveyor belt).
+   */
+  private async startHeldAppendStream(
+    chatId: string,
+    question: ChatNode,
+    content: string,
+    model: ModelEntry,
+    provider: { baseUrl: string; apiKey: string },
+    opts: { queue?: RevealQueue; emitActivate?: boolean; historyOverrides?: Record<string, string> } = {}
+  ): Promise<HeldAnswerStream> {
+    // Close the inline editor NOW (commit the session), mirroring the Send
+    // path timing.
+    this.closeEditor();
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+
+    const deps: HeldAnswerStreamDeps = {
+      prefs: this.chatService,
+      createPlaceholderNode: async () => {
+        const answerNode = await this.chatService.addNode(chatId, {
+          parentId: question.id,
+          role: 'assistant',
+          content: '',
+          thinking: '',
+          modelId: model.modelId,
+          providerId: model.providerId
+        });
+        this.chatService.setActiveChild(question.id, answerNode.id);
+        return answerNode.id;
+      },
+      setActiveChild: (p: string | null, c: string) => this.chatService.setActiveChild(p, c),
+      startGeneration: (id: string) => this.chatService.startGeneration(id),
+      paint: (nodeId: string, c: string, t: string) => this.paintAnswer(nodeId, c, t),
+      runCompletion: async ({ nodeId, signal, onChunk }: {
+        nodeId: string;
+        signal: AbortSignal;
+        onChunk: (chunk: import('../../core/llm/llm-sse').LlmChunk) => void;
+      }) => this.runner.run(
+        {
+          chat,
+          node: question,
+          usecase: 'append',
+          vars: {
+            content,
+            ...(opts.historyOverrides ? { historyOverrides: opts.historyOverrides } : {})
+          }
+        },
+        { signal, nodeId, onChunk }
+      ),
+      finalizeAnswer: async (fo: {
+        placeholderId: string;
+        finalContent: string;
+        finalThinking: string;
+        finalImages: LlmImagePart[];
+        usage?: import('../../core/llm/usage').ParsedUsage;
+        logEntry?: import('../../core/llm/llm-log.service').LlmLogEntry;
+        adoptNodeIds?: string[];
+        preserveAttachments?: import('../../models/chat').NodeAttachment[];
+      }) => {
+        // An IMAGE-ONLY answer: fill the chapter with the original direction
+        // so it is not an empty bubble — the generated image is attached below.
+        const chapterContent = imageOnlyAnswerContent(fo.finalContent, question.content, fo.finalImages);
+        const attachments = fo.finalImages.length
+          ? generatedImageAttachments(fo.finalImages)
+          : undefined;
+        const versioned = await this.chatService.editAssistant(
+          chatId, fo.placeholderId, chapterContent, attachments, fo.finalThinking, fo.usage
+        );
+        this.chatService.setActiveChild(question.id, versioned.id);
+        if (opts.emitActivate !== false) {
+          this.activate.emit(versioned.id);
+        }
+        return { id: versioned.id, content: chapterContent };
+      },
+      markSentOnceExcluded: () => this.chatService.markSentOnceExcluded(chatId, question.id),
+      retargetLog: (entry: import('../../core/llm/llm-log.service').LlmLogEntry, nodeId: string) =>
+        this.llmLog.retargetNode(entry, nodeId)
+    };
+
+    return startHeldAnswerStream(deps, { queue: opts.queue });
   }
 
   /** Paint streamed text incrementally onto the in-flux assistant node. */
@@ -2619,9 +2807,15 @@ export class ChatNodeComponent implements OnDestroy {
     afterRenderEffect(() => {
       const n = this.node();
       this.renderedHtml();
-      const generating = this.chatService.isGenerating(n.id)
-        || this.chatService.generatingNodeId() === n.id;
-      if (!generating) return;
+      // Follow/thinking key off the node being PRESENTED (revealed), not the
+      // newest generation — a background buffer filling in the queue must not
+      // steal the reveal UI from the node actually painting right now.
+      const presented = this.chatService.presentedNodeId();
+      const live = presented === n.id
+        || (presented === null
+            && (this.chatService.isGenerating(n.id)
+              || this.chatService.generatingNodeId() === n.id));
+      if (!live) return;
       if (this.chatService.followThinking() && n.thinking?.trim()) {
         this.thinkingClosed.set(false);
       }

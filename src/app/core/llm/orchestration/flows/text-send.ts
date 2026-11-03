@@ -80,13 +80,23 @@ export async function prepareTextSend(
         : '';
       if (description) {
         const merged = env.factory.mergeDirectionWithDescription(content, description);
-        const messages = env.factory.buildSendMessagesEx({ chatId, nodeId: question.id, contentOverride: merged });
+        const messages = env.factory.buildSendMessagesEx({
+          chatId,
+          nodeId: question.id,
+          contentOverride: merged,
+          overrides: env.cx.vars.historyOverrides
+        });
         const record = env.factory.buildImageDescriptionRecord(images, description);
         return { messages, mergedContent: merged, record };
       }
     }
   }
-  const messages = env.factory.buildSendMessagesEx({ chatId, nodeId: question.id, contentOverride: content });
+  const messages = env.factory.buildSendMessagesEx({
+    chatId,
+    nodeId: question.id,
+    contentOverride: content,
+    overrides: env.cx.vars.historyOverrides
+  });
   return { messages };
 }
 
@@ -149,7 +159,7 @@ function existingGeneratedImageCount(attachments: NodeAttachment[] | undefined):
  * place) merged with any NEWLY generated image(s), renumbered after the
  * preserved ones. Returns `undefined` when there is nothing to attach.
  */
-function mergeAnswerAttachments(
+export function mergeAnswerAttachments(
   preserved: NodeAttachment[] | undefined,
   newImages: LlmImagePart[] | undefined
 ): NodeAttachment[] | undefined {
@@ -201,6 +211,9 @@ export async function streamAnswerNode(
   });
   chatService.setActiveChild(questionNodeId, answerNode.id);
   const signal = chatService.startGeneration(answerNode.id);
+  // The single (raw) stream path presents this node directly — follow-streaming
+  // and the thinking spinner key off the PRESENTED node, not the generation id.
+  chatService.setPresentedNode(answerNode.id);
 
   let accContent = '';
   let accThinking = '';
@@ -287,7 +300,8 @@ export async function streamAnswerNode(
     // revealed + finalized); stop the pump either way.
     reveal.flush();
     reveal.destroy();
-    chatService.clearGeneration();
+    chatService.clearGeneration(answerNode.id);
+    if (chatService.presentedNodeId() === answerNode.id) chatService.setPresentedNode(null);
     // One-shot excluded nodes (e.g. the chat-lore node created with
     // `excludeAfterSend`) have now been sent as part of this request: flip
     // them to permanently excluded so they are documented but never re-shipped.

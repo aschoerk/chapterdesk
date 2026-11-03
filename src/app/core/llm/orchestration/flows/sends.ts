@@ -1,9 +1,21 @@
-import { ChatNode } from '../../../../models/chat';
+import { ChatNode, type NodeAttachment } from '../../../../models/chat';
+import { canGenerateImages } from '../../../../models/chat-config';
 import type { NodeAttachmentLike } from '../context';
+import type { LlmImagePart } from '../../llm-message';
+import type { ParsedUsage } from '../../usage';
+import type { LlmLogEntry } from '../../llm-log.service';
 import { makeSlot, okSlot } from '../slots';
 import type { EvalSlots, FlowResult } from '../types';
-import { flowEmpty, persistInterpretation, prepareTextSend, streamAnswerNode } from './text-send';
-import type { FlowEnv, FlowController } from './env';
+import {
+  flowEmpty,
+  imageOnlyAnswerContent,
+  mergeAnswerAttachments,
+  persistInterpretation,
+  prepareTextSend,
+  streamAnswerNode
+} from './text-send';
+import { startHeldAnswerStream, type HeldAnswerStreamDeps } from '../../held-answer-stream';
+import type { FlowEnv, FlowController, HeldRun } from './env';
 
 // ---------------------------------------------------------------------------
 // send-branch — new sibling question + streamed answer
@@ -241,6 +253,123 @@ const sendElaborate: FlowController = async env => {
     activateId: answerNodeId
   }, flowEmpty(slots));
 };
+
+// ---------------------------------------------------------------------------
+// send-elaborate (HELD) — the sequential elaborate pipeline. The question +
+// lore + messages are prepared exactly like `sendElaborate`, but the answer
+// stream is returned as a HeldRun: the caller finalizes each chapter the
+// moment its LLM stops (so the NEXT chapter's context is complete) and drains
+// its tail at pace while the next chapter streams in the background.
+// ---------------------------------------------------------------------------
+export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
+  const anchor = env.cx.node;
+  const chatId = env.cx.chat.id;
+  const content = (env.cx.vars.content ?? '').trim();
+  if (!content) {
+    throw new Error('No elaborate prompt.');
+  }
+  const parentId = anchor?.id ?? null;
+
+  // Reuse an empty user leaf draft under the anchor if one exists, else
+  // create a fresh question (mirrors the legacy elaborate dialog).
+  const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
+
+  // Current chat-lore: materialize a lore node in front of the elaborate
+  // direction.
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+
+  // History = text-only path up to the question + topic system prompt; the
+  // final user message is the rendered elaborate prompt. `historyOverrides`
+  // carries the FULL text of the previous (still-revealing) chapter so the
+  // next chapter's context is never truncated by the reveal clamp.
+  const messages = env.factory.buildSendMessagesEx({
+    chatId,
+    nodeId: question.id,
+    contentOverride: content,
+    overrides: env.cx.vars.historyOverrides
+  });
+
+  const deps: HeldAnswerStreamDeps = {
+    prefs: env.chatService,
+    createPlaceholderNode: async () => {
+      const node = await env.chatService.addNode(chatId, {
+        parentId: question.id,
+        role: 'assistant',
+        content: '',
+        thinking: '',
+        modelId: env.write.model.modelId,
+        providerId: env.write.model.providerId
+      });
+      env.chatService.setActiveChild(question.id, node.id);
+      return node.id;
+    },
+    setActiveChild: (p: string | null, c: string) => env.chatService.setActiveChild(p, c),
+    startGeneration: (id: string) => env.chatService.startGeneration(id),
+    paint: (nodeId: string, c: string, t: string) => env.chatService.updateNodes(list =>
+      list.map(n => (n.id === nodeId ? { ...n, content: c, thinking: t } : n))),
+    runCompletion: async ({ nodeId, signal, onChunk }: {
+      nodeId: string;
+      signal: AbortSignal;
+      onChunk: (chunk: import('../../llm-sse').LlmChunk) => void;
+    }) => env.orch.completion(env.cx, {
+      model: env.write.model,
+      provider: env.write.provider,
+      messages,
+      extras: env.textExtras,
+      // Respect the model's / chat's configured streaming preference.
+      stream: env.textExtras['stream'] !== false,
+      // An image-GENERATION write model must be told to generate (modalities)
+      // and gets the images-endpoint fallback tree.
+      imageCapable: canGenerateImages(env.write.model)
+    }, { expect: 'text', nodeId, onChunk, signal }),
+    finalizeAnswer: async (opts: {
+      placeholderId: string;
+      finalContent: string;
+      finalThinking: string;
+      finalImages: LlmImagePart[];
+      usage?: ParsedUsage;
+      logEntry?: LlmLogEntry;
+      adoptNodeIds?: string[];
+      preserveAttachments?: NodeAttachment[];
+    }) => {
+      const questionNode = env.chatService.nodes().find(n => n.id === question.id);
+      const chapterContent = imageOnlyAnswerContent(opts.finalContent, questionNode?.content, opts.finalImages);
+      const attachments = mergeAnswerAttachments(opts.preserveAttachments, opts.finalImages);
+      const versioned = await env.chatService.editAssistant(
+        chatId, opts.placeholderId, chapterContent, attachments, opts.finalThinking, opts.usage
+      );
+      env.chatService.setActiveChild(question.id, versioned.id);
+      if (opts.adoptNodeIds?.length) {
+        await env.chatService.reparentNodes(chatId, opts.adoptNodeIds, versioned.id);
+      }
+      return { id: versioned.id, content: chapterContent };
+    },
+    markSentOnceExcluded: () => env.chatService.markSentOnceExcluded(chatId, question.id),
+    retargetLog: (entry: LlmLogEntry, nodeId: string) => env.llmLog.retargetNode(entry, nodeId)
+  };
+
+  const stream = await startHeldAnswerStream(deps, { queue: env.queue });
+  return {
+    questionNodeId: question.id,
+    placeholderNodeId: stream.placeholderNodeId,
+    streamDone: stream.streamDone,
+    get answerNodeId() {
+      return stream.answerNodeId;
+    },
+    finalContent: () => stream.finalContent(),
+    async finalize(signal?: AbortSignal): Promise<EvalSlots> {
+      const answerNodeId = await stream.finalize(signal);
+      const slots = await stream.streamDone;
+      return flowResult(slots, {
+        questionNodeId: question.id,
+        answerNodeId,
+        activateId: answerNodeId
+      }, flowEmpty(slots));
+    },
+    drain: (signal?: AbortSignal) => stream.drain(signal),
+    abort: () => stream.abort()
+  };
+}
 
 /** Reuse an empty user leaf under `parentId` if one exists, else create one. */
 async function getOrCreateElaborateQuestion(

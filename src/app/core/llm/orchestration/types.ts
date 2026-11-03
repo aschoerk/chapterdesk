@@ -331,6 +331,14 @@ export interface UsecaseVars {
   attachments?: NodeAttachment[];
   /** Structural flows: nodes to re-parent under the fresh answer. */
   adoptNodeIds?: string[];
+  /**
+   * Per-node FULL-text overrides for HISTORY nodes in the next step's context
+   * (sequential flows — elaborate chapters, Continue batches). The previous
+   * answer's reveal pump clamps its node's displayed content to the revealed
+   * slice while its tail is still pacing, so the next step must read the FULL
+   * text from here instead of the (temporarily partial) node.
+   */
+  historyOverrides?: Record<string, string>;
   /** Structural flows: the director/instruction text for `send-prepend`. */
   directorText?: string;
   /** Structural flows: pre-built following-chapters text for `send-prepend`. */

@@ -4,6 +4,7 @@ import { UsecaseContextFactory, type BuildContext } from '../context';
 import { LlmOrchestratorService, type PrimitiveOptions } from '../orchestrator';
 import { makeSlot } from '../slots';
 import { isFlowUsecase, LlmFlowRunner } from '../flows';
+import type { HeldRun } from '../flows/env';
 import { ChatService } from '../../../chat/chat.service';
 import type { UsecaseEnv, UsecaseController } from './env';
 import { storyboardDirect, plannedEnblock, plannedScenes } from './storyboard';
@@ -79,10 +80,14 @@ export class LlmUseCaseRunner {
       await this.chatService.ensureLoreNodeBefore(cx.chat.id, cx.node.id);
       // For append-with-images the controller rebuilds the messages WITH the
       // image interpretation; building a baseline here keeps the env valid.
+      // `historyOverrides` carries the FULL text of the previous (still-
+      // revealing) chapter so the next batch iteration's context is never
+      // truncated by the reveal clamp.
       const sendMessages = this.factory.buildSendMessages(
         cx.chat.id,
         cx.node.id,
-        build.vars.content
+        build.vars.content,
+        build.vars.historyOverrides
       );
       const textExtras = await this.factory.resolveTextExtras(write.model, cx.chat);
       const env: UsecaseEnv = {
@@ -155,5 +160,19 @@ export class LlmUseCaseRunner {
       onImages: opts.onImages
     };
     return controllerFor(usecase)(env);
+  }
+
+  /**
+   * HELD variant for sequential flows (elaborate chapters): starts the answer
+   * stream immediately and returns a {@link HeldRun} the caller drives —
+   * finalize each answer the moment its LLM stops, then drain its tail at pace
+   * while the next prepared content streams in the background. Pass a SHARED
+   * {@link RevealQueue} (`opts.queue`) to pipeline a batch of these.
+   */
+  async runHeld(build: BuildContext, opts: { signal?: AbortSignal; queue?: import('../../reveal-queue').RevealQueue } = {}): Promise<HeldRun> {
+    if (isFlowUsecase(build.usecase)) {
+      return this.flowRunner.runHeld(build, opts);
+    }
+    throw new Error(`No held runner for ${build.usecase}`);
   }
 }

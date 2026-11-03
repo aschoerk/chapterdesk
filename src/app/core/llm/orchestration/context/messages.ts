@@ -119,8 +119,8 @@ export class ContextMessageBuilderService {
    * The final node is ALWAYS included (even when empty, the override or an
    * empty user turn is still the question being answered).
    */
-  buildSendMessages(chatId: string, nodeId: string | null, contentOverride?: string): ChatMessage[] {
-    return this.buildSendMessagesEx({ chatId, nodeId, contentOverride });
+  buildSendMessages(chatId: string, nodeId: string | null, contentOverride?: string, overrides?: Record<string, string>): ChatMessage[] {
+    return this.buildSendMessagesEx({ chatId, nodeId, contentOverride, overrides });
   }
 
   /**
@@ -139,8 +139,16 @@ export class ContextMessageBuilderService {
     contentOverride?: string;
     /** Extra messages inserted right before the final user question. */
     beforeFinal?: ChatMessage[];
+    /**
+     * Per-node FULL-text overrides for HISTORY nodes. Used by the sequential
+     * flows (elaborate chapters, Continue batches): the previous answer's
+     * reveal pump clamps its node's displayed content to the revealed slice
+     * while its tail is still pacing, so the NEXT step's context must read the
+     * FULL text from here instead of the (temporarily partial) node.
+     */
+    overrides?: Record<string, string>;
   }): ChatMessage[] {
-    const { chatId, nodeId, contentOverride, beforeFinal } = opts;
+    const { chatId, nodeId, contentOverride, beforeFinal, overrides } = opts;
     if (!nodeId) return [];
     const path = this.chatService.getPathToNode(nodeId);
     const out: ChatMessage[] = [];
@@ -156,7 +164,8 @@ export class ContextMessageBuilderService {
       // an auto-excluded continue/elaborate direction is still sent exactly
       // once while it is the current question.
       if (n.excludeFromContext) continue;
-      const text = messageText({ role: n.role, content: nodeToMessageContent(n) }).trim();
+      const source = overrides?.[n.id] ?? nodeToMessageContent(n);
+      const text = messageText({ role: n.role, content: source }).trim();
       if (!text) continue;
       out.push({ role: n.role, content: text });
     }

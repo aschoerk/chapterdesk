@@ -4,8 +4,11 @@ import { Injectable, signal } from '@angular/core';
  * Generation + multi-call operation lifecycle for the chat runner — fully
  * self-contained (pure signals + AbortControllers), extracted from
  * `ChatService`. It owns:
- *  - the single-answer generation state (`generatingNodeId`, its abort
- *    controller, `clearGeneration`/`startGeneration`/`isGenerating`),
+ *  - the answer-generation state (`generatingNodeIds` = ALL active streams —
+ *    a batch pipelines several LLM streams concurrently, each with its OWN
+ *    controller; `generatingNodeId` = the most recently started one for the
+ *    toolbar/Stop; `presentedNodeId` = the node whose reveal is currently
+ *    being PAINTED — the queue head, independent of who is generating),
  *  - the multi-call operation state (`operationLabel`, `operationAbort`,
  *    `isIllustrating`, `batchProgress`, graceful-stop flag, `beginOperation`/
  *    `endOperation`/`stopGeneration`).
@@ -15,8 +18,21 @@ import { Injectable, signal } from '@angular/core';
  */
 @Injectable({ providedIn: 'root' })
 export class ChatOperationService {
-  // Currently generating answer
+  /** The most recently STARTED generation node id (toolbar Stop / busy). */
   readonly generatingNodeId = signal<string | null>(null);
+
+  /** ALL node ids with an active LLM stream (head + background buffers). */
+  readonly generatingNodeIds = signal<Set<string>>(new Set());
+
+  /**
+   * The node whose reveal is currently being PRESENTED (painted) — the head
+   * of a RevealQueue (or the single live stream). Follow-streaming and the
+   * thinking/waiting spinner follow THIS node, NOT the newest generation, so
+   * a background buffer filling in parallel never steals the reveal UI.
+   */
+  readonly presentedNodeId = signal<string | null>(null);
+
+  private generationControllers = new Map<string, AbortController>();
 
   /** Label of a running multi-call operation
    *  ('title' | 'overview' | 'headings' | 'elaborate' | 'illustrate'), or null. */
@@ -44,7 +60,6 @@ export class ChatOperationService {
    */
   readonly gracefulStop = signal(false);
 
-  private currentAbortController: AbortController | null = null;
   private operationAbort: AbortController | null = null;
 
   /** Begin a multi-call operation (structure generation / elaborate).
@@ -96,25 +111,50 @@ export class ChatOperationService {
     this.gracefulStop.set(true);
   }
 
-  /** Cancel any in-flight single-answer generation. Used between generations
-   *  and when an answer finishes — it does NOT cancel a running multi-call
-   *  operation. */
-  clearGeneration(): void {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort();
-      this.currentAbortController = null;
+  /** Set the node currently being presented (painted) by a reveal queue, or
+   *  null when nothing is being revealed. */
+  setPresentedNode(nodeId: string | null): void {
+    this.presentedNodeId.set(nodeId);
+  }
+
+  /** Cancel in-flight generation(s). With no arg, all active streams are
+   *  aborted (used when an answer finishes / batch finally); with `nodeId` only
+   *  that stream is aborted. Does NOT cancel a running multi-call operation. */
+  clearGeneration(nodeId?: string): void {
+    if (nodeId) {
+      const c = this.generationControllers.get(nodeId);
+      if (c) c.abort();
+      this.generationControllers.delete(nodeId);
+      this.generatingNodeIds.update(s => {
+        const ns = new Set(s);
+        ns.delete(nodeId);
+        return ns;
+      });
+      if (this.generatingNodeId() === nodeId) this.generatingNodeId.set(null);
+      return;
     }
+    for (const c of this.generationControllers.values()) c.abort();
+    this.generationControllers.clear();
+    this.generatingNodeIds.set(new Set());
     this.generatingNodeId.set(null);
   }
 
+  /**
+   * Register an active LLM stream for a node and return its OWN abort signal.
+   * Unlike the legacy single-slot behaviour, this does NOT cancel any other
+   * in-flight stream — a batch pipelines several streams concurrently (the
+   * head being revealed + background buffers), each keeping its own abort
+   * controller.
+   */
   startGeneration(nodeId: string): AbortSignal {
-    this.clearGeneration(); // cancel any previous single-answer generation
-    this.currentAbortController = new AbortController();
-    this.generatingNodeId.set(nodeId);
-    return this.currentAbortController.signal;
+    const controller = new AbortController();
+    this.generationControllers.set(nodeId, controller);
+    this.generatingNodeId.set(nodeId); // primary = most recently started
+    this.generatingNodeIds.update(s => new Set(s).add(nodeId));
+    return controller.signal;
   }
 
-  /** User-facing STOP: cancels the current answer generation AND any running
+  /** User-facing STOP: cancels ALL active answer generations AND any running
    *  multi-call operation (headings / elaborate / title / summary). */
   stopGeneration(): void {
     this.clearGeneration();
@@ -122,6 +162,6 @@ export class ChatOperationService {
   }
 
   isGenerating(nodeId: string): boolean {
-    return this.generatingNodeId() === nodeId;
+    return this.generatingNodeIds().has(nodeId);
   }
 }

@@ -112,8 +112,8 @@ export class UsecaseContextFactory {
   }
 
   /** Full chat up to (and including) the current node as messages. */
-  buildSendMessages(chatId: string, nodeId: string | null, contentOverride?: string): ChatMessage[] {
-    return this.messages.buildSendMessages(chatId, nodeId, contentOverride);
+  buildSendMessages(chatId: string, nodeId: string | null, contentOverride?: string, overrides?: Record<string, string>): ChatMessage[] {
+    return this.messages.buildSendMessages(chatId, nodeId, contentOverride, overrides);
   }
 
   /** Extended send-message builder (extra pre-final messages + topic system prompt). */
@@ -122,6 +122,7 @@ export class UsecaseContextFactory {
     nodeId: string | null;
     contentOverride?: string;
     beforeFinal?: ChatMessage[];
+    overrides?: Record<string, string>;
   }): ChatMessage[] {
     return this.messages.buildSendMessagesEx(opts);
   }

@@ -296,3 +296,150 @@ describe('StreamReveal — finish / pace-after-complete / abort / flush / destro
     expect(paints.length).toBe(paintsBefore); // no painting after destroy
   });
 });
+
+describe('StreamReveal — hold / activate / rebase (background continuation)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a held pump buffers update() without painting anything', () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c), { hold: true });
+    reveal.update('Hello', '');
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+    // Buffered but never painted while held.
+    expect(reveal.full).toBe('Hello');
+    expect(reveal.revealed).toBe(0);
+    expect(paints).toEqual([]);
+
+    reveal.destroy();
+  });
+
+  it('activate() starts revealing the buffered content at the configured pace', () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c), { hold: true });
+    reveal.update('Hello', '');
+    frames.flushFrames(1000);
+    expect(paints).toEqual([]);
+
+    reveal.activate();
+    frames.flushFrames(2000); // first frame after activate: dt 0
+    frames.flushFrames(3000); // 1 char
+    expect(reveal.revealed).toBe(1);
+    expect(paints[paints.length - 1]).toBe('H');
+    frames.flushFrames(4000);
+    frames.flushFrames(5000);
+    expect(reveal.revealed).toBe(3);
+
+    reveal.destroy();
+  });
+
+  it('an activated held pump keeps revealing live updates too', () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c), { hold: true });
+    reveal.update('Hello', '');
+    reveal.activate();
+    frames.flushFrames(2000); // dt 0
+    frames.flushFrames(3000); // 1 char
+    reveal.update('Hello world', ''); // more streamed text arrives
+    frames.flushFrames(4000);
+    frames.flushFrames(5000);
+    expect(reveal.revealed).toBe(3);
+
+    reveal.destroy();
+  });
+
+  it('finish() on a still-held pump does not drain (caller must activate first)', async () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+    state.pace = true;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c), { hold: true });
+    reveal.update('Hello', '');
+    await reveal.finish('Hello', '', {});
+    // Held: nothing painted, nothing drained.
+    expect(paints).toEqual([]);
+    expect(reveal.revealed).toBe(0);
+
+    reveal.destroy();
+  });
+
+  it('activate() with instant speed reveals the whole held buffer at once', () => {
+    const { state, prefs } = makePrefs(); // speed 0
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c), { hold: true });
+    reveal.update('Hello world', '');
+    expect(paints).toEqual([]);
+
+    reveal.activate();
+    expect(reveal.revealed).toBe(11);
+    expect(paints[paints.length - 1]).toBe('Hello world');
+
+    reveal.destroy();
+  });
+
+  it('rebase() swaps the buffer to the finalized text and clamps committed', () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c));
+    reveal.update('Hello', '');
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+    expect(reveal.revealed).toBe(1);
+
+    // The evaluator trimmed/cleaned the final text — rebase onto it.
+    reveal.rebase('Hello world', '');
+    expect(reveal.full).toBe('Hello world');
+    expect(reveal.revealed).toBe(1);
+    // Paints the now-visible slice immediately (clamp after a versioned finalize).
+    expect(paints[paints.length - 1]).toBe('H');
+
+    frames.flushFrames(3000);
+    expect(reveal.revealed).toBe(2);
+
+    reveal.destroy();
+  });
+
+  it('rebase() clamps committed when the finalized text is shorter', () => {
+    const frames = makeFrames();
+    stubFrames(frames);
+    const { state, prefs } = makePrefs();
+    state.speed = 1;
+
+    const paints: string[] = [];
+    const reveal = new StreamReveal(prefs, c => paints.push(c));
+    reveal.update('Hello world', '');
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+    frames.flushFrames(3000);
+    frames.flushFrames(4000);
+    expect(reveal.revealed).toBe(3);
+
+    reveal.rebase('Hi', '');
+    expect(reveal.revealed).toBe(2);
+    expect(paints[paints.length - 1]).toBe('Hi');
+
+    reveal.destroy();
+  });
+});

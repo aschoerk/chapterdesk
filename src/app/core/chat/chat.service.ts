@@ -276,6 +276,8 @@ export class ChatService {
   // ------------------------------------------- generation + operation lifecycle
 
   readonly generatingNodeId = this.operations.generatingNodeId;
+  readonly generatingNodeIds = this.operations.generatingNodeIds;
+  readonly presentedNodeId = this.operations.presentedNodeId;
   readonly operationLabel = this.operations.operationLabel;
   readonly isIllustrating = this.operations.isIllustrating;
   readonly batchProgress = this.operations.batchProgress;
@@ -286,7 +288,8 @@ export class ChatService {
   isOperationCancelled(): boolean { return this.operations.isOperationCancelled(); }
   shouldStopAfterCurrentStep(): boolean { return this.operations.shouldStopAfterCurrentStep(); }
   requestGracefulStop(): void { this.operations.requestGracefulStop(); }
-  clearGeneration(): void { this.operations.clearGeneration(); }
+  setPresentedNode(nodeId: string | null): void { this.operations.setPresentedNode(nodeId); }
+  clearGeneration(nodeId?: string): void { this.operations.clearGeneration(nodeId); }
   startGeneration(nodeId: string): AbortSignal { return this.operations.startGeneration(nodeId); }
   stopGeneration(): void { this.operations.stopGeneration(); }
   isGenerating(nodeId: string): boolean { return this.operations.isGenerating(nodeId); }

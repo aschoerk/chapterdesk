@@ -22,6 +22,8 @@ import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
+import type { HeldRun } from '../../core/llm/orchestration/flows/env';
+import { RevealQueue } from '../../core/llm/reveal-queue';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
@@ -1555,10 +1557,15 @@ export class ChatComponent implements OnInit {
     this.isElaborating.set(true);
     this.chatService.elaborating = true;
     // One Stop press cancels the whole chain (all chapters / views).
-    this.chatService.beginOperation('elaborate');
+    const opSignal = this.chatService.beginOperation('elaborate');
+    const started: HeldRun[] = [];
     try {
       const topicId = this.elaborateDialog.topicId(chatId);
-      let parentId: string | null = anchor.id;
+
+      // Build the FULL list of prepared prompts first (each chapter, and each
+      // named view within it). The stop checks still run between chapters and
+      // views — nothing is started here.
+      const prompts: string[] = [];
       for (let chapter = first; chapter <= last; chapter++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
         // ends the chain, but only AFTER the current chapter's answer has
@@ -1570,7 +1577,7 @@ export class ChatComponent implements OnInit {
         // instruction via {{#if isFirst}} for every follow-up view. When
         // sticking to the last chapter we re-elaborate existing text, so no
         // view is ever the "first" one ({{#if isFirst}} always resolves false).
-        const prompts = names.length > 0
+        const chapterPrompts = names.length > 0
           ? names.map((name, i) => this.promptDefaults.render('structure.elaborate-view', {
               chapter: `${prefix}${chapter}`,
               name,
@@ -1578,32 +1585,90 @@ export class ChatComponent implements OnInit {
               isFirst: !this.elaborateStickLast() && i === 0
             }, topicId))
           : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
-
-        for (const prompt of prompts) {
+        for (const prompt of chapterPrompts) {
           if (this.chatService.shouldStopAfterCurrentStep()) break;
-          // The anchor for each step is the answer node of the previous one
-          // (the first anchor is the visible tree's last assistant answer).
-          const parentNode = parentId
-            ? this.chatService.currentNodes().find(n => n.id === parentId) ?? anchor
-            : anchor;
-          const slots = await this.llmRunner.run({
-            chat: this.chatService.chats().find(c => c.id === chatId) ?? null,
-            node: parentNode,
-            usecase: 'send-elaborate',
-            vars: {
-              content: prompt,
-              modelId: model.modelId,
-              providerId: model.providerId
-            }
-          });
-          parentId = slots.flow?.value?.answerNodeId ?? parentId;
+          prompts.push(prompt);
         }
+      }
+      if (prompts.length === 0) return;
+
+      // A shared PRESENTER QUEUE decouples presenting from generation: each
+      // chapter registers as a slot — the first becomes the live head (its
+      // reveal slows to the input speed while the LLM fills it), every later
+      // step's LLM call runs in the background BUFFERING its text (nothing
+      // paints), and the queue reveals it in order once the current head has
+      // fully revealed. Any batch producer can reuse this exact pattern.
+      const queue = new RevealQueue(this.chatService, (slot, content, thinking) => {
+        this.chatService.updateNodes(list =>
+          list.map(n => (n.id === slot.targetId ? { ...n, content, thinking } : n))
+        );
+      }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
+
+      let parentId: string | null = anchor.id;
+      const startStep = async (prompt: string, prev?: HeldRun): Promise<HeldRun> => {
+        // The anchor for each step is the answer node of the previous one
+        // (the first anchor is the visible tree's last assistant answer).
+        const parentNode = parentId
+          ? this.chatService.currentNodes().find(n => n.id === parentId) ?? anchor
+          : anchor;
+        const run = await this.llmRunner.runHeld({
+          chat: this.chatService.chats().find(c => c.id === chatId) ?? null,
+          node: parentNode,
+          usecase: 'send-elaborate',
+          vars: {
+            content: prompt,
+            modelId: model.modelId,
+            providerId: model.providerId,
+            // The previous chapter's reveal pump clamps its node's displayed
+            // content to the revealed slice while its tail is still pacing —
+            // pass the FULL text so this chapter's context is never truncated.
+            ...(prev?.answerNodeId
+              ? { historyOverrides: { [prev.answerNodeId]: prev.finalContent() } }
+              : {})
+          }
+        }, { signal: opSignal, queue });
+        started.push(run);
+        return run;
+      };
+
+      // The FIRST chapter is the queue head — it reveals live as it streams.
+      // Every later chapter is prefetched as a background slot.
+      let current: HeldRun | null = await startStep(prompts[0]);
+      for (let i = 1; i < prompts.length; i++) {
+        // Wait for the current chapter's LLM to STOP, then finalize it — the
+        // data model is complete from here on, so the NEXT chapter's context
+        // (built when it is prefetched) is correct.
+        await current.streamDone;
+        await current.finalize(opSignal);
+        parentId = current.answerNodeId ?? parentId;
+        // Graceful / hard stop: drain the current tail, then stop the chain.
+        if (this.chatService.shouldStopAfterCurrentStep()) {
+          await current.drain(opSignal);
+          current = null;
+          break;
+        }
+        // Prefetch the NEXT prepared chapter as a BACKGROUND slot — its LLM
+        // runs immediately but its text buffers (nothing paints yet).
+        const next = await startStep(prompts[i], current);
+        // Keep pacing the current tail; once it fully reveals, the queue
+        // advances to `next` and the reveal flows seamlessly into it.
+        await current.drain(opSignal);
+        current = next;
+      }
+      // Final chapter.
+      if (current) {
+        await current.streamDone;
+        await current.finalize(opSignal);
+        await current.drain(opSignal);
       }
     } catch (err: any) {
       if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
       console.error(err);
       alert(this.i18n.t('chat.elaborateFailed', { error: err?.message || err }));
     } finally {
+      // Abort any still-running held streams (error / hard stop).
+      for (const run of started) run.abort();
+      this.chatService.clearGeneration();
       this.isElaborating.set(false);
       this.chatService.elaborating = false;
       this.chatService.endOperation();

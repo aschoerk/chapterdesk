@@ -309,6 +309,32 @@ over the tree) → **top toolbar** (chat-wide actions).
     (`send-branch`), **“Insert”** (`send-insert`).
 - Hint in the box: `Ctrl+Enter` sends/saves, `Ctrl+S` saves, `Esc` cancels.
 
+### Sequential streaming — generic presenter queue (elaborate + Continue/Switch batches)
+
+When a run streams MULTIPLE prepared items back-to-back (Elaborate chapters,
+the **− n +** Continue / Switch-characters batch), presenting is decoupled from
+generation through a shared **presenter queue** (`RevealQueue`):
+
+- The current item keeps revealing its tail at the configured pace **after the
+  LLM stops** (`paceAfterComplete`), while the **next** prepared item's LLM call
+  already runs **in the background** (its text buffers, nothing paints yet).
+- Only the current item is ever painted; when its tail has fully revealed the
+  queue **advances** to the next buffered item and reveals it at the same pace —
+  one bubble paints at a time, so follow-streaming flows seamlessly from one
+  chapter to the next (no empty-bubble stall).
+- While an item IS the one being streamed, its reveal **slows to the input
+  speed** (it never paints more than the model has already produced), so a slow
+  model just stalls the reveal instead of jumping ahead.
+- Each item is **finalized (saved) the moment its LLM stops**, so the next
+  item's context always contains the FULL previous chapter (never a truncated
+  reveal slice), and a Stop / “Finish & stop” still saves the current item.
+- **Follow-streaming + the thinking/waiting spinner follow the node being
+  PRESENTED** (the queue head), not the newest generation — so a background
+  buffer filling in parallel never steals the reveal UI (the view stays glued
+  to the chapter currently typing, and no “waiting for the model” spinner
+  appears on an invisible, not-yet-revealed bubble).
+- The same queue primitive is reusable by any new batch kind out of the box.
+
 ### Right-click context menu (on any node card)
 
 **“Copy” · “Edit” · “Rewrite selection…” · “Prior versions” · “Continue” · “Switch characters”
