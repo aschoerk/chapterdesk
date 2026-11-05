@@ -294,7 +294,7 @@
 }
 
 .node-content.click-to-edit:hover {
-  background: color-mix(in srgb, var(--accent, #3b82f6) 7%, transparent);
+  background: transparent;
 }
 
 .node-content p {
