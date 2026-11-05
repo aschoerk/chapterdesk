@@ -1,4 +1,4 @@
-import {Component, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
+import {Component, computed, effect, ElementRef, viewChild, viewChildren, inject, OnInit, signal, HostListener} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
@@ -22,6 +22,8 @@ import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
+import { PacedReadService } from '../../core/llm/paced-read.service';
+import { readingTimeLabel } from '../../core/llm/reading-time';
 import type { HeldRun } from '../../core/llm/orchestration/flows/env';
 import { RevealQueue } from '../../core/llm/reveal-queue';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
@@ -56,6 +58,8 @@ interface NavMenuEntry {
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
   readonly i18n = inject(I18nService);
+  /** Paced reading of already-written text (started from a chapter's Read button). */
+  readonly pacedRead = inject(PacedReadService);
   readonly projectService = inject(ProjectService);
   /** Client-side node clipboard; used here to paste a copied branch at the top. */
   readonly clipboard = inject(NodeClipboardService);
@@ -78,6 +82,18 @@ export class ChatComponent implements OnInit {
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
   readonly nodes = this.chatService.currentNodes;
+
+  /**
+   * Estimated paced-read duration of the whole story (all chapters on the
+   * active path) at the current reveal speed — the same pace Ctrl+R / Read
+   * would use.
+   */
+  readonly bookReadTimeLabel = computed(() => {
+    const chapters = this.getActivePath().filter(n => n.role === 'assistant');
+    const text = chapters.map(n => n.content ?? '').join('\n');
+    if (!text.trim()) return null;
+    return readingTimeLabel(text, this.chatService.streamSpeed(), this.chatService.streamSpeedUnit());
+  });
 
   /** parentId → active child nodeId  (shared tree navigation state) */
   readonly activeChild = signal<Record<string, string>>({});
@@ -1147,6 +1163,35 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  /**
+   * Ctrl+R — reveal the chat at reading pace WITHOUT calling the LLM, starting
+   * at the section currently at the top of the view (or in the open editor),
+   * falling back to the first chapter of the active path. Pressing it while a
+   * run is active stops it.
+   */
+  startPacedReadFromView(): void {
+    if (this.pacedRead.active()) {
+      this.pacedRead.stop();
+      return;
+    }
+    const path = this.getActivePath();
+    if (!path.length) return;
+
+    const anchorId = this.editSession.editingNodeId() ?? this.visibleNodeId();
+    let startIdx = anchorId ? path.findIndex(n => n.id === anchorId) : -1;
+    if (startIdx < 0) {
+      startIdx = path.findIndex(n => n.role === 'assistant' && !!n.content?.trim());
+    }
+    if (startIdx < 0) return;
+
+    const items = path
+      .slice(startIdx)
+      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
+      .map(n => ({ key: n.id, text: n.content ?? '' }));
+    if (!items.length) return;
+    void this.pacedRead.start(items);
+  }
+
   getSiblingIndex(node: ChatNode): number {
     const siblings = this.getChildren(node.parentId);
     const idx = siblings.findIndex(s => s.id === node.id);
@@ -1177,6 +1222,48 @@ export class ChatComponent implements OnInit {
 
     if (this.isTyping(event)) return;
     const ctrl = event.ctrlKey || event.metaKey;
+
+    // Ctrl+R — start paced reading of the chat (no LLM call) from the section
+    // at the top of the view. Ctrl+R is also the browser/Electron RELOAD
+    // shortcut, so it must be prevented here.
+    if (ctrl && (event.key === 'r' || event.key === 'R')) {
+      event.preventDefault();
+      this.startPacedReadFromView();
+      return;
+    }
+
+    // Paced reading owns the arrow keys while it runs:
+    //   ← repeat the last second's text   → skip a second's pensum ahead
+    //   ↑ one line back                    ↓ one line forward
+    //   Space pause/resume                 Esc stop
+    if (this.pacedRead.active()) {
+      switch (event.key) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          this.pacedRead.skipSeconds(-1);
+          return;
+        case 'ArrowRight':
+          event.preventDefault();
+          this.pacedRead.skipSeconds(1);
+          return;
+        case 'ArrowUp':
+          event.preventDefault();
+          this.pacedRead.skipLines(-1);
+          return;
+        case 'ArrowDown':
+          event.preventDefault();
+          this.pacedRead.skipLines(1);
+          return;
+        case ' ':
+          event.preventDefault();
+          this.pacedRead.toggle();
+          return;
+        case 'Escape':
+          event.preventDefault();
+          this.pacedRead.stop();
+          return;
+      }
+    }
 
     // Navbar multi-selection shortcuts (only when something is selected).
     if (this.navSelectedIds().length > 0) {

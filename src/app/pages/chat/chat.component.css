@@ -933,6 +933,28 @@ body.nav-resizing * {
   font-variant-numeric: tabular-nums;
 }
 
+/* Paced reading (Read button on a chapter) — its own control row above the
+   reveal-speed slider while the reveal runs without an LLM call. */
+.paced-read-row .meta {
+  font-size: 0.75rem;
+  color: var(--muted, #666);
+  font-variant-numeric: tabular-nums;
+}
+
+.paced-read-hint {
+  font-size: 0.7rem;
+  color: var(--muted, #666);
+  white-space: nowrap;
+}
+
+/* Estimated paced-read time of the whole story (params bar). */
+.book-read-time {
+  font-size: 0.72rem;
+  color: var(--muted, #666);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* The stream controls (follow streaming/thinking, reveal speed, …) are
    fixed-width and would overlap the chat title when the conversation area
    is too narrow. They are already only rendered while an answer streams

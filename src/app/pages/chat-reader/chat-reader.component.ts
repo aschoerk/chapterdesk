@@ -5,6 +5,7 @@ import {
   OnDestroy,
   OnInit,
   afterNextRender,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -23,6 +24,8 @@ import { isPromptRecordAttachment } from '../../core/llm/llm-message';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
+import { PacedReadService } from '../../core/llm/paced-read.service';
+import { readingTimeLabel } from '../../core/llm/reading-time';
 
 export interface ReaderFont {
   id: string;
@@ -44,6 +47,8 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   private readonly markdown = inject(MarkdownService);
   private readonly router = inject(Router);
   readonly search = inject(SearchReplaceService);
+  /** Paced reading of the already-written document (reveal at reading pace). */
+  readonly pacedRead = inject(PacedReadService);
 
   readonly reader = viewChild<ElementRef<HTMLElement>>('reader');
 
@@ -274,6 +279,29 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     return parts.join('') || '<p class="empty">Nothing on this path to preview yet.</p>';
   });
 
+  /** Estimated paced-read time of the OPEN document at the current speed. */
+  readonly docReadTime = computed(() =>
+    this.readTimeFor(this.renderedDocNodes()),
+  );
+
+  /** Estimated paced-read time of ALL documents (the whole book). */
+  readonly bookReadTime = computed(() =>
+    this.readTimeFor(this.documents().flat()),
+  );
+
+  private readTimeFor(nodes: ChatNode[]): string | null {
+    const text = nodes
+      .filter((n) => this.isUsable(n))
+      .map((n) => n.content ?? '')
+      .join('\n');
+    if (!text.trim()) return null;
+    return readingTimeLabel(
+      text,
+      this.chatService.streamSpeed(),
+      this.chatService.streamSpeedUnit(),
+    );
+  }
+
   readonly docLabel = computed(() => {
     const path = this.currentDoc();
     if (!path.length) return '';
@@ -347,13 +375,29 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     );
   });
 
+  /** Set while paced reading drives the pages — avoids a page-0 jump on end. */
+  private pacedWasActive = false;
+
   constructor() {
     effect(() => {
       this.bookHtml();
       this.currentChatId();
       this.initialPositionRevision();
+      // While paced reading drives the pages, the reveal grows the text on
+      // every tick — resetting to page 0 here would fight the auto-advance.
+      if (this.pacedRead.active()) {
+        this.pacedWasActive = true;
+        return;
+      }
+      // Paced reading just ended: stay where the reader is, do not reset.
+      const justEnded = this.pacedWasActive;
+      this.pacedWasActive = false;
       const targetNodeId = this.pendingInitialNodeId;
       queueMicrotask(() => {
+        if (justEnded) {
+          this.layout();
+          return;
+        }
         if (!targetNodeId || !this.goToNode(targetNodeId)) {
           this.page.set(0);
           this.layout();
@@ -364,6 +408,29 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       });
     });
 
+    // Paced reading of existing text: keep the freshly revealed end in view so
+    // the columns advance by themselves (no paging by hand).
+    afterRenderEffect(() => {
+      if (!this.pacedRead.active()) return;
+      this.pacedRead.revealedText();
+      this.pacedRead.currentKey();
+      queueMicrotask(() => this.followRevealedEnd());
+    });
+
+    // Follow the queue across documents: when the reveal moves on to a node of
+    // a later document, switch the open document automatically.
+    effect(() => {
+      const key = this.pacedRead.currentKey();
+      if (!key || !this.pacedRead.active()) return;
+      const docs = this.documents();
+      const idx = docs.findIndex(doc => doc.some(n => n.id === key));
+      if (idx >= 0 && idx !== this.docIndex()) {
+        this.docIndex.set(idx);
+        this.page.set(0);
+        queueMicrotask(() => this.layout());
+      }
+    });
+
     afterNextRender(() => {
       const el = this.reader()?.nativeElement;
       if (!el) return;
@@ -371,6 +438,42 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       this.resizeObserver.observe(el);
       this.layout();
     });
+  }
+
+  /** Scroll to the last page so the newest revealed text stays visible. */
+  private followRevealedEnd(): void {
+    const el = this.reader()?.nativeElement;
+    if (!el) return;
+    const { advance, pages } = this.metrics(el);
+    this.pageCount.set(pages);
+    const last = Math.max(0, pages - 1);
+    this.page.set(last);
+    el.scrollLeft = last * advance;
+  }
+
+  /**
+   * "Read" — reveal the open document (and all following documents) at the
+   * configured reveal pace without calling the LLM. Pressing it again stops.
+   */
+  startPacedRead(): void {
+    if (this.pacedRead.active()) {
+      this.pacedRead.stop();
+      return;
+    }
+    const docs = this.documents();
+    if (!docs.length) return;
+    const startDoc = Math.min(Math.max(0, this.docIndex()), docs.length - 1);
+    const items: Array<{ key: string; text: string }> = [];
+    for (let d = startDoc; d < docs.length; d++) {
+      for (const n of docs[d]) {
+        if (this.hideQuestions() && n.role === 'user') continue;
+        const text = n.content ?? '';
+        if (text.trim().length) items.push({ key: n.id, text });
+      }
+    }
+    if (!items.length) return;
+    this.page.set(0);
+    void this.pacedRead.start(items);
   }
 
   async ngOnInit() {
@@ -564,7 +667,10 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const kind =
       node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
     const meta = [kind, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
-    const body = this.markdown.toHtml(node.content || '');
+    // Paced reading replaces the text with the revealed slice for the node
+    // currently being read; every other node renders in full.
+    const content = this.pacedRead.displayText(node.id, node.content ?? '') ?? node.content;
+    const body = this.markdown.toHtml(content || '');
     const files = (node.attachments || [])
       .filter((a) => !isPromptRecordAttachment(a))
       .map((a) => `<div class="book-file">${this.esc(a.name)}</div>`)
@@ -620,6 +726,40 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Paced reading owns the arrows while it runs:
+    //   ← repeat the last second's text   → skip a second's pensum ahead
+    //   ↑ one line back                    ↓ one line forward
+    //   Space pause/resume                 Esc stop
+    // (PageUp/PageDown still flip pages.)
+    if (this.pacedRead.active()) {
+      switch (event.key) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          this.pacedRead.skipSeconds(-1);
+          return;
+        case 'ArrowRight':
+          event.preventDefault();
+          this.pacedRead.skipSeconds(1);
+          return;
+        case 'ArrowUp':
+          event.preventDefault();
+          this.pacedRead.skipLines(-1);
+          return;
+        case 'ArrowDown':
+          event.preventDefault();
+          this.pacedRead.skipLines(1);
+          return;
+        case ' ':
+          event.preventDefault();
+          this.pacedRead.toggle();
+          return;
+        case 'Escape':
+          event.preventDefault();
+          this.pacedRead.stop();
+          return;
+      }
+    }
+
     switch (event.key) {
       case 'f':
       case 'F':
@@ -632,6 +772,13 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
         if (!event.ctrlKey && !event.metaKey) break;
         event.preventDefault();
         this.toggleQuestions();
+        break;
+      case 'r':
+      case 'R':
+        // Ctrl+R starts paced reading (and must not reload the window).
+        if (!event.ctrlKey && !event.metaKey) break;
+        event.preventDefault();
+        this.startPacedRead();
         break;
       case 'Escape':
         event.preventDefault();

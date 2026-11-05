@@ -22,6 +22,16 @@
     {{ i18n.t('reader.docFolio', { current: documents().length ? docIndex() + 1 : 0, total: documents().length }) }}
         <small>{{ docLabel() }}</small>
   </span>
+      @if (docReadTime(); as docTime) {
+        <span class="paced-progress read-time" [title]="i18n.t('reader.docReadTimeTitle')">
+          {{ i18n.t('reader.docReadTime', { time: docTime }) }}
+        </span>
+      }
+      @if (bookReadTime(); as bookTime) {
+        <span class="paced-progress read-time" [title]="i18n.t('reader.bookReadTimeTitle')">
+          {{ i18n.t('reader.bookReadTime', { time: bookTime }) }}
+        </span>
+      }
       <button class="btn-icon" type="button"
               [disabled]="docIndex() >= documents().length - 1"
               (click)="nextDoc()" [title]="i18n.t('reader.nextDoc')">›</button>
@@ -29,6 +39,37 @@
               [disabled]="docIndex() >= documents().length - 1"
               (click)="goLastDoc()" [title]="i18n.t('reader.newestDoc')">»</button>
     </div>
+    <button class="btn-icon"
+            type="button"
+            [class.active]="pacedRead.active()"
+            [attr.aria-pressed]="pacedRead.active()"
+            (click)="startPacedRead()"
+            [title]="pacedRead.active() ? i18n.t('reader.pacedReadStopTitle') : i18n.t('reader.pacedReadTitle')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        @if (pacedRead.active()) {
+          <rect x="6" y="5" width="4" height="14" rx="1"/>
+          <rect x="14" y="5" width="4" height="14" rx="1"/>
+        } @else {
+          <polygon points="7 4 20 12 7 20"/>
+        }
+      </svg>
+    </button>
+    @if (pacedRead.active()) {
+      <button class="btn-icon paced-pause"
+              type="button"
+              [class.active]="pacedRead.paused()"
+              (click)="pacedRead.toggle()"
+              [title]="pacedRead.paused() ? i18n.t('reader.pacedReadResumeTitle') : i18n.t('reader.pacedReadPauseTitle')">
+        {{ pacedRead.paused() ? i18n.t('reader.pacedReadResume') : i18n.t('reader.pacedReadPause') }}
+      </button>
+      <span class="paced-progress"
+            [title]="i18n.t('reader.pacedReadKeys')">
+        {{ i18n.t('reader.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
+      </span>
+    }
     <button class="btn-icon"
             type="button"
             [class.active]="typeModalOpen()"

@@ -44,6 +44,8 @@ import { type ImageScene } from '../../core/llm/orchestration';
 import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { StreamReveal } from '../../core/llm/stream-reveal';
+import { PacedReadService } from '../../core/llm/paced-read.service';
+import { readingTimeLabel } from '../../core/llm/reading-time';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import {
   startHeldAnswerStream,
@@ -94,6 +96,8 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly llmLog = inject(LlmLogService);
   private readonly usage = inject(ChatUsageService);
   private readonly parameters = inject(ChatParametersService);
+  /** Paced reading of ALREADY-WRITTEN text (the "Read" button on a chapter). */
+  private readonly pacedRead = inject(PacedReadService);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly illustrateDialog = inject(IllustrateDialogService);
@@ -2793,10 +2797,28 @@ export class ChatNodeComponent implements OnDestroy {
 
   readonly renderedHtml = signal('');
 
+  /** True while THIS chapter is the one being revealed by paced reading. */
+  readonly pacedReading = computed(() => this.pacedRead.isCurrent(this.node().id));
+
+  /**
+   * Estimated paced-read duration of this chapter at the current reveal speed
+   * (the same pace a paced read uses when the slider sits at 0 = instant).
+   */
+  readonly readTimeLabel = computed(() => {
+    const n = this.node();
+    if (n.role !== 'assistant') return null;
+    const text = n.content ?? '';
+    if (!text.trim()) return null;
+    return readingTimeLabel(text, this.chatService.streamSpeed(), this.chatService.streamSpeedUnit());
+  });
+
   constructor() {
     effect(() => {
-      const content = this.node().content;
-      this.updateRendered(content);
+      const n = this.node();
+      // Paced reading overrides the rendered text with the revealed slice —
+      // reading a chapter again at an arbitrary time, word by word.
+      const override = this.pacedRead.displayText(n.id, n.content ?? '');
+      this.updateRendered(override ?? n.content);
     });
     effect(() => {
       // The selection is bound to a specific node: when the displayed node
@@ -2817,6 +2839,18 @@ export class ChatNodeComponent implements OnDestroy {
     afterRenderEffect(() => {
       const n = this.node();
       this.renderedHtml();
+      // Paced reading of existing text: keep the freshly revealed end in view
+      // (unless the user scrolled away by hand — a manual skip re-arms it).
+      const paced = this.pacedRead.isCurrent(n.id);
+      const followTick = this.pacedRead.followTick();
+      if (paced) {
+        if (followTick !== this.lastPacedFollowTick) {
+          this.lastPacedFollowTick = followTick;
+          this.followPausedByUser = false;
+        }
+        this.followLive();
+        return;
+      }
       // Follow/thinking key off the node being PRESENTED (revealed), not the
       // newest generation — a background buffer filling in the queue must not
       // steal the reveal UI from the node actually painting right now.
@@ -3073,6 +3107,32 @@ export class ChatNodeComponent implements OnDestroy {
       build.vars['modelId'] = result.modelId;
       build.vars['providerId'] = result.providerId;
     });
+  }
+
+  /** Last `followTick` seen — a change means the user pressed an arrow key. */
+  private lastPacedFollowTick = 0;
+
+  /**
+   * "Read" — reveal this chapter and the following chapters of the active
+   * path at the configured reveal pace, without calling the LLM. Pressing it
+   * again stops the run.
+   */
+  startPacedRead(event?: Event): void {
+    event?.stopPropagation();
+    if (this.pacedReading()) {
+      this.pacedRead.stop();
+      return;
+    }
+    const self = this.node();
+    const path = this.chatService.getActivePath();
+    const idx = path.findIndex(n => n.id === self.id);
+    const from = idx >= 0 ? path.slice(idx) : [self];
+    const items = from
+      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
+      .map(n => ({ key: n.id, text: n.content ?? '' }));
+    if (!items.length) return;
+    this.followPausedByUser = false;
+    void this.pacedRead.start(items);
   }
 
   private followLive(): void {

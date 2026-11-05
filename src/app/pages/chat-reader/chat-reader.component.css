@@ -41,6 +41,19 @@
   color: var(--text-muted, #78716c);
 }
 
+/* Paced reading controls in the reader bar. */
+.paced-pause {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.paced-progress {
+  font-size: 0.8rem;
+  color: var(--text-muted, #78716c);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .btn-icon {
   border: 1px solid transparent;
   background: transparent;

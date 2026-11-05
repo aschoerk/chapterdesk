@@ -37,25 +37,45 @@
           <div class="title-row">
             <chat-title-editor></chat-title-editor>
 
-            @if (chatService.generatingNodeId()) {
+            @if (chatService.generatingNodeId() || pacedRead.active()) {
               <div class="view-prefs">
-                <div class="view-prefs-row">
-                  <label>
-                    <input type="checkbox"
-                           [checked]="chatService.followStreaming()"
-                           (change)="chatService.setFollowStreaming($any($event.target).checked)" />
-                    {{ i18n.t('chat.followStreaming') }}
-                  </label>
-                  <label>
-                    <input type="checkbox"
-                           [checked]="chatService.alwaysOpenAtLeaf()"
-                           (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
-                    {{ i18n.t('chat.alwaysOpenAtLeaf') }}
-                  </label>
-                  <span class="gen-spinner on"
-                        [title]="i18n.t('chat.generating')"
-                        aria-live="polite"></span>
-                </div>
+                @if (pacedRead.active()) {
+                  <div class="view-prefs-row paced-read-row">
+                    <button class="btn small" type="button"
+                            [title]="pacedRead.paused() ? i18n.t('chat.pacedReadResumeTitle') : i18n.t('chat.pacedReadPauseTitle')"
+                            (click)="pacedRead.toggle()">
+                      {{ pacedRead.paused() ? i18n.t('chat.pacedReadResume') : i18n.t('chat.pacedReadPause') }}
+                    </button>
+                    <button class="btn small" type="button"
+                            [title]="i18n.t('chat.pacedReadStopTitle')"
+                            (click)="pacedRead.stop()">
+                      {{ i18n.t('chat.pacedReadStop') }}
+                    </button>
+                    <span class="meta">
+                      {{ i18n.t('chat.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
+                    </span>
+                    <span class="paced-read-hint">{{ i18n.t('chat.pacedReadKeys') }}</span>
+                  </div>
+                }
+                @if (chatService.generatingNodeId()) {
+                  <div class="view-prefs-row">
+                    <label>
+                      <input type="checkbox"
+                             [checked]="chatService.followStreaming()"
+                             (change)="chatService.setFollowStreaming($any($event.target).checked)" />
+                      {{ i18n.t('chat.followStreaming') }}
+                    </label>
+                    <label>
+                      <input type="checkbox"
+                             [checked]="chatService.alwaysOpenAtLeaf()"
+                             (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
+                      {{ i18n.t('chat.alwaysOpenAtLeaf') }}
+                    </label>
+                    <span class="gen-spinner on"
+                          [title]="i18n.t('chat.generating')"
+                          aria-live="polite"></span>
+                  </div>
+                }
 
                 <div class="view-prefs-row stream-speed-row">
                   <label class="stream-speed">
@@ -87,6 +107,11 @@
               {{ i18n.t('chat.params') }}
             </button>
             <span class="params-summary">{{ chatParamsSummary() }}</span>
+            @if (bookReadTimeLabel(); as readTime) {
+              <span class="book-read-time" [title]="i18n.t('chat.bookReadTimeTitle')">
+                {{ i18n.t('chat.bookReadTime', { time: readTime }) }}
+              </span>
+            }
             <button class="btn small" type="button"
                     (click)="openLoreDialog()"
                     [title]="i18n.t('chat.loreTitle')">

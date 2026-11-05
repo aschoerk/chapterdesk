@@ -51,6 +51,12 @@ export class StreamReveal {
   private closed = false;
   /** When held, `update()` only buffers — nothing is painted until `activate()`. */
   private hold = false;
+  /** User pause: the pump freezes mid-reveal (no progress, no painting). */
+  private paused = false;
+  /** Pending `finish()` resolution, used to settle it on flush/destroy. */
+  private drainResolve: (() => void) | null = null;
+  /** Pending drain watcher — re-armed by `resume()`. */
+  private drainWatch: (() => void) | null = null;
 
   private readonly prefs: StreamRevealPrefs;
   private readonly paint: StreamRevealPaint;
@@ -69,6 +75,7 @@ export class StreamReveal {
   activate(): void {
     if (this.closed) return;
     this.hold = false;
+    this.paused = false;
     if (this.prefs.streamSpeed() <= 0) {
       this.flush();
       return;
@@ -76,6 +83,35 @@ export class StreamReveal {
     this.pumpRunning = true;
     this.lastTs = 0;
     this.scheduleFrame(this.tick);
+  }
+
+  /**
+   * Freeze the reveal where it is (used by the paced reader, which paces
+   * ALREADY-WRITTEN text at arbitrary times). The pump keeps its buffer and
+   * its carry; {@link resume} continues from the same position. Painting
+   * stops immediately, so nothing advances behind the user's back.
+   */
+  pause(): void {
+    if (this.closed) return;
+    this.paused = true;
+    this.haltPump();
+  }
+
+  /** Continue a paused reveal from the frozen position. */
+  resume(): void {
+    if (this.closed || !this.paused) return;
+    this.paused = false;
+    if (this.hold) return;
+    if (this.prefs.streamSpeed() <= 0) {
+      this.flush();
+      return;
+    }
+    this.lastTs = 0;
+    this.pumpRunning = true;
+    this.scheduleFrame(this.tick);
+    // A paused `finish()` left its watcher un-scheduled; re-arm it so the
+    // promise settles when the reveal catches up.
+    if (this.drainWatch) this.scheduleFrame(this.drainWatch);
   }
 
   /**
@@ -101,6 +137,68 @@ export class StreamReveal {
   /** Full accumulated buffer (useful for tests / callers). */
   get full(): string {
     return this.content;
+  }
+
+  /**
+   * Manually move the reveal head by `units` reveal units (chars in char
+   * mode, words in word mode). Positive = forward (skip ahead), negative =
+   * backward (re-show text that was already revealed — "repeat").
+   *
+   * The pump keeps running: after a forward jump it continues from the new
+   * position; after a backward jump the text is re-revealed from there at the
+   * same pace. Pacing stays frozen when the pump is paused.
+   */
+  skipUnits(units: number): void {
+    if (this.closed || !Number.isFinite(units) || units === 0) return;
+    this.moveTo(this.committed + units);
+  }
+
+  /**
+   * Manually move the reveal head by whole source lines. Positive = reveal
+   * through the next line break(s); negative = back to the start of the
+   * previous line. Repeated presses advance/rewind one line at a time.
+   */
+  skipLines(lines: number): void {
+    if (this.closed || !Number.isFinite(lines) || lines === 0) return;
+    let pos = this.committed;
+    const text = this.content;
+    if (lines > 0) {
+      for (let i = 0; i < lines && pos < text.length; i++) {
+        const nl = text.indexOf('\n', pos);
+        pos = nl >= 0 ? nl + 1 : text.length;
+      }
+    } else {
+      for (let i = 0; i < -lines && pos > 0; i++) {
+        // When sitting right after a line break, step over it first so one
+        // press always moves a full line back.
+        let from = pos - 1;
+        while (from >= 0 && text[from] === '\n') from--;
+        const nl = text.lastIndexOf('\n', from);
+        pos = nl >= 0 ? nl + 1 : 0;
+      }
+    }
+    this.moveTo(pos);
+  }
+
+  /** True when the whole buffer has been revealed. */
+  get complete(): boolean {
+    return this.committed >= this.content.length;
+  }
+
+  /** Set the reveal head to an absolute position and repaint. */
+  private moveTo(position: number): void {
+    const n = this.content.length;
+    const next = Math.max(0, Math.min(n, Math.round(position)));
+    this.committed = next;
+    this.carrying = 0;
+    this.paintSafe();
+    if (next >= n) {
+      this.haltPump();
+      return;
+    }
+    // A forward jump from the very end (or a backward jump while the pump had
+    // stopped) must restart pacing; a running pump just keeps going.
+    if (!this.hold && !this.paused) this.kickPump();
   }
 
   /** Feed new streamed text; the pump reveals it at the configured speed. */
@@ -138,12 +236,21 @@ export class StreamReveal {
     this.llmFinished = true;
     this.committed = this.content.length;
     this.paintSafe();
+    // Settle a pending `finish()` so an awaiting caller is never left hanging.
+    const resolve = this.drainResolve;
+    this.drainResolve = null;
+    this.drainWatch = null;
+    resolve?.();
   }
 
   /** Stop the pump and forget scheduled frames. No further painting. */
   destroy(): void {
     this.closed = true;
     this.haltPump();
+    const resolve = this.drainResolve;
+    this.drainResolve = null;
+    this.drainWatch = null;
+    resolve?.();
   }
 
   // ------------------------------------------------------------------ pump
@@ -199,7 +306,7 @@ export class StreamReveal {
   }
 
   private readonly tick = (ts: number): void => {
-    if (!this.pumpRunning || this.closed) return;
+    if (!this.pumpRunning || this.closed || this.paused) return;
     const rate = this.prefs.streamSpeed();
     if (rate <= 0) {
       this.flush();
@@ -231,7 +338,7 @@ export class StreamReveal {
   };
 
   private kickPump(): void {
-    if (this.closed) return;
+    if (this.closed || this.paused) return;
     if (this.prefs.streamSpeed() <= 0) {
       this.flush();
       return;
@@ -249,6 +356,8 @@ export class StreamReveal {
   private drainReveal(signal?: AbortSignal): Promise<void> {
     return new Promise(resolve => {
       const finish = () => {
+        this.drainResolve = null;
+        this.drainWatch = null;
         // A HELD pump resolves without painting — it is still buffering for a
         // later promotion; only a live pump flushes to the full text.
         if (!this.hold) this.flush();
@@ -277,9 +386,13 @@ export class StreamReveal {
           finish();
           return;
         }
+        // Paused: stop polling; `resume()` re-arms the watcher.
+        if (this.paused) return;
         this.kickPump();
         this.scheduleFrame(watch);
       };
+      this.drainResolve = finish;
+      this.drainWatch = watch;
       this.kickPump();
       this.scheduleFrame(watch);
     });

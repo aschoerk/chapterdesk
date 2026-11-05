@@ -36,6 +36,12 @@
       <span class="meta">{{ i18n.t('node.chars', { count: node().content.length }) }}</span>
     }
 
+    @if (readTimeLabel(); as readTime) {
+      <span class="meta read-time" [title]="i18n.t('node.readTimeTitle')">
+        {{ i18n.t('node.readTime', { time: readTime }) }}
+      </span>
+    }
+
     @if (nodeUsageLabel(); as usageLabel) {
       <span class="meta usage-meta" [title]="usageLabel">{{ usageLabel }}</span>
     }
@@ -682,6 +688,26 @@
             </svg>
             <span>{{ i18n.t('node.illustrate') }}</span>
           }
+        </button>
+      }
+
+      @if (node().role === 'assistant' && node().content?.trim()) {
+        <button class="btn-icon" type="button"
+                [class.active]="pacedReading()"
+                [disabled]="chatService.isGenerating(node().id)"
+                [attr.aria-pressed]="pacedReading()"
+                (click)="startPacedRead($event)"
+                [title]="pacedReading() ? i18n.t('node.pacedReadStopTitle') : i18n.t('node.pacedReadTitle')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            @if (pacedReading()) {
+              <rect x="6" y="5" width="4" height="14" rx="1"/>
+              <rect x="14" y="5" width="4" height="14" rx="1"/>
+            } @else {
+              <polygon points="7 4 20 12 7 20"/>
+            }
+          </svg>
+          <span>{{ pacedReading() ? i18n.t('node.pacedReadStop') : i18n.t('node.pacedRead') }}</span>
         </button>
       }
 
