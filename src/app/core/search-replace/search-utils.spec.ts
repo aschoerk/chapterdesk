@@ -41,6 +41,16 @@ describe('buildSearchRegExp', () => {
     expect(re!.test('the cat sat')).toBe(true);
   });
 
+  it('honours whole-word boundaries for umlauts and ß (literal mode)', () => {
+    const re = buildSearchRegExp('Weiß', { ...opts, wholeWord: true });
+    expect(re!.test('Weiß')).toBe(true);
+    expect(re!.test('Weißes')).toBe(false); // trailing letter → not whole word
+    expect(re!.test('Weiß.')).toBe(true);
+    const mueller = buildSearchRegExp('Müller', { ...opts, wholeWord: true });
+    expect(mueller!.test('Müller')).toBe(true);
+    expect(mueller!.test('Müllers')).toBe(false);
+  });
+
   it('is case-insensitive by default', () => {
     const re = buildSearchRegExp('Cat', opts);
     expect(re!.test('cat')).toBe(true);

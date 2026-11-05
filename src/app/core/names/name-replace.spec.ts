@@ -4,6 +4,9 @@ import {
   countOccurrences,
   countOccurrencesPerUnit,
   findOccurrences,
+  buildNameIndex,
+  exactOccurrences,
+  firstLetter,
   entryForms,
   entryCandidates,
   sameLetterCandidates,
@@ -106,6 +109,69 @@ describe('name-replace pure engine', () => {
 
     it('returns [] for an empty form', () => {
       expect(findOccurrences([{ key: 'a', text: 'Liz' }], '')).toEqual([]);
+    });
+  });
+
+  describe('Unicode letters, possessives and double names', () => {
+    it('matches umlauts and ß as whole words', () => {
+      expect(countOccurrences('Müller traf Müller.', 'Müller')).toBe(2);
+      expect(countOccurrences('Müller', 'Müll')).toBe(0);
+      // ß is not a \w character — the old ASCII \b never matched it.
+      expect(countOccurrences('Weiß und Weiß', 'Weiß')).toBe(2);
+      expect(countOccurrences('Weißes Kleid', 'Weiß')).toBe(0);
+    });
+
+    it('never lets a possessive \u2019s join the name', () => {
+      expect(countOccurrences("Elizabeth's hat", 'Elizabeth')).toBe(1);
+      expect(countOccurrences('Elizabeth\u2019s hat', 'Elizabeth')).toBe(1);
+      expect(findOccurrences([{ key: 'n', text: "Elizabeth's hat" }], 'Elizabeth')).toEqual([
+        { key: 'n', localNth: 0, start: 0, length: 9, text: 'Elizabeth' },
+      ]);
+      // The word index splits at the apostrophe: the possessive tail "s" is a
+      // separate token and "Elizabeth's" is never a word of its own.
+      const index = buildNameIndex([{ key: 'n', text: "Elizabeth's hat" }]);
+      expect(index.words.has("elizabeth's")).toBe(false);
+      expect(index.words.has('elizabeth')).toBe(true);
+      expect(index.words.has('s')).toBe(true);
+    });
+
+    it('splits a double name at the hyphen into two names', () => {
+      const units = [{ key: 'n', text: 'Anna-Lena lachte. Lena und Anna auch.' }];
+      // Discovery treats the halves as independent names ...
+      expect(findOccurrences(units, 'Anna')).toHaveLength(2);
+      expect(findOccurrences(units, 'Lena')).toHaveLength(2);
+      // ... while an EXPLICIT hyphenated dictionary form still matches literally.
+      expect(findOccurrences(units, 'Anna-Lena')).toHaveLength(1);
+    });
+
+    it('counts the SS spelling of a ß name as its all-caps form', () => {
+      const units = [{ key: 'n', text: 'Weiß kam. WEISS ging.' }];
+      const index = buildNameIndex(units);
+      expect(exactOccurrences(index, 'Weiß', /* matchAllCaps */ true).map((o) => o.text)).toEqual([
+        'Weiß',
+        'WEISS',
+      ]);
+      // Without matchAllCaps only the exact case counts.
+      expect(exactOccurrences(index, 'Weiß').map((o) => o.text)).toEqual(['Weiß']);
+      // The ASCII spelling meets the ß spelling in the same bucket.
+      expect(exactOccurrences(index, 'Weiss', true).map((o) => o.text)).toEqual(['Weiß', 'WEISS']);
+    });
+
+    it('never starts a word with ß (it is lowercase-only)', () => {
+      const index = buildNameIndex([{ key: 'n', text: '\u00bb\u00df\u00ab und Straße' }]);
+      // The leading sharp s is not indexed as a word of its own.
+      expect(index.words.has('\u00df')).toBe(false);
+      expect(exactOccurrences(index, '\u00df')).toEqual([]);
+      // ...but it is a perfectly normal letter INSIDE a word.
+      expect(exactOccurrences(index, 'Straße').map((o) => o.text)).toEqual(['Straße']);
+      // A form beginning with ß reports no usable first letter.
+      expect(firstLetter('\u00dfx')).toBe('');
+      expect(firstLetter('Müller')).toBe('m');
+    });
+
+    it('keeps a leading umlaut when title-casing', () => {
+      expect(titleCaseName('M\u00dcLLER')).toBe('Müller');
+      expect(titleCaseName('wei\u00df')).toBe('Wei\u00df');
     });
   });
 
@@ -374,6 +440,23 @@ describe('name-replace pure engine', () => {
       const found = findUnknownCapitalized(units, new Set(), 2);
       expect(found.map((f) => f.form)).toContain('Later');
     });
+
+    it('detects umlaut names and merges ß/SS spellings into one row', () => {
+      const units = [
+        {
+          key: 'n',
+          text: 'Müller kam. Dann ging Müller. Gestern traf Weiß ihn. Später sah ich Weiß. WEISS lachte.',
+        },
+      ];
+      const found = findUnknownCapitalized(units, new Set(), 2);
+      const byForm = new Map(found.map((f) => [f.form, f]));
+      expect(byForm.get('Müller')?.count).toBe(2);
+      // The title spelling "Weiß" occurs mid-sentence twice; its SS all-caps
+      // spelling is reported as allCapsForm on the SAME row (no extra row).
+      expect(byForm.get('Weiß')?.count).toBe(2);
+      expect(byForm.get('Weiß')?.allCapsForm).toBe('WEISS');
+      expect(found.map((f) => f.form)).not.toContain('WEISS');
+    });
   });
 
   describe('findNames', () => {
@@ -396,6 +479,23 @@ describe('name-replace pure engine', () => {
       const e = entry({ name: 'Wall', language: 'en' });
       const rows = findNames([{ key: 'n', text: 'the wall is high' }], [e], {});
       expect(rows).toEqual([]);
+    });
+
+    it('finds umlaut names and their SS all-caps spelling', () => {
+      const e = entry({ name: 'Weiß', language: 'de' });
+      const rows = findNames([{ key: 'n', text: 'Weiß kam. WEISS ging. Weißes Kleid.' }], [e], {
+        language: 'de',
+      });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ form: 'Weiß', count: 2, allCapsForm: 'WEISS' });
+      // "Weißes" is a different word — never counted or replaced.
+      expect(rows[0].occurrences).toEqual([{ key: 'n', count: 2 }]);
+    });
+
+    it('matches the ASCII spelling "Weiss" against text written "Weiß"', () => {
+      const e = entry({ name: 'Weiss', language: 'de' });
+      const rows = findNames([{ key: 'n', text: 'Weiß und Weiss.' }], [e], { language: 'de' });
+      expect(rows[0]).toMatchObject({ form: 'Weiss', count: 2 });
     });
 
     it('offers same-initial suggestions from the whole dictionary as candidates', () => {

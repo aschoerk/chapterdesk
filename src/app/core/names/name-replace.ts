@@ -4,10 +4,17 @@
  * Pure engine for the "Replace names" dialog — no Angular, no DOM.
  *
  * RULES for names in the text (per product decision):
- *   - A name is ALWAYS a complete word — a single run of ENGLISH letters
- *     `[A-Za-z]+`. No spaces, no apostrophes, no commas, no digits.
- *   - It always starts with a capital letter (`[A-Z][a-z]+` for the counted
- *     form). It is matched CASE-SENSITIVELY and whole-word.
+ *   - A name is ALWAYS a complete word — a single run of UNICODE letters
+ *     (`\p{L}`, so umlauts and ß count: "Müller", "Weiß"). No spaces, no
+ *     apostrophes, no hyphens, no commas, no digits. Splitting at those
+ *     characters is deliberate: "Elizabeth's" → "Elizabeth" + "s" (the
+ *     possessive tail never becomes part of the name) and "Anna-Lena" →
+ *     "Anna" + "Lena" (double names are handled as separate names).
+ *   - It always starts with a capital letter (`\p{Lu}` for the counted
+ *     form). ß is lowercase-only and NEVER starts a word (uppercase German
+ *     spells "SS"), so it only appears INSIDE/AFTER the first letter — it is
+ *     therefore allowed in words but never as a word-initial/capital form.
+ *     Names are matched CASE-SENSITIVELY and whole-word.
  *   - A capitalized word is only a name if the SAME word never appears
  *     anywhere starting with a lower-case letter (so "Wall" is never a name
  *     while "wall" is present anywhere in the document).
@@ -24,6 +31,61 @@
 import type { NameEntry, NameGender, NameFilterCategory, NameKind } from '../../models/name-entry';
 import { NAME_FORM_FIELDS, EXCLUDED_WORD_LANGUAGE } from '../../models/name-entry';
 import type { NodeRole } from '../../models/chat';
+
+// ---------------------------------------------------------------------------
+// Letters — the ONLY characters a name word may consist of.
+//
+// Names use UNICODE letters (`\p{L}`), so umlauts and other accented letters
+// (ä ö ü é ñ …) and the German sharp s (ß) count as letters. Apostrophes and
+// hyphens are NOT letters on purpose: "Elizabeth's" splits into "Elizabeth" +
+// "s" (so possessive forms never join the name) and "Anna-Lena" splits into
+// "Anna" + "Lena" (double names are two separate names).
+//
+// ß is a lowercase-only letter: it never starts a word (uppercase German spells
+// "SS"/"ẞ"). Word-initial / capitalized forms therefore always require an
+// uppercase letter (`\p{Lu}`), which ß can never satisfy — no special case is
+// needed for it in the title/all-caps patterns.
+// ---------------------------------------------------------------------------
+
+/** A single Unicode letter (any script) as a regex source fragment. */
+const LETTER = '\\p{L}';
+/** Characters that CONTINUE a word: letters, combining marks, digits,
+ *  connector punctuation. Apostrophe/hyphen deliberately absent → possessive
+ *  and double-name forms split there. */
+const WORD_CHAR = `[${LETTER}\\p{M}\\p{N}\\p{Pc}]`;
+/** A whole word a name may be: letters only — no apostrophe, no hyphen.
+ *  Must START with a letter (not a lone combining mark). */
+const CLEAN_WORD = /^\p{L}[\p{L}\p{M}]*$/u;
+/** A word run for the index (letters + combining marks, e.g. NFD "Müller"). */
+const WORD_RUN = /[\p{L}\p{M}]+/gu;
+/** The counted (title-cased) form: uppercase letter + letters ("Weiß"). */
+const TITLE_FORM = /^\p{Lu}[\p{Ll}\p{M}]+$/u;
+/** An ALL-CAPS form: at least two uppercase letters ("WALL", "MÜLLER"). */
+const ALL_CAPS = /^\p{Lu}[\p{Lu}\p{M}]+$/u;
+/** A word starting with a lowercase letter ("wall", "weiß"). */
+const STARTS_LOWER = /^\p{Ll}/u;
+
+/**
+ * Case-fold a word into the hashmap key. Besides lowercasing it folds the
+ * German sharp s to "ss", so the uppercase spelling "WEISS" lands in the SAME
+ * bucket as the title form "Weiß" (JS `toUpperCase` turns ß into "SS", but
+ * `"WEISS".toLowerCase()` is "weiss" — without the fold they never meet).
+ */
+function foldKey(word: string): string {
+  return word.toLowerCase().replace(/\u00df/g, 'ss');
+}
+
+/**
+ * Whole-word matcher for `form`, bounded by WORD_CHAR on both sides.
+ * `\b` is ASCII-only in JS (`\w` = [A-Za-z0-9_]), so "Weiß" would never match
+ * as a whole word with `\b` (its trailing ß is not a `\w` character). Explicit
+ * letter lookarounds keep whole-word semantics for umlauts/ß and split at
+ * apostrophes/hyphens as required.
+ */
+function wholeWordRegExp(form: string, flags: string): RegExp {
+  const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<!${WORD_CHAR})${escaped}(?!${WORD_CHAR})`, flags);
+}
 
 /** One searchable text unit (typically a chat node). */
 export interface NameTextUnit {
@@ -112,19 +174,17 @@ export interface FindNamesOptions {
  *  (a general-purpose helper; name detection uses `exactOccurrences`). */
 export function countOccurrences(text: string, form: string): number {
   if (!form || !text) return 0;
-  const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`\\b${escaped}\\b`, 'gi');
-  const matches = text.match(re);
+  const matches = text.match(wholeWordRegExp(form, 'giu'));
   return matches ? matches.length : 0;
 }
 
 // ---------------------------------------------------------------------------
-// Word index — a hashmap of every ENGLISH-letter word → document positions.
+// Word index — a hashmap of every UNICODE-letter word → document positions.
 //
 // Built ONCE over the joined text, then queried in O(1) per name form so
 // "find names by capital letter" and dictionary matching never rescan the
-// document. Names are single words: runs of `[A-Za-z]` only (no spaces,
-// apostrophes, commas or digits).
+// document. Names are single words: runs of letters only (`\p{L}`, umlauts
+// and ß included — no spaces, apostrophes, hyphens, commas or digits).
 // ---------------------------------------------------------------------------
 
 /** One occurrence of a word in the combined text (offset into `combined`). */
@@ -136,15 +196,16 @@ export interface WordOccurrence {
 
 /** Per-word facts gathered while building the index. */
 export interface WordInfo {
-  /** Lowercased word (map key). */
+  /** Case-folded word (map key): lowercased, ß → "ss" so "Weiß" and "WEISS"
+   *  share one bucket. */
   key: string;
   /** All positions of this word (any casing) in the combined text. */
   positions: WordOccurrence[];
   /** True if the word ever appears starting with a lower-case letter. */
   startsLower: boolean;
-  /** The all-caps form (e.g. "WALL") if it appears anywhere. */
+  /** The all-caps form (e.g. "WALL", "MÜLLER", "WEISS") if it appears. */
   allCapsForm?: string;
-  /** Capitalized forms (`[A-Z][a-z]+`) that appeared, with occurrence counts. */
+  /** Capitalized forms (`\p{Lu}` + letters, e.g. "Weiß") with counts. */
   titleForms: Map<string, number>;
   /**
    * Per capitalized form, how many occurrences are NOT sentence-initial.
@@ -164,9 +225,6 @@ export interface NameIndex {
   /** lowercase word → info (the hashmap). */
   words: Map<string, WordInfo>;
 }
-
-/** A letter-only word (a name can only be such a word). */
-const CLEAN_WORD = /^[A-Za-z]+$/;
 
 /** Closing quotes/brackets that may sit between a sentence end and a word. */
 const CLOSER = /["'”’»)\]]/;
@@ -200,11 +258,22 @@ export function buildNameIndex(units: NameTextUnit[]): NameIndex {
     combined += '\n';
   }
   const words = new Map<string, WordInfo>();
-  const re = /[A-Za-z]+/g;
+  // Local copy: WORD_RUN is module-level with the `g` flag, and a reused
+  // stateful regex would leak lastIndex between buildNameIndex calls.
+  const re = new RegExp(WORD_RUN.source, 'gu');
   let m: RegExpExecArray | null;
   while ((m = re.exec(combined)) !== null) {
-    const token = m[0];
-    const key = token.toLowerCase();
+    // ß is lowercase-only and NEVER starts a word: a run that begins with it
+    // is not a word start — the leading sharp s belongs to whatever precedes
+    // (a quote or punctuation), so skip it instead of inventing a token.
+    let token = m[0];
+    let start = m.index;
+    while (token.startsWith('\u00df')) {
+      token = token.slice(1);
+      start += 1;
+    }
+    if (!token) continue;
+    const key = foldKey(token);
     let info = words.get(key);
     if (!info) {
       info = {
@@ -216,13 +285,13 @@ export function buildNameIndex(units: NameTextUnit[]): NameIndex {
       };
       words.set(key, info);
     }
-    info.positions.push({ start: m.index, length: token.length, text: token });
-    if (/^[a-z]/.test(token)) info.startsLower = true;
-    if (/^[A-Z]+$/.test(token) && token.length >= 2) {
+    info.positions.push({ start, length: token.length, text: token });
+    if (STARTS_LOWER.test(token)) info.startsLower = true;
+    if (ALL_CAPS.test(token)) {
       if (!info.allCapsForm) info.allCapsForm = token;
-    } else if (/^[A-Z][a-z]+$/.test(token)) {
+    } else if (TITLE_FORM.test(token)) {
       info.titleForms.set(token, (info.titleForms.get(token) ?? 0) + 1);
-      if (!isSentenceInitial(combined, m.index)) {
+      if (!isSentenceInitial(combined, start)) {
         info.titleFormsMid.set(token, (info.titleFormsMid.get(token) ?? 0) + 1);
       }
     }
@@ -277,24 +346,38 @@ export function exactOccurrences(
 ): NameOccurrence[] {
   if (!form) return [];
   if (CLEAN_WORD.test(form)) {
-    const info = index.words.get(form.toLowerCase());
+    const key = foldKey(form);
+    const info = index.words.get(key);
     if (!info) return [];
     const caps = matchAllCaps && form.length > 1 ? form.toUpperCase() : '';
+    // The hashmap bucket mixes ß and "ss" spellings ("Weiß" ⇄ "Weiss" ⇄
+    // "WEISS"). When that is the case, the other PROPERLY CAPITALIZED spelling
+    // is the same name (uppercase German spells ß as SS) and also counts.
+    // Lower-case variants stay excluded — matching remains case-sensitive.
+    const mixedSpelling =
+      key !== form.toLowerCase() ||
+      info.positions.some((p) => p.text.toLowerCase() !== key);
+    const accept = (t: string): boolean =>
+      t === form ||
+      (caps !== '' && t === caps) ||
+      // Other title-cased spelling of the same name ("Weiss" for "Weiß").
+      // All-caps stays gated by matchAllCaps.
+      (mixedSpelling && TITLE_FORM.test(t));
     const out: NameOccurrence[] = [];
     const perUnitNth = new Map<string, number>();
     for (const p of info.positions) {
-      if (p.text !== form && (caps ? p.text !== caps : true)) continue;
+      if (!accept(p.text)) continue;
       const { unitIndex, local } = unitAt(index, p.start);
-      const key = index.units[unitIndex].key;
-      const nth = perUnitNth.get(key) ?? 0;
-      perUnitNth.set(key, nth + 1);
-      out.push({ key, localNth: nth, start: local, length: p.length, text: p.text });
+      const unitKey = index.units[unitIndex].key;
+      const nth = perUnitNth.get(unitKey) ?? 0;
+      perUnitNth.set(unitKey, nth + 1);
+      out.push({ key: unitKey, localNth: nth, start: local, length: p.length, text: p.text });
     }
     return out;
   }
-  // Fallback for non-clean-word forms (initials, etc.).
-  const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`\\b${escaped}\\b`, 'g');
+  // Fallback for non-clean-word forms (initials, etc.). Whole-word is bounded
+  // by WORD_CHAR (Unicode-aware) instead of the ASCII-only `\b`.
+  const re = wholeWordRegExp(form, 'gu');
   const out: NameOccurrence[] = [];
   for (const unit of index.units) {
     let m: RegExpExecArray | null;
@@ -345,7 +428,8 @@ export function entryForms(entry: NameEntry): { form: string; kind: NameKind }[]
   for (const { field, kind } of NAME_FORM_FIELDS) {
     const value = (entry[field] ?? '').toString().trim();
     if (!value) continue;
-    const key = value.toLowerCase();
+    // Fold ß → "ss" so "Weiß" and "WEISS" count as the same form.
+    const key = foldKey(value);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ form: value, kind });
@@ -353,12 +437,27 @@ export function entryForms(entry: NameEntry): { form: string; kind: NameKind }[]
   return out;
 }
 
+/**
+ * The first LETTER (by code point, not UTF-16 unit) of a form, lowercased.
+ * Code-point based so a leading surrogate pair (astral letters) is not split
+ * in half; uppercase letters with umlauts lowercase correctly ("Ä" → "ä").
+ */
+export function firstLetter(form: string): string {
+  const trimmed = form.trim();
+  const cp = trimmed.codePointAt(0);
+  if (cp === undefined) return '';
+  const letter = String.fromCodePoint(cp).toLowerCase();
+  // ß never starts a word (uppercase German spells "SS"), so a form beginning
+  // with it cannot be a word-initial/capital form — report "no first letter".
+  return letter === '\u00df' ? '' : letter;
+}
+
 /** Whether `candidate` keeps the first letter of `form` (case-insensitive). */
 export function keepsFirstLetter(form: string, candidate: string): boolean {
-  const f = form.trim();
-  const c = candidate.trim();
+  const f = firstLetter(form);
+  const c = firstLetter(candidate);
   if (!f || !c) return false;
-  return f[0].toLowerCase() === c[0].toLowerCase();
+  return f === c;
 }
 
 /** All candidate replacement strings for an entry (deduped, non-empty). */
@@ -367,8 +466,8 @@ export function entryCandidates(entry: NameEntry): string[] {
   const seen = new Set<string>();
   for (const { field } of NAME_FORM_FIELDS) {
     const value = (entry[field] ?? '').toString().trim();
-    if (!value || seen.has(value.toLowerCase())) continue;
-    seen.add(value.toLowerCase());
+    if (!value || seen.has(foldKey(value))) continue;
+    seen.add(foldKey(value));
     out.push(value);
   }
   return out;
@@ -390,8 +489,8 @@ export function proposeReplacement(
 ): string {
   if (entry) {
     const list = candidates && candidates.length > 0 ? candidates : entryCandidates(entry);
-    const exact = form.trim().toLowerCase();
-    const same = list.find((c) => c.trim().toLowerCase() === exact);
+    const exact = foldKey(form.trim());
+    const same = list.find((c) => foldKey(c.trim()) === exact);
     if (same) return same;
     const keeping = list.find((c) => keepsFirstLetter(form, c));
     if (keeping) return keeping;
@@ -417,7 +516,7 @@ export function sameLetterCandidates(
   form: string,
   language: string | null = null,
 ): NamedCandidate[] {
-  const letter = form.trim().charAt(0).toLowerCase();
+  const letter = firstLetter(form);
   if (!letter) return [];
   const out: NamedCandidate[] = [];
   const seen = new Set<string>();
@@ -432,9 +531,9 @@ export function sameLetterCandidates(
     }
     for (const { form: candidate, kind } of entryForms(entry)) {
       const c = candidate.trim();
-      if (!c || seen.has(c.toLowerCase())) continue;
-      if (c[0].toLowerCase() !== letter) continue;
-      seen.add(c.toLowerCase());
+      if (!c || seen.has(foldKey(c))) continue;
+      if (firstLetter(c) !== letter) continue;
+      seen.add(foldKey(c));
       out.push(classifyCandidate(entry, c, kind));
     }
   }
@@ -531,11 +630,14 @@ export function initializeNameFilters(
   return { male: true, female: true, surname: true };
 }
 
-/** Title-case a name (first letter upper, rest lower). */
+/** Title-case a name (first letter upper, rest lower). Code-point safe so an
+ *  astral first letter is not split; "ß" title-cases to "SS" as German does. */
 export function titleCaseName(form: string): string {
   const trimmed = form.trim();
-  if (!trimmed) return '';
-  return trimmed[0].toUpperCase() + trimmed.slice(1).toLowerCase();
+  const cp = trimmed.codePointAt(0);
+  if (cp === undefined) return '';
+  const head = String.fromCodePoint(cp);
+  return head.toUpperCase() + trimmed.slice(head.length).toLowerCase();
 }
 
 /**
@@ -566,8 +668,9 @@ export const STANDARD_CAPITALIZED_WORDS = new Set<string>([
  * `minCount` times. `form` is the exact capitalized spelling found in the text.
  *
  * A capitalized word is only a name candidate when ALL of these hold:
- *   - it is a single letter-only word (`[A-Z][a-z]+` — no spaces/apostrophes/
- *     commas/digits), always starting with a capital letter;
+ *   - it is a single letter-only word (`\p{Lu}` + letters, so "Müller" and
+ *     "Weiß" qualify — no spaces/apostrophes/hyphens/commas/digits), always
+ *     starting with a capital letter;
  *   - the SAME word never appears anywhere starting with a lower-case letter
  *     (the "Wall"/"wall" rule — "I do not want to see the word Wall when
  *     anywhere in the text the word wall can be found");
@@ -590,12 +693,21 @@ export function findUnknownCapitalized(
     if (info.startsLower) continue; // "wall" is somewhere → "Wall" is not a name
     if (knownForms.has(info.key)) continue;
     if (STANDARD_CAPITALIZED_WORDS.has(info.key)) continue;
-    for (const [form, count] of info.titleForms) {
-      if (count < minCount) continue;
-      // Capitalized ONLY at sentence beginnings → an ordinary word, not a name.
-      if ((info.titleFormsMid.get(form) ?? 0) === 0) continue;
-      out.push({ form, count, allCapsForm: info.allCapsForm });
+    // One bucket = one name. Mixed ß/ss spellings ("Weiß"/"Weiss") land in the
+    // same bucket, so their counts are SUMMED and the first spelling found in
+    // the text is reported — never two rows for the same name.
+    let form = '';
+    let count = 0;
+    let mid = 0;
+    for (const [f, c] of info.titleForms) {
+      if (!form) form = f;
+      count += c;
+      mid += info.titleFormsMid.get(f) ?? 0;
     }
+    if (!form || count < minCount) continue;
+    // Capitalized ONLY at sentence beginnings → an ordinary word, not a name.
+    if (mid === 0) continue;
+    out.push({ form, count, allCapsForm: info.allCapsForm });
   }
   return out.sort((a, b) => b.count - a.count);
 }
@@ -625,26 +737,26 @@ export function findNames(
     // the capital-letter detection cannot re-surface them — regardless of the
     // currently selected language filter.
     if ((entry.language ?? '').toLowerCase() === EXCLUDED_WORD_LANGUAGE) {
-      for (const { form } of entryForms(entry)) knownForms.add(form.toLowerCase());
+      for (const { form } of entryForms(entry)) knownForms.add(foldKey(form));
       continue;
     }
     if (language && entry.language && entry.language.toLowerCase() !== language.toLowerCase()) {
       continue;
     }
     for (const { form, kind } of entryForms(entry)) {
-      knownForms.add(form.toLowerCase());
+      knownForms.add(foldKey(form));
       const occList = exactOccurrences(idx, form, /* matchAllCaps */ true);
       if (occList.length === 0) continue;
-      const existing = rows.get(form.toLowerCase());
+      const existing = rows.get(foldKey(form));
       if (existing) {
         // Same form shared by two entries — keep the FIRST entry (its
         // proposals + candidates) and do NOT double-count the occurrences.
         continue;
       }
-      const wordInfo = CLEAN_WORD.test(form) ? idx.words.get(form.toLowerCase()) : undefined;
+      const wordInfo = CLEAN_WORD.test(form) ? idx.words.get(foldKey(form)) : undefined;
       const allCandidates = sameLetterCandidates(entries, form, language);
       const filters = initializeNameFilters(entry, kind);
-      rows.set(form.toLowerCase(), {
+      rows.set(foldKey(form), {
         form,
         kind,
         entry,
@@ -669,11 +781,11 @@ export function findNames(
       idx,
     );
     for (const u of unknown) {
-      if (rows.has(u.form.toLowerCase())) continue;
+      if (rows.has(foldKey(u.form))) continue;
       const occList = exactOccurrences(idx, u.form, /* matchAllCaps */ false);
       const allCandidates = sameLetterCandidates(entries, u.form, language);
       const filters = initializeNameFilters(null, 'full');
-      rows.set(u.form.toLowerCase(), {
+      rows.set(foldKey(u.form), {
         form: u.form,
         kind: 'full',
         entry: null,
@@ -723,8 +835,8 @@ export function applyNameReplacements(
   return units.map((unit) => {
     const hits: { start: number; length: number; to: string }[] = [];
     for (const row of approved) {
-      const escaped = row.form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(`\\b${escaped}\\b`, 'g'); // exact case + whole word
+      // Exact case + whole word, bounded by WORD_CHAR (Unicode-aware).
+      const re = wholeWordRegExp(row.form, 'gu');
       let m: RegExpExecArray | null;
       while ((m = re.exec(unit.text)) !== null) {
         if (m[0].length === 0) {

@@ -35,6 +35,9 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Characters that continue a word in LITERAL whole-word search. */
+const WORD_CHAR = '[\\p{L}\\p{M}\\p{N}\\p{Pc}]';
+
 /**
  * Whether `term` (if treated as a regex) is a valid pattern. Always true for
  * literal search; used to surface a friendly error in regex mode.
@@ -59,8 +62,18 @@ export function buildSearchRegExp(
 ): RegExp | null {
   if (!term) return null;
   let source = opts.useRegex ? term : escapeRegExp(term);
-  if (opts.wholeWord) source = `\\b(?:${source})\\b`;
-  const flags = 'g' + (opts.caseSensitive ? '' : 'i');
+  if (opts.wholeWord) {
+    // LITERAL mode: `\b` is ASCII-only in JS (`\w` = [A-Za-z0-9_]), so a term
+    // ending in ß ("Weiß") would never satisfy a trailing `\b` (ß is not a `\w`
+    // character without the `u` flag). Unicode lookarounds keep whole-word
+    // semantics for umlauts/ß. Regex mode keeps `\b` so user patterns are not
+    // re-wrapped with lookarounds.
+    source = opts.useRegex
+      ? `\\b(?:${source})\\b`
+      : `(?<!${WORD_CHAR})(?:${source})(?!${WORD_CHAR})`;
+  }
+  const flags = (opts.wholeWord && !opts.useRegex ? 'gu' : 'g') +
+    (opts.caseSensitive ? '' : 'i');
   try {
     return new RegExp(source, flags);
   } catch {
