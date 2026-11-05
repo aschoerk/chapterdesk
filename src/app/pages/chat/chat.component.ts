@@ -1645,8 +1645,10 @@ export class ChatComponent implements OnInit {
 
       // Build the FULL list of prepared prompts first (each chapter, and each
       // named view within it). The stop checks still run between chapters and
-      // views — nothing is started here.
-      const prompts: string[] = [];
+      // views — nothing is started here. Each prompt remembers its CHAPTER
+      // number, so the toolbar progress can show "chapter N → destination"
+      // (a chapter may consist of several named views).
+      const prompts: { prompt: string; chapter: number }[] = [];
       for (let chapter = first; chapter <= last; chapter++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
         // ends the chain, but only AFTER the current chapter's answer has
@@ -1668,7 +1670,7 @@ export class ChatComponent implements OnInit {
           : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
         for (const prompt of chapterPrompts) {
           if (this.chatService.shouldStopAfterCurrentStep()) break;
-          prompts.push(prompt);
+          prompts.push({ prompt, chapter });
         }
       }
       if (prompts.length === 0) return;
@@ -1714,7 +1716,8 @@ export class ChatComponent implements OnInit {
 
       // The FIRST chapter is the queue head — it reveals live as it streams.
       // Every later chapter is prefetched as a background slot.
-      let current: HeldRun | null = await startStep(prompts[0]);
+      this.chatService.batchProgress.set({ current: prompts[0].chapter, total: last, unit: 'chapter' });
+      let current: HeldRun | null = await startStep(prompts[0].prompt);
       for (let i = 1; i < prompts.length; i++) {
         // Wait for the current chapter's LLM to STOP, then finalize it — the
         // data model is complete from here on, so the NEXT chapter's context
@@ -1730,10 +1733,13 @@ export class ChatComponent implements OnInit {
         }
         // Prefetch the NEXT prepared chapter as a BACKGROUND slot — its LLM
         // runs immediately but its text buffers (nothing paints yet).
-        const next = await startStep(prompts[i], current);
+        const next = await startStep(prompts[i].prompt, current);
         // Keep pacing the current tail; once it fully reveals, the queue
-        // advances to `next` and the reveal flows seamlessly into it.
+        // advances to `next` and the reveal flows seamlessly into it. The
+        // chapter counter advances only THEN — it follows the chapter being
+        // WRITTEN on screen, not the one merely prefetched in the background.
         await current.drain(opSignal);
+        this.chatService.batchProgress.set({ current: prompts[i].chapter, total: last, unit: 'chapter' });
         current = next;
       }
       // Final chapter.
@@ -1750,6 +1756,7 @@ export class ChatComponent implements OnInit {
       // Abort any still-running held streams (error / hard stop).
       for (const run of started) run.abort();
       this.chatService.clearGeneration();
+      this.chatService.batchProgress.set(null);
       this.isElaborating.set(false);
       this.chatService.elaborating = false;
       this.chatService.endOperation();

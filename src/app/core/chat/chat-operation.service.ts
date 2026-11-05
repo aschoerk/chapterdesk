@@ -16,6 +16,19 @@ import { Injectable, signal } from '@angular/core';
  * `ChatService` exposes the SAME signal instances and delegates the methods,
  * so all existing consumers keep working unchanged.
  */
+/** What a multi-step progress counts: batched Continue / Switch characters
+ *  repetitions, or the chapters of an elaborate chain. */
+export type OperationProgressUnit = 'repetition' | 'chapter';
+
+/** Progress of a running multi-step operation, or null when none is active.
+ *  `current`/`total` are the numbers shown to the user — for chapters these
+ *  are the CHAPTER numbers, so `total` is the destination chapter. */
+export interface OperationProgress {
+  current: number;
+  total: number;
+  unit: OperationProgressUnit;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatOperationService {
   /** The most recently STARTED generation node id (toolbar Stop / busy). */
@@ -43,9 +56,11 @@ export class ChatOperationService {
    *  button in the chat toolbar, mirroring the elaborate flow. */
   readonly isIllustrating = signal(false);
 
-  /** Progress of a batched Continue / Switch characters run, or null. The
-   *  current repetition index is shown below the answer node's spinner. */
-  readonly batchProgress = signal<{ current: number; total: number } | null>(null);
+  /** Progress of a batched Continue / Switch characters run (unit
+   *  `repetition`) or of an elaborate chapter chain (unit `chapter`), or null
+   *  when no such run is active. Rendered in the chat toolbar: the current
+   *  repetition / chapter number plus the destination. */
+  readonly batchProgress = signal<OperationProgress | null>(null);
 
   /**
    * True once the user asked to “stop after the current stream / step

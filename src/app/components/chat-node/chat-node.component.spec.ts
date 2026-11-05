@@ -1982,6 +1982,56 @@ describe('ChatNodeComponent', () => {
       expect(component.pendingAction()).toBeNull();
     });
 
+    it('batch progress advances only when the next repetition actually starts', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
+      // Gate every LLM run: the progress label can then be sampled WHILE a
+      // repetition is still generating (between `sendDirectionOnce` calls the
+      // label already belongs to the NEXT slot if it is published at the top
+      // of the loop — the off-by-one this test pins down).
+      const gates: Array<() => void> = [];
+      runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+        opts?.onChunk?.({ content: 'Generated' });
+        await new Promise<void>(resolve => gates.push(resolve));
+        return { text: { status: 'ok', value: 'Generated' } };
+      });
+      const flush = async () => {
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+      };
+
+      component.repeatCount.set(3);
+      const batch = component.continueDraft();
+
+      // Repetition 1 is generating: the label must still say 1, never 2.
+      await flush();
+      expect(gates).toHaveLength(1);
+      expect(chatService.batchProgress()).toEqual({ current: 1, total: 3, unit: 'repetition' });
+
+      gates.shift()!();
+      await flush();
+      expect(gates).toHaveLength(1);
+      expect(chatService.batchProgress()).toEqual({ current: 2, total: 3, unit: 'repetition' });
+
+      gates.shift()!();
+      await flush();
+      expect(gates).toHaveLength(1);
+      expect(chatService.batchProgress()).toEqual({ current: 3, total: 3, unit: 'repetition' });
+
+      gates.shift()!();
+      await batch;
+      expect(chatService.batchProgress()).toBeNull();
+    });
+
     it('continueDraft batch stops early when the operation is cancelled', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);

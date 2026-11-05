@@ -161,9 +161,14 @@
                 <span>{{ chatService.gracefulStop() ? i18n.t('node.stopSoftFinishing') : i18n.t('node.stopSoft') }}</span>
               </button>
               @if (chatService.batchProgress(); as bp) {
-                <span class="batch-progress-toolbar" [title]="i18n.t('node.batchProgressTitle')">
+                <span class="batch-progress-toolbar"
+                      [title]="bp.unit === 'chapter'
+                        ? i18n.t('chat.elaborateProgressTitle', { current: bp.current, total: bp.total })
+                        : i18n.t('node.batchProgressTitle')">
                   <span class="spinner"></span>
-                  <span>{{ i18n.t('node.batchProgress', { current: bp.current, total: bp.total }) }}</span>
+                  <span>{{ bp.unit === 'chapter'
+                    ? i18n.t('chat.elaborateProgress', { current: bp.current, total: bp.total })
+                    : i18n.t('node.batchProgress', { current: bp.current, total: bp.total }) }}</span>
                 </span>
               }
             }

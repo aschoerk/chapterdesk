@@ -777,7 +777,7 @@ export class ChatNodeComponent implements OnDestroy {
     const opSignal = this.chatService.beginOperation(direction === 'continue' ? 'continue' : 'switchCharacters');
     this.pendingAction.set(direction);
     this.isLoading.set(true);
-    this.chatService.batchProgress.set({ current: 1, total: count });
+    this.chatService.batchProgress.set({ current: 1, total: count, unit: 'repetition' });
     const started: HeldAnswerStream[] = [];
     // A shared PRESENTER QUEUE decouples presenting from generation: each
     // iteration's answer is a slot — the first becomes the live head (its
@@ -795,7 +795,6 @@ export class ChatNodeComponent implements OnDestroy {
         // (requestGracefulStop) also ends the batch, but only AFTER the
         // current stream has finished and been saved.
         if (this.chatService.shouldStopAfterCurrentStep()) break;
-        this.chatService.batchProgress.set({ current: i, total: count });
 
         // The previous iteration's LLM has stopped — finalize it NOW (data
         // model complete), so THIS iteration's context is correct even though
@@ -836,6 +835,12 @@ export class ChatNodeComponent implements OnDestroy {
           leaf = this.chatService.getActivePath().at(-1) ?? null;
         }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
+
+        // Publish the repetition that is actually about to generate. Doing it
+        // HERE (not at the top of the loop) keeps "Repetition X of Y" in sync
+        // with the live send: the top-of-loop slot still belongs to the
+        // previous repetition, whose tail is only being revealed.
+        this.chatService.batchProgress.set({ current: i, total: count, unit: 'repetition' });
 
         // Start THIS iteration's stream. The first becomes the queue HEAD
         // (reveals live at the pace, slowing to the input speed); every later

@@ -608,6 +608,56 @@ describe('Chat', () => {
     expect(a2.modelId).toBe('alpha/model');
   });
 
+  it('reports elaborate progress as current chapter → destination chapter', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // Gate every LLM call so the toolbar progress can be sampled WHILE a
+    // chapter is generating.
+    const gates: Array<() => void> = [];
+    orch.completion.mockImplementation(async (
+      _cx: unknown,
+      _req: unknown,
+      opts?: { onChunk?: (c: { content: string }) => void },
+    ) => {
+      opts?.onChunk?.({ content: 'Generated answer' });
+      await new Promise<void>(resolve => gates.push(resolve));
+      return { text: { status: 'ok', value: 'Generated answer' } };
+    });
+    const flush = async () => {
+      for (let i = 0; i < 40; i++) await Promise.resolve();
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      for (let i = 0; i < 40; i++) await Promise.resolve();
+    };
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(3);
+    component.elaborateNames.set('');
+
+    const run = component.confirmElaborate();
+
+    // Chapter 1 is generating: current chapter 1, destination chapter 3.
+    await flush();
+    expect(gates).toHaveLength(1);
+    expect(chatService.batchProgress()).toEqual({ current: 1, total: 3, unit: 'chapter' });
+
+    // Chapter 2 is only prefetched in the background — the counter advances
+    // once chapter 1 has fully revealed and chapter 2 is the presented one.
+    gates.shift()!();
+    await flush();
+    expect(gates).toHaveLength(1);
+    expect(chatService.batchProgress()).toEqual({ current: 2, total: 3, unit: 'chapter' });
+
+    gates.shift()!();
+    await flush();
+    expect(gates).toHaveLength(1);
+    expect(chatService.batchProgress()).toEqual({ current: 3, total: 3, unit: 'chapter' });
+
+    gates.shift()!();
+    await run;
+    expect(chatService.batchProgress()).toBeNull();
+  });
+
   it('anchors elaborate on the currently visible tree, not the most recent branch', async () => {
     // Branch A (visible): q0 → a1 → q2 → a2. Branch B (hidden): q0 → aAlt —
     // aAlt is the NEWEST assistant answer of the chat, but the user is

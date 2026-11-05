@@ -155,6 +155,9 @@ export const EN = {
       'Model used for the elaborations (initially the one of the most recent answer)',
     elaboratePreviewLabel: 'Prompt preview',
     elaboratePreviewCount: 'will be elaborated {{count}} times',
+    elaborateProgress: 'Chapter {{current}} → {{total}}',
+    elaborateProgressTitle:
+      'Elaborating chapter {{current}} of {{total}} — press Stop to cancel the remaining chapters',
     elaborateConfirm: 'Elaborate',
     elaborateNoAnchor: 'There is no assistant answer yet to elaborate on',
     elaborateNoModel: 'No model is available for elaboration',

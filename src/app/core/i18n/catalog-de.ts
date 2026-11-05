@@ -157,6 +157,9 @@ export const DE: typeof EN = {
     elaborateModelTitle: 'Modell für die Ausarbeitungen (anfangs das der letzten Antwort)',
     elaboratePreviewLabel: 'Prompt-Vorschau',
     elaboratePreviewCount: 'wird {{count}}-mal ausgearbeitet',
+    elaborateProgress: 'Kapitel {{current}} → {{total}}',
+    elaborateProgressTitle:
+      'Kapitel {{current}} von {{total}} wird ausgearbeitet — Stopp bricht die restlichen Kapitel ab',
     elaborateConfirm: 'Ausarbeiten',
     elaborateNoAnchor: 'Es gibt noch keine Antwort zum Ausarbeiten',
     elaborateNoModel: 'Kein Modell für die Ausarbeitung verfügbar',
