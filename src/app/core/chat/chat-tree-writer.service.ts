@@ -302,6 +302,33 @@ export class ChatTreeWriterService {
   private ensureDraftPromise: Promise<void> | null = null;
 
   /**
+   * Per-chat serialization of composer-leaf creation. The chat-page
+   * housekeeping effect ({@link ensureDraftAtLeaf}) and the explicit
+   * Continue / Switch-characters batch loop ({@link ensureDraftUnderAnswer})
+   * both hang an empty composer leaf under the SAME answered chapter. Run
+   * unserialized they can BOTH pass the "no empty user child yet" check and
+   * BOTH create a leaf — the extra one stays in the tree as a superfluous
+   * empty sibling (visibly next to the materialized chat-lore node, which is
+   * hung in front of the real direction).
+   */
+  private readonly draftQueues = new Map<string, Promise<unknown>>();
+
+  /** Run `fn` serialized against every other draft-composer mutation of the chat. */
+  private runDraftExclusive<T>(chatId: string, fn: () => Promise<T>): Promise<T> {
+    const key = chatId || 'root';
+    const prev = this.draftQueues.get(key) ?? Promise.resolve();
+    // Run even when the previous link failed (a failed draft must not wedge
+    // the queue).
+    const run = prev.then(fn, fn);
+    const tail = run.then(() => undefined, () => undefined);
+    this.draftQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.draftQueues.get(key) === tail) this.draftQueues.delete(key);
+    });
+    return run;
+  }
+
+  /**
    * Guarantee the active path ends on an empty question the user can type into.
    * - empty chat → root draft question
    * - leaf answer with generated text and no child question → child draft
@@ -320,9 +347,13 @@ export class ChatTreeWriterService {
     if (this.state.elaborating) return;
     if (this.state.currentChatId() !== chatId) return;
     if (!this.ensureDraftPromise) {
-      this.ensureDraftPromise = this.doEnsureDraftAtLeaf(chatId).finally(() => {
-        this.ensureDraftPromise = null;
-      });
+      // Serialized per chat with the explicit composer creation of the batch
+      // loop (see runDraftExclusive): both entry points must never create a
+      // second empty leaf under the same answered chapter.
+      this.ensureDraftPromise = this.runDraftExclusive(chatId, () => this.doEnsureDraftAtLeaf(chatId))
+        .finally(() => {
+          this.ensureDraftPromise = null;
+        });
     }
     return this.ensureDraftPromise;
   }
@@ -435,6 +466,70 @@ export class ChatTreeWriterService {
       providerId: leaf.providerId || undefined
     });
     this.setActiveChild(leaf.id, draft.id);
+  }
+
+  /**
+   * Hang (or reuse) the empty composer leaf under a SPECIFIC answered assistant
+   * chapter and activate it. Called explicitly by the batched Continue /
+   * Switch-characters loop right after it finalized the previous answer: the
+   * reveal pump still clamps that answer's DISPLAYED content to the revealed
+   * slice (empty while its tail is pacing), so the content-based heuristic in
+   * {@link ensureDraftAtLeaf} cannot be trusted there.
+   *
+   * Runs through the SAME per-chat serialization as `ensureDraftAtLeaf`, so the
+   * chat-page housekeeping effect cannot create a SECOND composer leaf in the
+   * same gap. Without it, both pass the "no empty user child yet" check and
+   * both create a leaf — the duplicate lingers in the tree as a superfluous
+   * empty sibling next to the materialized chat-lore node.
+   *
+   * Idempotent: an already-present empty user child is reused (never a second
+   * one is created). Returns the leaf to send on, or null when the answer is
+   * not a real answered chapter.
+   *
+   * @param opts.finalized when true the caller GUARANTEES the answer is a
+   *   finalized chapter, so the "empty means still streaming" heuristic is
+   *   skipped. The batch loop needs this: its reveal pump clamps the answer's
+   *   DISPLAYED content to the revealed slice (empty while the tail is still
+   *   pacing), so a content check would wrongly reject the finalized chapter.
+   */
+  async ensureDraftUnderAnswer(
+    chatId: string,
+    answerId: string,
+    opts: { finalized?: boolean } = {}
+  ): Promise<ChatNode | null> {
+    if (!chatId || !answerId) return null;
+    if (this.state.elaborating) return null;
+    if (this.state.currentChatId() !== chatId) return null;
+    return this.runDraftExclusive(chatId, () => this.doEnsureDraftUnderAnswer(chatId, answerId, opts));
+  }
+
+  private async doEnsureDraftUnderAnswer(
+    chatId: string,
+    answerId: string,
+    opts: { finalized?: boolean }
+  ): Promise<ChatNode | null> {
+    const answer = this.state.nodes().find(n => n.id === answerId && n.chatId === chatId);
+    if (!answer || answer.role !== 'assistant') return null;
+    // An empty assistant without an image is a still-streaming/unanswered
+    // placeholder — hanging a composer under it would spawn a spurious leaf.
+    if (!opts.finalized && !answer.content?.trim() && !hasImageAttachment(answer)) return null;
+
+    const existing = this.reader.getChildren(answer.id).filter(n => n.role === 'user');
+    const draft = existing.find(n => this.reader.isDraftQuestion(n)) ?? existing[0];
+    if (draft) {
+      this.setActiveChild(answer.id, draft.id);
+      return draft;
+    }
+
+    const created = await this.addNode(chatId, {
+      parentId: answer.id,
+      role: 'user',
+      content: '',
+      modelId: answer.modelId || undefined,
+      providerId: answer.providerId || undefined
+    });
+    this.setActiveChild(answer.id, created.id);
+    return created;
   }
 
   // ------------------------------------------------------------- trash

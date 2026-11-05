@@ -193,6 +193,18 @@ export class ChatService {
   ensureDraftUnderUserLeaf(chatId: string): Promise<void> {
     return this.writer.ensureDraftUnderUserLeaf(chatId);
   }
+  /**
+   * Hang (or reuse) the empty composer leaf under a specific answered chapter.
+   * Serialized with `ensureDraftAtLeaf` so the housekeeping effect and the
+   * Continue / Switch-characters batch loop never create two empty leaves.
+   */
+  ensureDraftUnderAnswer(
+    chatId: string,
+    answerId: string,
+    opts: { finalized?: boolean } = {}
+  ): Promise<ChatNode | null> {
+    return this.writer.ensureDraftUnderAnswer(chatId, answerId, opts);
+  }
 
   // ------------------------------------------------------------------ lore
 

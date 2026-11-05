@@ -391,6 +391,98 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
     });
   });
 
+  describe('ensureDraftUnderAnswer (batch composer leaf)', () => {
+    it('creates ONE composer leaf when the housekeeping effect races the batch loop', async () => {
+      // The batched Continue loop hangs the next composer under the FINALIZED
+      // answer, while the chat-page housekeeping effect calls
+      // `ensureDraftAtLeaf` in the same gap (after the generation slot is
+      // released). Unserialized, both pass the "no empty user child" check and
+      // both create a leaf — the duplicate lingers as a superfluous empty
+      // sibling next to the materialized chat-lore node.
+      const t = await linear();
+      chat.stopGeneration();
+
+      const [fromBatch, fromHousekeeping] = await Promise.all([
+        chat.ensureDraftUnderAnswer(chatId, t.a2.id),
+        chat.ensureDraftAtLeaf(chatId)
+      ]);
+
+      expect(fromBatch).toBeTruthy();
+      expect(fromHousekeeping).toBeUndefined();
+      const drafts = chat.getChildren(t.a2.id).filter(n => chat.isDraftQuestion(n));
+      expect(drafts).toHaveLength(1);
+      expect(chat.getActiveChild(t.a2.id)?.id).toBe(drafts[0].id);
+      expect(chat.getActivePath().at(-1)?.id).toBe(drafts[0].id);
+    });
+
+    it('reuses an existing empty draft instead of adding a superfluous sibling', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+      const draft = await add({ parentId: t.a2.id, role: 'user', content: '' });
+      chat.setActiveChild(t.a2.id, draft.id);
+
+      const before = chat.nodes().length;
+      const leaf = await chat.ensureDraftUnderAnswer(chatId, t.a2.id);
+
+      expect(chat.nodes().length).toBe(before); // nothing created
+      expect(leaf?.id).toBe(draft.id);
+      expect(chat.getActiveChild(t.a2.id)?.id).toBe(draft.id);
+    });
+
+    it('reuses a typed but unsent user child under the answer', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+      const typed = await add({ parentId: t.a2.id, role: 'user', content: 'next direction' });
+
+      const leaf = await chat.ensureDraftUnderAnswer(chatId, t.a2.id);
+
+      expect(leaf?.id).toBe(typed.id);
+      expect(chat.getChildren(t.a2.id)).toHaveLength(1);
+    });
+
+    it('does not hang a composer under a still-streaming empty answer', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+      const streaming = await add({ parentId: t.a2.id, role: 'assistant', content: '' });
+
+      const leaf = await chat.ensureDraftUnderAnswer(chatId, streaming.id);
+
+      expect(leaf).toBeNull();
+      expect(chat.getChildren(streaming.id)).toHaveLength(0);
+    });
+
+    it('does not hang a composer under a non-assistant node', async () => {
+      const t = await linear();
+      chat.stopGeneration();
+      const before = chat.getChildren(t.u2.id).map(n => n.id);
+      const leaf = await chat.ensureDraftUnderAnswer(chatId, t.u2.id);
+      expect(leaf).toBeNull();
+      // Nothing new hung under the user node (its existing answer stays alone).
+      expect(chat.getChildren(t.u2.id).map(n => n.id)).toEqual(before);
+      expect(chat.getChildren(t.u2.id).filter(n => chat.isDraftQuestion(n))).toHaveLength(0);
+    });
+
+    it('hangs a composer under an image-only answered chapter', async () => {
+      const u0 = await add({ parentId: null, role: 'user', content: 'Draw the scene' });
+      const pic = {
+        id: 'pic-2', name: 'illustration-1.png', mimeType: 'image/png', size: 4,
+        dataUrl: 'data:image/png;base64,AAAA'
+      };
+      const a0 = await add({
+        parentId: u0.id, role: 'assistant', content: '', attachments: [pic]
+      });
+      chat.setActiveChild(null, u0.id);
+      chat.setActiveChild(u0.id, a0.id);
+      chat.stopGeneration();
+
+      const leaf = await chat.ensureDraftUnderAnswer(chatId, a0.id);
+
+      expect(leaf).toBeTruthy();
+      expect(chat.isDraftQuestion(leaf!)).toBe(true);
+      expect(chat.getActiveChild(a0.id)?.id).toBe(leaf!.id);
+    });
+  });
+
   describe('trash (soft delete / restore / purge)', () => {
     it('lists only the branch root in the trash after a subtree delete', async () => {
       const t = await linear();

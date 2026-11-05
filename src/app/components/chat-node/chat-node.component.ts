@@ -815,32 +815,19 @@ export class ChatNodeComponent implements OnDestroy {
         // to the revealed slice (empty while the tail is still pacing), so
         // `ensureDraftAtLeaf`'s content-based heuristic would treat it as an
         // un-answered placeholder and refuse to hang the next composer. Hang
-        // the draft under the FINALIZED answer explicitly instead.
+        // the draft under the FINALIZED answer explicitly instead — through the
+        // SERIALIZED `ensureDraftUnderAnswer`, so the chat-page housekeeping
+        // effect cannot create a SECOND empty leaf in the same gap (the
+        // duplicate would linger as a superfluous empty sibling next to the
+        // materialized chat-lore node).
         let leaf = this.chatService.getActivePath().at(-1) ?? null;
         const prevAnswerId = current?.answerNodeId;
         if (prevAnswerId) {
-          const answer = this.chatService.nodes().find(n => n.id === prevAnswerId);
-          const under = answer ?? leaf;
-          if (under) {
-            const existing = this.chatService.getChildren(under.id).filter(n => n.role === 'user');
-            const draft = existing.find(n => this.chatService.isDraftQuestion(n)) ?? existing[0];
-            if (draft) {
-              this.chatService.setActiveChild(under.id, draft.id);
-              leaf = draft;
-            } else if (under.role === 'assistant') {
-              // The finalized answer is a real answered chapter — hang a fresh
-              // empty composer leaf under it.
-              const created = await this.chatService.addNode(chatId, {
-                parentId: under.id,
-                role: 'user',
-                content: '',
-                modelId: under.modelId || undefined,
-                providerId: under.providerId || undefined
-              });
-              this.chatService.setActiveChild(under.id, created.id);
-              leaf = created;
-            }
-          }
+          // `finalized: true` — the previous answer's LLM already stopped and
+          // was persisted; its DISPLAYED content is still clamped by the reveal
+          // pump, so the empty-content heuristic must be skipped here.
+          const ensured = await this.chatService.ensureDraftUnderAnswer(chatId, prevAnswerId, { finalized: true });
+          if (ensured) leaf = ensured;
         }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
           // Fall back to the generic draft housekeeping (e.g. right after a
