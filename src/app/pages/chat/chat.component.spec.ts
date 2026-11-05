@@ -120,10 +120,10 @@ describe('Chat', () => {
   it('node scope searches committed content when nothing is edited', async () => {
     await openStory(); // active path: q1 → a1 (+ auto-created empty draft leaf)
     const leaf = component.getCurrentLeaf()!;
-    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string }[] })
+    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string; role?: string }[] })
       .searchUnits('node');
     // Without editing a node the scope targets the current leaf's COMMITTED content.
-    expect(units).toEqual([{ key: leaf.id, text: leaf.content ?? '' }]);
+    expect(units).toEqual([{ key: leaf.id, text: leaf.content ?? '', role: leaf.role }]);
   });
 
   it('node scope searches the LIVE draft of a node being edited, not the committed content', async () => {
@@ -134,9 +134,9 @@ describe('Chat', () => {
     // The user typed an unsaved edit that shifts all offsets after the first char.
     editSession.patch(a1.id, 'X' + (a1.content ?? ''), []);
 
-    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string }[] })
+    const units = (component as unknown as { searchUnits(scope: string): { key: string; text: string; role?: string }[] })
       .searchUnits('node');
-    expect(units).toEqual([{ key: a1.id, text: 'X' + (a1.content ?? '') }]);
+    expect(units).toEqual([{ key: a1.id, text: 'X' + (a1.content ?? ''), role: a1.role }]);
   });
 
   it('reveals a search match in the edited node by scrolling the textarea AND the tree', async () => {

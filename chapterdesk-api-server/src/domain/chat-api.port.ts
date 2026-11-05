@@ -5,6 +5,7 @@ import type {
   ChatParametersDraft,
   CreateNodeRequest,
   ModelEntry,
+  NameEntry,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -22,6 +23,7 @@ import type {
 import type {
   BranchQuestionRequest,
   CreateModelRequest,
+  CreateNameEntryRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -32,6 +34,7 @@ import type {
   SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
+  UpdateNameEntryRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
@@ -146,6 +149,20 @@ export interface ChatApiPort {
     scope: PromptScope,
     topicId?: string | null,
   ): Promise<void>;
+
+  // Name dictionary (used by the "Replace names" dialog).
+
+  /** All stored name entries (the dictionary replacements are chosen from). */
+  getNames(): Promise<NameEntry[]>;
+  createNameEntry(data: CreateNameEntryRequest): Promise<NameEntry>;
+  updateNameEntry(id: string, data: UpdateNameEntryRequest): Promise<NameEntry>;
+  deleteNameEntry(id: string): Promise<void>;
+  /**
+   * Bulk-insert name entries (dedup by name, case-insensitive). Used to seed
+   * the dictionary from a bundled name list (e.g. the zxcvbn frequency
+   * lists) in a single transaction instead of thousands of individual calls.
+   */
+  importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]>;
 
   // Versioned general texts (compare / restore).
 

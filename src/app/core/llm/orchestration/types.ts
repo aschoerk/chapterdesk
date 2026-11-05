@@ -120,6 +120,7 @@ export type UsecaseKind =
   | 'structure-headings'
   | 'language-check'
   | 'rewrite-selection'
+  | 'name-identify'
   | 'append'
   | 'append-with-images'
   | 'send-branch'

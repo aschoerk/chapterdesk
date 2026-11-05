@@ -31,6 +31,10 @@ import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-me
 import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { ChatElaborateDialogService } from '../../core/dialogs/chat-elaborate-dialog.service';
+import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
+import { NameListDialogService } from '../../core/dialogs/name-list-dialog.service';
+import { ToastService } from '../../core/toast/toast.service';
+import type { NameTextUnit, NameOccurrence } from '../../core/names/name-replace';
 
 /** One row of the navbar-node right-click context menu. */
 interface NavMenuEntry {
@@ -67,6 +71,9 @@ export class ChatComponent implements OnInit {
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly layoutPrefs = inject(ChatLayoutPrefsService);
   private readonly elaborateDialog = inject(ChatElaborateDialogService);
+  private readonly nameReplace = inject(NameReplaceDialogService);
+  private readonly nameList = inject(NameListDialogService);
+  private readonly toast = inject(ToastService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -767,15 +774,17 @@ export class ChatComponent implements OnInit {
     apply: (updates) => this.searchApply(updates),
   };
 
-  private searchUnits(scope: 'node' | 'chat' | 'reader'): { key: string; text: string }[] {
+  private searchUnits(
+    scope: 'node' | 'chat' | 'reader',
+  ): { key: string; text: string; role?: ChatNode['role'] }[] {
     if (scope === 'node') {
       const node = this.activeSearchNode();
       if (!node) return [];
-      return [{ key: node.id, text: this.searchTextFor(node) }];
+      return [{ key: node.id, text: this.searchTextFor(node), role: node.role }];
     }
     // chat scope → all nodes on the active path
     return this.getActivePath()
-      .map((n) => ({ key: n.id, text: this.searchTextFor(n) }))
+      .map((n) => ({ key: n.id, text: this.searchTextFor(n), role: n.role }))
       .filter((u) => u.text.length > 0);
   }
 
@@ -895,6 +904,78 @@ export class ChatComponent implements OnInit {
 
   openSearch(): void {
     this.search.openDialog();
+  }
+
+  /**
+   * Scroll to the chat node that contains ONE concrete occurrence of a name
+   * and select/highlight exactly that occurrence — driven by the "Replace
+   * names" dialog's per-name ◀/▶ navigation.
+   */
+  private nameNavigate(occ: NameOccurrence): void {
+    const el = document.querySelector(`[data-node-id="${CSS.escape(occ.key)}"]`);
+    if (!el) return;
+    const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
+    if (ta) {
+      // Editing: select the exact occurrence in the live draft.
+      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      ta.setSelectionRange(occ.start, occ.start + occ.length);
+      ta.focus();
+      this.revealSearchMatchInEditor(ta, occ.start);
+      return;
+    }
+    // Rendered markdown: scroll to the node and highlight exactly this
+    // occurrence (exact-case, whole-word).
+    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const content = el.querySelector<HTMLElement>('.node-content');
+    if (content) {
+      highlightMatchesIn(
+        content,
+        occ.text,
+        { caseSensitive: true, wholeWord: true, useRegex: false },
+        occ.localNth,
+      );
+      content.querySelector('mark.sr-current')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  /**
+   * Open the "Replace names" dialog over the VISIBLE chat (the active path
+   * nodes — the same scope as the search dialog's "In chat"). The dialog
+   * finds names, proposes replacements and, on confirm, persists the updated
+   * node contents through the same path as search replacements.
+   */
+  async openNameReplace(): Promise<void> {
+    const units: NameTextUnit[] = this.searchUnits('chat');
+    if (units.length === 0) {
+      this.toast.info(this.i18n.t('nameReplace.noText'));
+      return;
+    }
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    const approved = await this.nameReplace.open({
+      units,
+      apply: async (updated) => {
+        for (const u of updated) {
+          await this.chatService.patchNode(chatId, u.key, { content: u.text });
+          // An open editor renders the live draft — push the replacement into
+          // it so the textarea stays in sync.
+          this.nodeComps().find((c) => c.node().id === u.key)?.setDraftFromSearch(u.text);
+        }
+      },
+      navigate: (occ) => this.nameNavigate(occ),
+      language: null,
+    });
+    if (approved && approved.length > 0) {
+      this.toast.success(this.i18n.t('nameReplace.applied', { count: approved.length }));
+    }
+  }
+
+  /** Open the "Name lists" settings dialog. */
+  async openNameList(): Promise<void> {
+    const changed = await this.nameList.open({});
+    if (changed) {
+      this.toast.success(this.i18n.t('nameList.saved'));
+    }
   }
 
 

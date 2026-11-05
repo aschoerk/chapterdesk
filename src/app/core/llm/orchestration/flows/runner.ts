@@ -23,7 +23,8 @@ import {
   structureHeading,
   structureHeadings,
   languageCheck,
-  rewriteSelection
+  rewriteSelection,
+  nameIdentify
 } from './structure';
 
 const FLOW_CONTROLLERS: Partial<Record<UsecaseKind, FlowController>> = {
@@ -39,7 +40,8 @@ const FLOW_CONTROLLERS: Partial<Record<UsecaseKind, FlowController>> = {
   'structure-heading': structureHeading,
   'structure-headings': structureHeadings,
   'language-check': languageCheck,
-  'rewrite-selection': rewriteSelection
+  'rewrite-selection': rewriteSelection,
+  'name-identify': nameIdentify
 };
 
 export function isFlowUsecase(usecase: UsecaseKind): boolean {

@@ -6,6 +6,7 @@ import type {
   ChatParametersDraft,
   CreateNodeRequest,
   ModelEntry,
+  NameEntry,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -23,6 +24,7 @@ import type {
 import type {
   BranchQuestionRequest,
   CreateModelRequest,
+  CreateNameEntryRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -33,6 +35,7 @@ import type {
   SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
+  UpdateNameEntryRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
@@ -371,6 +374,25 @@ export class SnapshotPersistence implements PersistencePort {
   async setPromptSelection(data: SetPromptSelectionRequest): Promise<PromptSelection> {
     return this.memory.setPromptSelection(data);
   }
+  // Name dictionary is global (shared) data — same as prompt versions, it is
+  // kept in the plain memory store with no topic/provider snapshot flush.
+
+  async getNames(): Promise<NameEntry[]> {
+    return this.memory.getNames();
+  }
+  async createNameEntry(data: CreateNameEntryRequest): Promise<NameEntry> {
+    return this.memory.createNameEntry(data);
+  }
+  async updateNameEntry(id: string, data: UpdateNameEntryRequest): Promise<NameEntry> {
+    return this.memory.updateNameEntry(id, data);
+  }
+  async deleteNameEntry(id: string): Promise<void> {
+    await this.memory.deleteNameEntry(id);
+  }
+  async importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]> {
+    return this.memory.importNameEntries(entries);
+  }
+
   async deletePromptSelection(
     promptId: string,
     scope: PromptScope,

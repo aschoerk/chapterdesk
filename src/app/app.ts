@@ -13,6 +13,8 @@ import {ImageLightboxComponent} from './components/image-lightbox/image-lightbox
 import {ChatImagePickerComponent} from './components/chat-image-picker/chat-image-picker.component';
 import {ToastHostComponent} from './components/toast-host/toast-host.component';
 import {ShortcutHelpComponent} from './components/shortcut-help/shortcut-help.component';
+import {NameReplaceDialogComponent} from './components/name-replace-dialog/name-replace-dialog.component';
+import {NameListDialogComponent} from './components/name-list-dialog/name-list-dialog.component';
 import {ThemeService} from './core/settings/theme.service';
 import {EnvironmentService} from './core/settings/environment.service';
 import {SettingsService} from './core/settings/settings.service';
@@ -27,7 +29,7 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, NodeVersionDiffDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, ChatImagePickerComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, NodeVersionDiffDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, ChatImagePickerComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent, NameReplaceDialogComponent, NameListDialogComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

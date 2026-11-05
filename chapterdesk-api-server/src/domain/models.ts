@@ -297,3 +297,41 @@ export interface RestoreTextVersionResult {
   /** Newest version row recording the pre-restore content (null when unchanged). */
   undoVersion: TextVersion | null;
 }
+
+// ---------------------------------------------------------------------------
+// Name dictionary.
+//
+// The "Replace names" dialog proposes replacement forms for names found in the
+// visible text. Replacement candidates come from this dictionary ("the list of
+// names loaded into the database", editable via the settings dialog). Each row
+// is one canonical person whose known forms (full name, short name, all-caps
+// form, initials) live together, so a variant found in the text can be
+// normalized / replaced consistently across the whole document.
+// ---------------------------------------------------------------------------
+
+/** The form a NameEntry records. */
+export type NameKind = 'full' | 'prename' | 'surname' | 'short' | 'capitalized' | 'initials';
+
+export type NameCategory = 'male' | 'female' | 'surname' | 'place' | 'brand';
+
+export interface NameEntry {
+  id: string;
+  /**
+   * Language of the name, using the ISO 639-1 style codes the app speaks
+   * (`de`, `en`, `it`, `us`, `ru`, `fr`, …). `null` = language-neutral.
+   * Used to scope "find/identify names" to the language the text is written
+   * in, so a German text only surfaces its German character forms.
+   */
+  language: string | null;
+  /** The exact name text, e.g. "Elizabeth". Used as the primary match key. */
+  name: string;
+  /** The classification of this name (male/female given, surname, place, brand). */
+  category: NameCategory | null;
+  /** Legacy gender, derived from category where possible. */
+  gender: 'male' | 'female' | null;
+  /** Legacy markers (pre-category schemas); present only for migration help. */
+  prename?: string | null;
+  surname?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

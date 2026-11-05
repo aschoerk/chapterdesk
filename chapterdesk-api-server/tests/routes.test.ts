@@ -1388,4 +1388,136 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  // ------------------------------------------------------------------------
+  // Name dictionary (used by the "Replace names" dialog)
+  // ------------------------------------------------------------------------
+  describe('Name dictionary', () => {
+    let elizabethId: string;
+
+    test('GET /api/names starts empty', async () => {
+      const res = await request(app).get('/api/names');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+
+    test('POST /api/names creates an entry with language + category', async () => {
+      const res = await request(app).post('/api/names').send({
+        name: 'Elizabeth',
+        language: 'en',
+        category: 'female',
+      });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({
+        name: 'Elizabeth',
+        language: 'en',
+        category: 'female',
+        gender: 'female',
+      });
+      expect(res.body.id).toBeDefined();
+      elizabethId = res.body.id;
+    });
+
+    test('POST /api/names rejects a missing name', async () => {
+      const res = await request(app).post('/api/names').send({ language: 'de' });
+      expect(res.status).toBe(400);
+    });
+
+    test('POST /api/names trims whitespace and defaults category to null', async () => {
+      const res = await request(app).post('/api/names').send({
+        name: '  Anna  ',
+        language: '  ',
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe('Anna');
+      expect(res.body.language).toBeNull();
+      expect(res.body.category).toBeNull();
+    });
+
+    test('PUT /api/names/:id updates category', async () => {
+      const res = await request(app)
+        .put(`/api/names/${elizabethId}`)
+        .send({ category: 'male' });
+      expect(res.status).toBe(200);
+      expect(res.body.category).toBe('male');
+      expect(res.body.gender).toBe('male');
+      expect(res.body.name).toBe('Elizabeth'); // untouched
+    });
+
+    test('PUT /api/names/:id clears a field with null', async () => {
+      const res = await request(app)
+        .put(`/api/names/${elizabethId}`)
+        .send({ category: null });
+      expect(res.status).toBe(200);
+      expect(res.body.category).toBeNull();
+    });
+
+    test('POST /api/names/bulk preserves category', async () => {
+      const res = await request(app).post('/api/names/bulk').send({
+        entries: [
+          { name: 'Fitzwilliam', language: 'en', category: 'male' },
+          { name: 'Darcy', category: 'surname' },
+        ],
+      });
+      expect(res.status).toBe(200);
+      const fitz = res.body.find((e: { name: string }) => e.name === 'Fitzwilliam');
+      expect(fitz.category).toBe('male');
+      const darcy = res.body.find((e: { name: string }) => e.name === 'Darcy');
+      expect(darcy.category).toBe('surname');
+    });
+
+    test('PUT /api/names/:id on a missing entry 404s', async () => {
+      const res = await request(app).put('/api/names/missing').send({ name: 'X' });
+      expect(res.status).toBe(404);
+    });
+
+    test('POST /api/names/import bulk-loads lines and dedups by name', async () => {
+      const res = await request(app).post('/api/names/import').send({
+        text: 'Mr. Darcy\nJane\nElizabeth\nLydia',
+      });
+      expect(res.status).toBe(200);
+      const names = res.body.map((e: { name: string }) => e.name);
+      expect(names).toContain('Mr. Darcy');
+      expect(names).toContain('Jane');
+      expect(names).toContain('Lydia');
+      // "Elizabeth" already existed → not duplicated.
+      expect(names.filter((n: string) => n === 'Elizabeth')).toHaveLength(1);
+    });
+
+    test('GET /api/names lists the imported + created entries', async () => {
+      const res = await request(app).get('/api/names');
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBeGreaterThanOrEqual(5);
+    });
+
+    test('DELETE /api/names/:id removes an entry', async () => {
+      const res = await request(app).delete(`/api/names/${elizabethId}`);
+      expect(res.status).toBe(204);
+      const list = await request(app).get('/api/names');
+      expect(list.body.some((e: { id: string }) => e.id === elizabethId)).toBe(false);
+    });
+
+    test('POST /api/names/bulk inserts many entries in one transaction', async () => {
+      const res = await request(app).post('/api/names/bulk').send({
+        entries: [
+          { name: 'Fitzwilliam', prename: 'Fitzwilliam', language: 'en' },
+          { name: 'Darcy', surname: 'Darcy', language: 'en' },
+          // duplicates + empty/blank are skipped
+          { name: 'Mary' },
+          { name: 'Mary' },
+          { name: '   ' },
+        ],
+      });
+      expect(res.status).toBe(200);
+      const names = res.body.map((e: { name: string }) => e.name);
+      expect(names).toContain('Fitzwilliam');
+      expect(names).toContain('Darcy');
+      expect(names.filter((n: string) => n === 'Mary')).toHaveLength(1);
+    });
+
+    test('POST /api/names/bulk requires an entries array', async () => {
+      const res = await request(app).post('/api/names/bulk').send({ entries: 'nope' });
+      expect(res.status).toBe(400);
+    });
+  });
 });

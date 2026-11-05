@@ -770,6 +770,72 @@ export const openApiSpec: OpenApiDocument = {
         responses: noContent,
       },
     },
+    '/api/names': {
+      get: {
+        tags: ['Names'],
+        summary: 'List all name entries in the dictionary',
+        operationId: 'getNames',
+        responses: ok({ type: 'array', items: ref('NameEntry') }),
+      },
+      post: {
+        tags: ['Names'],
+        summary: 'Add a name entry to the dictionary',
+        operationId: 'createNameEntry',
+        requestBody: { required: true, content: json(ref('CreateNameEntryRequest')) },
+        responses: created(ref('NameEntry')),
+      },
+    },
+    '/api/names/import': {
+      post: {
+        tags: ['Names'],
+        summary: 'Bulk-load a line-oriented list of names into the dictionary (dedup by name)',
+        operationId: 'importNames',
+        requestBody: {
+          required: true,
+          content: json({
+            type: 'object',
+            required: ['text'],
+            properties: { text: { type: 'string' } },
+          }),
+        },
+        responses: ok({ type: 'array', items: ref('NameEntry') }),
+      },
+    },
+    '/api/names/bulk': {
+      post: {
+        tags: ['Names'],
+        summary: 'Bulk-insert name entries (dedup by name) — used to seed the dictionary from a bundled name list',
+        operationId: 'importNameEntriesBulk',
+        requestBody: {
+          required: true,
+          content: json({
+            type: 'object',
+            required: ['entries'],
+            properties: {
+              entries: { type: 'array', items: ref('CreateNameEntryRequest') },
+            },
+          }),
+        },
+        responses: ok({ type: 'array', items: ref('NameEntry') }),
+      },
+    },
+    '/api/names/{id}': {
+      put: {
+        tags: ['Names'],
+        summary: 'Update a name entry (language, prename, surname, forms)',
+        operationId: 'updateNameEntry',
+        parameters: [idParam()],
+        requestBody: { required: true, content: json(ref('UpdateNameEntryRequest')) },
+        responses: ok(ref('NameEntry')),
+      },
+      delete: {
+        tags: ['Names'],
+        summary: 'Delete a name entry from the dictionary',
+        operationId: 'deleteNameEntry',
+        parameters: [idParam()],
+        responses: noContent,
+      },
+    },
   },
   components: {
     schemas: {
@@ -1234,6 +1300,38 @@ export const openApiSpec: OpenApiDocument = {
             description: 'Newest version row recording the pre-restore content (null when unchanged)',
             anyOf: [{ $ref: '#/components/schemas/TextVersion' }, { type: 'null' }],
           },
+        },
+      },
+      NameEntry: {
+        type: 'object',
+        required: ['id', 'language', 'name', 'category', 'gender', 'createdAt', 'updatedAt'],
+        properties: {
+          id: { type: 'string' },
+          language: { type: 'string', nullable: true, description: 'ISO 639-1 code (de, en, it, us, ru, …) or null for language-neutral' },
+          name: { type: 'string', description: 'The exact name text as matched' },
+          category: { type: 'string', nullable: true, enum: ['male', 'female', 'surname', 'place', 'brand'], description: 'What kind of name this is' },
+          gender: { type: 'string', nullable: true, enum: ['male', 'female'], description: 'Legacy gender, derived from category for given names' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreateNameEntryRequest: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string' },
+          language: { type: 'string', nullable: true },
+          category: { type: 'string', nullable: true, enum: ['male', 'female', 'surname', 'place', 'brand'] },
+          gender: { type: 'string', nullable: true, enum: ['male', 'female'], description: 'Legacy alias: maps to the given-name category when category is absent' },
+        },
+      },
+      UpdateNameEntryRequest: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          language: { type: 'string', nullable: true },
+          category: { type: 'string', nullable: true, enum: ['male', 'female', 'surname', 'place', 'brand'] },
+          gender: { type: 'string', nullable: true, enum: ['male', 'female'] },
         },
       },
     },

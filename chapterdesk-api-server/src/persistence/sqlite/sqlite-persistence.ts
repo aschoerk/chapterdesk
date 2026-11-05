@@ -10,6 +10,7 @@ import type {
   ChatParametersDraft,
   CreateNodeRequest,
   ModelEntry,
+  NameEntry,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -27,6 +28,7 @@ import type {
 import type {
   BranchQuestionRequest,
   CreateModelRequest,
+  CreateNameEntryRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -37,6 +39,7 @@ import type {
   SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
+  UpdateNameEntryRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
@@ -223,6 +226,53 @@ function mapPromptSelection(row: Row): PromptSelection {
   };
 }
 
+const NAME_CATEGORIES = new Set(['male', 'female', 'surname', 'place', 'brand']);
+
+/** Resolve an entry's category from a create/import payload (category wins,
+ *  legacy gender/surname fall back). */
+function normalizeNameCategory(data: {
+  category?: unknown;
+  gender?: unknown;
+}): string | null {
+  if (typeof data.category === 'string' && NAME_CATEGORIES.has(data.category)) {
+    return data.category;
+  }
+  if (data.gender === 'male' || data.gender === 'female') return data.gender;
+  return null;
+}
+
+function mapNameEntry(row: Row): NameEntry {
+  const gender = row.gender as string | null | undefined;
+  let category = row.category as string | null | undefined;
+  // Legacy fallback: an old row has a gender but no category — derive the
+  // category from it; a row with only a surname field is a surname.
+  if (!category && row.surname) category = 'surname';
+  if (!category && (gender === 'male' || gender === 'female')) category = gender;
+  if (!category || !NAME_CATEGORIES.has(category)) category = null;
+  return {
+    id: row.id as string,
+    language: (row.language as string | null) ?? null,
+    name: (row.name as string) ?? '',
+    category: category as NameEntry['category'],
+    gender:
+      category === 'male' || category === 'female'
+        ? category
+        : gender === 'male' || gender === 'female'
+          ? gender
+          : null,
+    // Legacy markers passed through so the client can classify old rows whose
+    // category could not be derived (e.g. a prename-only row, gender unknown).
+    ...((row.prename as string | null | undefined) != null
+      ? { prename: row.prename as string | null }
+      : {}),
+    ...((row.surname as string | null | undefined) != null
+      ? { surname: row.surname as string | null }
+      : {}),
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 function mapTextVersion(row: Row): TextVersion {
   return {
     id: row.id as string,
@@ -260,9 +310,12 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS prompt_versions (id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS prompt_selections (prompt_id TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(prompt_id, scope, topic_id));
       CREATE TABLE IF NOT EXISTS text_versions (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, entity_attribute TEXT NOT NULL, version_number INTEGER NOT NULL, datetime TEXT NOT NULL, old_content TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS name_entries (id TEXT PRIMARY KEY, language TEXT, name TEXT NOT NULL, category TEXT, gender TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(prompt_id);
       CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
       CREATE INDEX IF NOT EXISTS idx_text_versions_entity ON text_versions(entity_type, entity_id, entity_attribute);
+      CREATE INDEX IF NOT EXISTS idx_name_entries_name ON name_entries(name);
+      CREATE INDEX IF NOT EXISTS idx_name_entries_language ON name_entries(language);
     `);
     this.addColumn('projects', 'main_topic_id', 'TEXT');
     this.addColumn('projects', 'chat_parameters_id', 'TEXT');
@@ -290,6 +343,11 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('models', 'catalog_json', 'TEXT');
     this.addColumn('models', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_parameters', 'top_p', 'REAL');
+    // Name dictionary: existing databases predate the gender/category columns
+    // (they were only in CREATE TABLE IF NOT EXISTS, which does NOT alter an
+    // existing table — so the INSERT/UPDATE previously failed on old DBs).
+    this.addColumn('name_entries', 'gender', 'TEXT');
+    this.addColumn('name_entries', 'category', 'TEXT');
     this.migrateChatNodeRoles();
   }
 
@@ -552,6 +610,89 @@ export class SqlitePersistence implements PersistencePort {
   async deleteTextVersion(id: string): Promise<void> {
     this.requireRow('text-version', id, 'text_versions');
     this.db.prepare('DELETE FROM text_versions WHERE id=?').run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Name dictionary (used by the "Replace names" dialog)
+  // -------------------------------------------------------------------------
+
+  async getNames(): Promise<NameEntry[]> {
+    return this.rows('SELECT * FROM name_entries ORDER BY rowid').map(mapNameEntry);
+  }
+  async createNameEntry(data: CreateNameEntryRequest): Promise<NameEntry> {
+    const id = randomUUID();
+    const ts = now();
+    const category = normalizeNameCategory(data);
+    this.db
+      .prepare(
+        'INSERT INTO name_entries(id,language,name,category,gender,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+      )
+      .run(
+        id,
+        data.language ?? null,
+        data.name ?? '',
+        category,
+        category === 'male' || category === 'female' ? category : data.gender ?? null,
+        ts,
+        ts,
+      );
+    return mapNameEntry(this.requireRow('name-entry', id, 'name_entries'));
+  }
+  async updateNameEntry(id: string, data: UpdateNameEntryRequest): Promise<NameEntry> {
+    const old = this.requireRow('name-entry', id, 'name_entries');
+    const oldCategory = mapNameEntry(old).category;
+    const category =
+      data.category !== undefined
+        ? data.category ?? null
+        : data.gender !== undefined
+          ? (data.gender ?? null)
+          : oldCategory;
+    this.db
+      .prepare(
+        'UPDATE name_entries SET language=?, name=?, category=?, gender=?, updated_at=? WHERE id=?',
+      )
+      .run(
+        data.language !== undefined ? data.language : old.language,
+        data.name !== undefined ? data.name : old.name,
+        category,
+        category === 'male' || category === 'female' ? category : data.gender ?? null,
+        now(),
+        id,
+      );
+    return mapNameEntry(this.requireRow('name-entry', id, 'name_entries'));
+  }
+  async deleteNameEntry(id: string): Promise<void> {
+    this.requireRow('name-entry', id, 'name_entries');
+    this.db.prepare('DELETE FROM name_entries WHERE id=?').run(id);
+  }
+  async importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]> {
+    if (!entries.length) return this.getNames();
+    const existing = this.db.prepare('SELECT name FROM name_entries').all() as Row[];
+    const known = new Set(existing.map((row) => String(row.name).toLowerCase()));
+    const ts = now();
+    const insert = this.db.prepare(
+      'INSERT INTO name_entries(id,language,name,category,gender,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+    );
+    const tx = this.db.transaction(() => {
+      for (const entry of entries) {
+        const name = (entry.name ?? '').trim();
+        if (!name) continue;
+        if (known.has(name.toLowerCase())) continue;
+        known.add(name.toLowerCase());
+        const category = normalizeNameCategory(entry);
+        insert.run(
+          randomUUID(),
+          entry.language ?? null,
+          name,
+          category,
+          category === 'male' || category === 'female' ? category : entry.gender ?? null,
+          ts,
+          ts,
+        );
+      }
+    });
+    tx();
+    return this.getNames();
   }
 
   async getProjects(): Promise<Project[]> {

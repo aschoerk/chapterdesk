@@ -137,3 +137,22 @@ export interface SetPromptSelectionRequest {
   topicId?: string | null;
   versionId: string;
 }
+
+// ---------------------------------------------------------------------------
+// Name dictionary ("Replace names" dialog).
+// ---------------------------------------------------------------------------
+
+export interface CreateNameEntryRequest {
+  name: string;
+  language?: string | null;
+  category?: 'male' | 'female' | 'surname' | 'place' | 'brand' | null;
+  /** Legacy gender; when category is absent it is used to derive it. */
+  gender?: 'male' | 'female' | null;
+}
+
+export type UpdateNameEntryRequest = Partial<{
+  name: string;
+  language: string | null;
+  category: 'male' | 'female' | 'surname' | 'place' | 'brand' | null;
+  gender: 'male' | 'female' | null;
+}>;

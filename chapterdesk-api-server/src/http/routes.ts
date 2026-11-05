@@ -13,6 +13,7 @@ import type {
 import type {
   BranchQuestionRequest,
   CreateModelRequest,
+  CreateNameEntryRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -22,6 +23,7 @@ import type {
   PatchNodeRequest,
   SetPromptSelectionRequest,
   UpdateModelRequest,
+  UpdateNameEntryRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
@@ -726,6 +728,119 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
         : null;
       await api.deletePromptSelection(promptId, scope as 'user' | 'topic', topicId);
       res.status(204).end();
+    }),
+  );
+
+  // Name dictionary (used by the "Replace names" dialog).
+  //   GET/POST        /api/names
+  //   PUT/DELETE      /api/names/:id
+  //   POST            /api/names/import   (line-oriented bulk load)
+  // Optional string fields of a name entry. The only classification is the
+  // `category` enum (male|female|surname|place|brand); legacy `gender` is
+  // accepted and maps to the given-name category.
+  type NameOptionalField = Exclude<keyof CreateNameEntryRequest, 'name' | 'category' | 'gender'>;
+  const NAME_STRINGS: NameOptionalField[] = ['language'];
+
+  /** Normalize an incoming gender value: 'male'|'female'|null (else null). */
+  function normalizeGender(value: unknown): 'male' | 'female' | null {
+    return value === 'male' || value === 'female' ? value : null;
+  }
+
+  /** Normalize an incoming category value (or null when unknown). */
+  function normalizeCategory(value: unknown): CreateNameEntryRequest['category'] {
+    return value === 'male' ||
+      value === 'female' ||
+      value === 'surname' ||
+      value === 'place' ||
+      value === 'brand'
+      ? value
+      : null;
+  }
+
+  app.get(
+    '/api/names',
+    wrap(async (_req, res) => {
+      res.json(await api.getNames());
+    }),
+  );
+  app.post(
+    '/api/names',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.name !== 'string' || !body.name.trim()) {
+        throw badRequest('name (string) is required');
+      }
+      const data: CreateNameEntryRequest = { name: body.name.trim() };
+      for (const field of NAME_STRINGS) {
+        const value = body[field];
+        data[field] = typeof value === 'string' && value.trim() ? value.trim() : null;
+      }
+      if (body.category !== undefined) data.category = normalizeCategory(body.category);
+      if (data.category && data.category !== 'surname' && body.gender !== undefined) {
+        data.gender = normalizeGender(body.gender);
+      }
+      res.status(201).json(await api.createNameEntry(data));
+    }),
+  );
+  app.put(
+    '/api/names/:id',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
+        throw badRequest('name must be a non-empty string');
+      }
+      const data: UpdateNameEntryRequest = {};
+      if (body.name !== undefined) data.name = String(body.name).trim();
+      if (body.category !== undefined) data.category = normalizeCategory(body.category);
+      if (body.gender !== undefined) data.gender = normalizeGender(body.gender);
+      res.json(await api.updateNameEntry(param(req, 'id'), data));
+    }),
+  );
+  app.delete(
+    '/api/names/:id',
+    wrap(async (req, res) => {
+      await api.deleteNameEntry(param(req, 'id'));
+      res.status(204).end();
+    }),
+  );
+  app.post(
+    '/api/names/import',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.text !== 'string') throw badRequest('text (string) is required');
+      const lines = body.text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      const existing = await api.getNames();
+      const known = new Set(existing.map((e) => e.name.toLowerCase()));
+      const entries: CreateNameEntryRequest[] = [];
+      for (const name of lines) {
+        const key = name.toLowerCase();
+        if (known.has(key)) continue;
+        known.add(key);
+        entries.push({ name });
+      }
+      res.json(await api.importNameEntries(entries));
+    }),
+  );
+  app.post(
+    '/api/names/bulk',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as { entries?: unknown };
+      if (!Array.isArray(body.entries)) throw badRequest('entries (array) is required');
+      const entries: CreateNameEntryRequest[] = body.entries
+        .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
+        .map((e) => {
+          const name = typeof e.name === 'string' ? e.name.trim() : '';
+          const out: CreateNameEntryRequest = { name };
+          if (typeof e.language === 'string' && e.language.trim()) out.language = e.language.trim();
+          if (e.category !== undefined) out.category = normalizeCategory(e.category);
+          if (e.gender !== undefined) out.gender = normalizeGender(e.gender);
+          return out;
+        })
+        .filter((e) => e.name.length > 0);
+      res.json(await api.importNameEntries(entries));
     }),
   );
 

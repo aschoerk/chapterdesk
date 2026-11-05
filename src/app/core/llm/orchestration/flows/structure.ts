@@ -267,11 +267,32 @@ const rewriteSelection: FlowController = async env => {
   return textCompletion(env, parts.join('\n\n'), { stream: true });
 };
 
+// ---------------------------------------------------------------------------
+// name-identify — extract the character names present in a piece of text.
+// Non-mutating: returns a JSON array of name strings in `text`. Used by the
+// "Replace names" dialog's "Identify names with AI" action.
+// ---------------------------------------------------------------------------
+const nameIdentify: FlowController = async env => {
+  const text = (env.cx.vars.content ?? '').trim();
+  if (!text) {
+    return { error: makeSlot('error', 'http', 'No text to scan for names.', {}) };
+  }
+  const instruction =
+    'You are given a story text. Identify the names of all characters (people) ' +
+    'that appear in it. For each name, return the form in which it appears in ' +
+    'the text (the exact spelling used). ' +
+    'Return ONLY a JSON array of strings, e.g. ["Elizabeth", "Liz", "Mr. Bennet"]. ' +
+    'Do not include common words, places or titles that are not names. ' +
+    'If there are no names, return [].';
+  return textCompletion(env, `${instruction}\n\nStory text:\n${text}`, { stream: false });
+};
+
 export {
   structureTitle,
   structureOverview,
   structureHeading,
   structureHeadings,
   languageCheck,
-  rewriteSelection
+  rewriteSelection,
+  nameIdentify
 };

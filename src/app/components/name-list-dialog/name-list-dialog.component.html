@@ -1,0 +1,148 @@
+@if (dialog.current()) {
+  <div
+    class="nl-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="nl-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nl-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="nl-title">{{ i18n.t('nameList.title') }}</h3>
+      <p class="nl-hint">{{ i18n.t('nameList.hint') }}</p>
+
+      <div class="nl-toolbar">
+        <label class="nl-filter">
+          <span class="nl-label">{{ i18n.t('nameList.filterLabel') }}</span>
+          <select [ngModel]="filter()" (ngModelChange)="filter.set($event); onFilterChange()">
+            <option value="">{{ i18n.t('nameList.filterAll') }}</option>
+            @for (lang of languages; track lang) {
+              <option [value]="lang">{{ lang }}</option>
+            }
+            <option [value]="excludedLanguage">{{ i18n.t('nameList.excludedFilter') }}</option>
+          </select>
+        </label>
+        <span class="nl-count">{{ i18n.t('nameList.count', { count: filtered().length }) }}</span>
+        <span class="nl-spacer"></span>
+        @if (!editing()) {
+          <button type="button" class="nl-btn nl-btn-primary" (click)="startNew()">
+            {{ i18n.t('nameList.add') }}
+          </button>
+        }
+      </div>
+
+      @if (editing()) {
+        <div class="nl-form">
+          <div class="nl-form-grid">
+            <label class="nl-field">
+              <span class="nl-label">{{ i18n.t('nameList.name') }}</span>
+              <input type="text" [ngModel]="form().name" (ngModelChange)="form.update(f => ({ ...f, name: $event }))" />
+            </label>
+            <label class="nl-field">
+              <span class="nl-label">{{ i18n.t('nameList.category') }}</span>
+              <select [ngModel]="form().category" (ngModelChange)="form.update(f => ({ ...f, category: $event }))">
+                <option value="">{{ i18n.t('nameList.categoryAny') }}</option>
+                <option value="male">{{ i18n.t('nameCategory.male') }}</option>
+                <option value="female">{{ i18n.t('nameCategory.female') }}</option>
+                <option value="surname">{{ i18n.t('nameCategory.surname') }}</option>
+                <option value="place">{{ i18n.t('nameCategory.place') }}</option>
+                <option value="brand">{{ i18n.t('nameCategory.brand') }}</option>
+              </select>
+            </label>
+            <label class="nl-field">
+              <span class="nl-label">{{ i18n.t('nameList.language') }}</span>
+              <select [ngModel]="form().language" (ngModelChange)="form.update(f => ({ ...f, language: $event }))">
+                <option value="">{{ i18n.t('nameList.languageAny') }}</option>
+                @for (lang of languages; track lang) {
+                  <option [value]="lang">{{ lang }}</option>
+                }
+              </select>
+            </label>
+          </div>
+          <div class="nl-form-actions">
+            <button type="button" class="nl-btn nl-btn-primary" (click)="saveForm()"
+                    [disabled]="saving() || !form().name.trim()">
+              {{ saving() ? i18n.t('nameList.saving') : i18n.t('nameList.save') }}
+            </button>
+            <button type="button" class="nl-btn" (click)="cancelEdit()">{{ i18n.t('common.cancel') }}</button>
+          </div>
+        </div>
+      }
+
+      <div class="nl-import">
+        <span class="nl-label">{{ i18n.t('nameList.importLabel') }}</span>
+        <textarea
+          rows="3"
+          [ngModel]="importText()"
+          (ngModelChange)="importText.set($event)"
+          [placeholder]="i18n.t('nameList.importPh')"
+        ></textarea>
+        <div class="nl-import-actions">
+          <button type="button" class="nl-btn" (click)="importNames()"
+                  [disabled]="saving() || !importText().trim()">
+            {{ i18n.t('nameList.import') }}
+          </button>
+          <button type="button" class="nl-btn nl-btn-builtin" (click)="loadBuiltinNames()"
+                  [disabled]="seedingBuiltin() || saving()"
+                  [title]="i18n.t('nameList.builtinTitle')">
+            {{ seedingBuiltin() ? i18n.t('nameList.seeding') : i18n.t('nameList.builtin') }}
+          </button>
+        </div>
+      </div>
+
+      @if (dictionary.loading()) {
+        <div class="nl-loading">
+          <span class="nl-spinner" aria-hidden="true"></span>
+          {{ i18n.t('nameList.loading') }}
+        </div>
+      } @else {
+        <div class="nl-list">
+          @if (filtered().length === 0) {
+            <p class="nl-empty">{{ i18n.t('nameList.empty') }}</p>
+          }
+          @for (entry of filtered(); track entry.id) {
+          <div class="nl-row" [class.nl-excluded]="isExcludedEntry(entry)">
+            <span class="nl-row-name">
+              <span class="nl-name">{{ entry.name }}</span>
+              @if (isExcludedEntry(entry)) {
+                <span class="nl-lang nl-lang-excluded" [title]="i18n.t('nameList.excludedTitle')">
+                  {{ i18n.t('nameList.excludedTag') }}
+                </span>
+              } @else {
+                <span class="nl-chip"
+                      [class.nl-cat-given-m]="entryCategory(entry) === 'male'"
+                      [class.nl-cat-given-f]="entryCategory(entry) === 'female'">
+                  {{ categoryLabel(entry) }}
+                </span>
+                @if (entry.language) {
+                  <span class="nl-lang">{{ entry.language }}</span>
+                }
+              }
+            </span>
+            <span class="nl-row-forms"></span>
+            <span class="nl-row-actions">
+              <button type="button" class="nl-btn nl-btn-small" (click)="startEdit(entry)">
+                {{ i18n.t('nameList.edit') }}
+              </button>
+              <button type="button" class="nl-btn nl-btn-small nl-btn-danger" (click)="deleteEntry(entry)">
+                {{ i18n.t('nameList.delete') }}
+              </button>
+            </span>
+          </div>
+          }
+        </div>
+      }
+
+      <div class="nl-actions">
+        <button type="button" class="nl-btn nl-btn-primary" (click)="close()">
+          {{ i18n.t('common.close') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

@@ -7,6 +7,7 @@ import type {
   ChatParametersDraft,
   CreateNodeRequest,
   ModelEntry,
+  NameEntry,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -24,6 +25,7 @@ import type {
 import type {
   BranchQuestionRequest,
   CreateModelRequest,
+  CreateNameEntryRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -34,6 +36,7 @@ import type {
   SetPromptSelectionRequest,
   ToggleModelResponse,
   UpdateModelRequest,
+  UpdateNameEntryRequest,
   UpdatePersonaRequest,
   UpdateProjectRequest,
   UpdateProviderRequest,
@@ -93,6 +96,7 @@ export class MemoryPersistence implements PersistencePort {
   private promptVersions = new Map<string, PromptVersion>();
   private promptSelections = new Map<string, PromptSelection>();
   private textVersions = new Map<string, TextVersion>();
+  private nameEntries = new Map<string, NameEntry>();
   private topicRevisions = new Map<string, SnapshotMeta>();
   private providerRevisions = new Map<string, SnapshotMeta>();
 
@@ -1083,6 +1087,76 @@ export class MemoryPersistence implements PersistencePort {
   async deleteTextVersion(id: string): Promise<void> {
     if (!this.textVersions.has(id)) throw notFound('text-version', id);
     this.textVersions.delete(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Name dictionary (used by the "Replace names" dialog)
+  // ---------------------------------------------------------------------------
+
+  async getNames(): Promise<NameEntry[]> {
+    return [...this.nameEntries.values()].map(clone);
+  }
+  async createNameEntry(data: CreateNameEntryRequest): Promise<NameEntry> {
+    const ts = now();
+    const category = (data.category ?? data.gender ?? null) as NameEntry['category'];
+    const entry: NameEntry = {
+      id: randomUUID(),
+      language: data.language ?? null,
+      name: data.name ?? '',
+      category,
+      gender: category === 'male' || category === 'female' ? category : data.gender ?? null,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    this.nameEntries.set(entry.id, entry);
+    return clone(entry);
+  }
+  async updateNameEntry(id: string, data: UpdateNameEntryRequest): Promise<NameEntry> {
+    const existing = this.nameEntries.get(id);
+    if (!existing) throw notFound('name-entry', id);
+    const category =
+      data.category !== undefined
+        ? (data.category ?? null)
+        : data.gender !== undefined
+          ? (data.gender ?? null)
+          : existing.category;
+    const next: NameEntry = {
+      ...existing,
+      language: data.language !== undefined ? data.language : existing.language,
+      name: data.name !== undefined ? data.name : existing.name,
+      category,
+      gender: category === 'male' || category === 'female' ? category : data.gender ?? null,
+      updatedAt: now(),
+    };
+    this.nameEntries.set(id, next);
+    return clone(next);
+  }
+  async deleteNameEntry(id: string): Promise<void> {
+    if (!this.nameEntries.has(id)) throw notFound('name-entry', id);
+    this.nameEntries.delete(id);
+  }
+  async importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]> {
+    const known = new Set(
+      [...this.nameEntries.values()].map((e) => e.name.toLowerCase()),
+    );
+    for (const data of entries) {
+      const name = (data.name ?? '').trim();
+      if (!name || known.has(name.toLowerCase())) continue;
+      known.add(name.toLowerCase());
+      const ts = now();
+      const category = (data.category ?? data.gender ?? null) as NameEntry['category'];
+      const entry: NameEntry = {
+        id: randomUUID(),
+        language: data.language ?? null,
+        name,
+        category,
+        gender: category === 'male' || category === 'female' ? category : data.gender ?? null,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      this.nameEntries.set(entry.id, entry);
+    }
+    return this.getNames();
   }
 
   private requireChat(id: string): Chat {

@@ -120,6 +120,18 @@
               {{ i18n.t('search.open') }}
             </button>
 
+            <button class="btn small" type="button"
+                    (click)="openNameReplace()"
+                    [title]="i18n.t('nameReplace.openTitle')">
+              {{ i18n.t('nameReplace.open') }}
+            </button>
+
+            <button class="btn small" type="button"
+                    (click)="openNameList()"
+                    [title]="i18n.t('nameList.openTitle')">
+              {{ i18n.t('nameList.open') }}
+            </button>
+
             @if (clipboard.hasContent()) {
               <button class="btn small" type="button"
                       (click)="pasteAtTop()"

@@ -1,0 +1,239 @@
+@if (dialog.current(); as d) {
+  <div
+    class="nr-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      #dialog
+      class="nr-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nr-title"
+      (click)="$event.stopPropagation()"
+      [class.nr-dragging]="dragging()"
+      [class.nr-resizing]="resizing()"
+      [style.width.px]="size()?.width ?? null"
+      [style.height.px]="size()?.height ?? null"
+      [style.transform]="'translate(' + dragPos().x + 'px,' + dragPos().y + 'px)'"
+    >
+      <div
+        class="nr-drag-handle"
+        (pointerdown)="onDragStart($event)"
+        (pointermove)="onDragMove($event)"
+        (pointerup)="endDrag($event)"
+        (pointercancel)="endDrag($event)"
+        [title]="i18n.t('nameReplace.dragTitle')"
+      >
+        <h3 id="nr-title">{{ i18n.t('nameReplace.title') }}</h3>
+        <span class="nr-drag-grip" aria-hidden="true">⠿</span>
+      </div>
+      <p class="nr-hint">{{ i18n.t('nameReplace.hint') }}</p>
+
+      <div class="nr-toolbar">
+        <label class="nr-field nr-language">
+          <span class="nr-label">{{ i18n.t('nameReplace.languageLabel') }}</span>
+          <select
+            [ngModel]="language()"
+            (ngModelChange)="language.set($event); onLanguageChange()"
+            [title]="i18n.t('nameReplace.languageTitle')"
+          >
+            <option [ngValue]="null">{{ i18n.t('nameReplace.languageAny') }}</option>
+            @for (lang of ['en','de','it','us','ru','fr','es','pt','nl','pl']; track lang) {
+              <option [value]="lang">{{ lang }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="nr-toggle" [title]="i18n.t('nameReplace.onlyAssistantTitle')">
+          <input
+            type="checkbox"
+            [checked]="onlyAssistant()"
+            (change)="onlyAssistant.set($any($event.target).checked); onOnlyAssistantChange()"
+          />
+          {{ i18n.t('nameReplace.onlyAssistant') }}
+        </label>
+      </div>
+
+      @if (dictionary.loading()) {
+        <p class="nr-loading">
+          <span class="nr-spinner" aria-hidden="true"></span>
+          {{ i18n.t('nameReplace.loading') }}
+        </p>
+      }
+
+      @if (rows().length === 0 && !dictionary.loading()) {
+        <p class="nr-empty">{{ i18n.t('nameReplace.empty') }}</p>
+      }
+
+      @if (rows().length > 0) {
+        <div class="nr-list">
+          <table>
+            <colgroup>
+              <col class="nr-col-w-ok" />
+              <col class="nr-col-w-excl" />
+              <col class="nr-col-w-name" />
+              <col class="nr-col-w-proposed" />
+            </colgroup>
+            <thead>
+              <tr class="nr-list-head">
+                <th class="nr-col-ok"></th>
+                <th class="nr-col-excl">{{ i18n.t('nameReplace.excludeShort') }}</th>
+                <th class="nr-col-name">{{ i18n.t('nameReplace.colName') }}</th>
+                <th class="nr-col-proposed">{{ i18n.t('nameReplace.colProposed') }}</th>
+              </tr>
+              <tr class="nr-list-head nr-list-head-sub">
+                <th class="nr-col-ok"></th>
+                <th class="nr-col-excl"></th>
+                <th class="nr-col-name"></th>
+                <th class="nr-col-proposed">
+                  <span class="nr-col-kind" [title]="i18n.t('nameReplace.kindTitle')">
+                    <span class="nr-kind-label">M</span><span class="nr-kind-label">F</span><span class="nr-kind-label">S</span>
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of rows(); track row.form) {
+                <tr class="nr-row" [class.nr-excluded]="row.excluded">
+                  <td class="nr-col-ok">
+                    <input
+                      type="checkbox"
+                      [checked]="row.approved"
+                      (change)="toggleApproved(row)"
+                      [disabled]="row.excluded"
+                      [title]="i18n.t('nameReplace.approveTitle')"
+                    />
+                  </td>
+                  <td class="nr-col-excl">
+                    <input
+                      type="checkbox"
+                      [checked]="row.excluded"
+                      (change)="toggleExcluded(row)"
+                      [disabled]="!!row.entry"
+                      [title]="row.entry ? i18n.t('nameReplace.excludeOnlyUnknown') : i18n.t('nameReplace.excludeTitle')"
+                    />
+                  </td>
+                  <td class="nr-col-name">
+                    <span class="nr-form">{{ row.form }}</span>
+                    @if (row.entry) {
+                      <span class="nr-entry" [title]="i18n.t('nameReplace.entryTitle')">
+                        {{ row.entry.name }}@if (row.entry.language) { ({{ row.entry.language }}) }
+                      </span>
+                    }
+                    @if (row.excluded) {
+                      <span class="nr-excl-tag">{{ i18n.t('nameReplace.excludedTag') }}</span>
+                    }
+                    @if (row.allCapsForm) {
+                      <span class="nr-allcaps" [title]="i18n.t('nameReplace.allCapsTitle')">
+                        {{ i18n.t('nameReplace.allCapsTag') }}: {{ row.allCapsForm }}
+                      </span>
+                    }
+                    @if ((row.occurrences ?? []).length > 0) {
+                      <span class="nr-nav">
+                        <button
+                          type="button"
+                          class="nr-nav-btn"
+                          (click)="prevOccurrence(row)"
+                          [disabled]="row.excluded"
+                          [title]="i18n.t('nameReplace.prevTitle')"
+                          aria-label="{{ i18n.t('nameReplace.prev') }} {{ row.form }}"
+                        >◀</button>
+                        <span class="nr-nav-pos" [title]="i18n.t('nameReplace.navPosTitle')">{{ navPos(row) }}/{{ navTotal(row) }}</span>
+                        <button
+                          type="button"
+                          class="nr-nav-btn"
+                          (click)="nextOccurrence(row)"
+                          [disabled]="row.excluded"
+                          [title]="i18n.t('nameReplace.nextTitle')"
+                          aria-label="{{ i18n.t('nameReplace.next') }} {{ row.form }}"
+                        >▶</button>
+                      </span>
+                    }
+                  </td>
+                  <td class="nr-col-proposed">
+                    <span class="nr-proposed-line">
+                      <select
+                        #proposedSel
+                        [ngModel]="row.proposed"
+                        (ngModelChange)="selectProposed(row, $event)"
+                        (pointerdown)="positionProposedDropdown(proposedSel, row)"
+                        (focus)="positionProposedDropdown(proposedSel, row)"
+                        (blur)="restoreProposedDropdown(proposedSel, row)"
+                        [disabled]="row.excluded"
+                        [title]="i18n.t('nameReplace.proposedTitle')"
+                      >
+                        @for (c of row.candidates; track c) {
+                          <option [value]="c">{{ c }}</option>
+                        }
+                      </select>
+                      <input
+                        type="text"
+                        class="nr-proposed-input"
+                        [ngModel]="row.proposed"
+                        (ngModelChange)="setProposed(row, $event)"
+                        [disabled]="row.excluded"
+                        [placeholder]="i18n.t('nameReplace.proposedPh')"
+                      />
+                    </span>
+                    <span class="nr-col-kind" [title]="i18n.t('nameReplace.kindTitle')">
+                      <label class="nr-kind" [title]="i18n.t('nameReplace.kindMaleTitle')">
+                        <input type="checkbox" [checked]="row.filters.male"
+                               (change)="setFilter(row, 'male', $any($event.target).checked)" />
+                      </label>
+                      <label class="nr-kind" [title]="i18n.t('nameReplace.kindFemaleTitle')">
+                        <input type="checkbox" [checked]="row.filters.female"
+                               (change)="setFilter(row, 'female', $any($event.target).checked)" />
+                      </label>
+                      <label class="nr-kind" [title]="i18n.t('nameReplace.kindSurnameTitle')">
+                        <input type="checkbox" [checked]="row.filters.surname"
+                               (change)="setFilter(row, 'surname', $any($event.target).checked)" />
+                      </label>
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <div class="nr-actions">
+        <span class="nr-summary">
+          {{ i18n.t('nameReplace.summary', { approved: approvedCount(), excluded: excludedCount(), total: rows().length }) }}
+        </span>
+        <span class="nr-spacer"></span>
+        <button type="button" class="nr-btn" (click)="approveAll()"
+                [disabled]="rows().length === 0"
+                [title]="i18n.t('nameReplace.approveAllTitle')">
+          {{ i18n.t('nameReplace.approveAll') }}
+        </button>
+        <button type="button" class="nr-btn" (click)="clearAll()"
+                [disabled]="approvedCount() === 0 && excludedCount() === 0"
+                [title]="i18n.t('nameReplace.clearAllTitle')">
+          {{ i18n.t('nameReplace.clearAll') }}
+        </button>
+        <button type="button" class="nr-btn nr-btn-primary" (click)="replaceApproved()"
+                [disabled]="approvedCount() === 0 && excludedCount() === 0"
+                [title]="i18n.t('nameReplace.applyTitle')">
+          {{ i18n.t('nameReplace.apply', { count: approvedCount() + excludedCount() }) }}
+        </button>
+        <button type="button" class="nr-btn" (click)="cancel()"
+                [title]="i18n.t('common.cancel')">
+          {{ i18n.t('common.cancel') }}
+        </button>
+      </div>
+      <span
+        class="nr-resize-handle"
+        (pointerdown)="onResizeStart($event)"
+        (pointermove)="onResizeMove($event)"
+        (pointerup)="endResize($event)"
+        (pointercancel)="endResize($event)"
+        [title]="i18n.t('nameReplace.resizeTitle')"
+        aria-hidden="true"
+      >⤡</span>
+    </div>
+  </div>
+}
