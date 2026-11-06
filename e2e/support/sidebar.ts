@@ -68,6 +68,20 @@ export async function widenSidebar(page: Page, targetPx = SIDEBAR_WIDTH_TARGET):
   expect(final).toBeGreaterThanOrEqual(500);
 }
 
+/** Minimize the sidebar (hide it). */
+export async function minimizeSidebar(page: Page): Promise<void> {
+  const toggle = page.locator('.sidebar-toggle-btn').first();
+  await toggle.waitFor({ state: 'visible' });
+  await toggle.click();
+}
+
+/** Unminimize the sidebar (show it again). */
+export async function maximizeSidebar(page: Page): Promise<void> {
+  const toggle = page.locator('.sidebar-toggle-btn').first();
+  await toggle.waitFor({ state: 'visible' });
+  await toggle.click();
+}
+
 export async function openApp(page: Page): Promise<void> {
   // Single origin (docker-compose.e2e.yml): SPA + API + proxy on the same
   // host, so the Angular client resolves the API base from window.location.

@@ -677,6 +677,7 @@ export class ChatComponent implements OnInit {
    *  reading `component.sidebarWidth()`, `component.navBarHeight()`, … */
   readonly sidebarWidth = this.layoutPrefs.sidebarWidth;
   readonly isResizing = this.layoutPrefs.isResizing;
+  readonly sidebarCollapsed = this.layoutPrefs.sidebarCollapsed;
   readonly navBarHeight = this.layoutPrefs.navBarHeight;
   readonly isNavResizing = this.layoutPrefs.isNavResizing;
   readonly showChatParams = signal(false);
@@ -722,6 +723,10 @@ export class ChatComponent implements OnInit {
 
   resetSidebarWidth() {
     this.layoutPrefs.resetSidebarWidth();
+  }
+
+  toggleSidebarCollapsed() {
+    this.layoutPrefs.toggleSidebarCollapsed();
   }
 
   // ------------------------------------------------------------------

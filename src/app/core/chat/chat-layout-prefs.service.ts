@@ -11,6 +11,7 @@ import { ChatService } from './chat.service';
 @Injectable({ providedIn: 'root' })
 export class ChatLayoutPrefsService {
   private static readonly LS_SIDEBAR_WIDTH = 'chat-client.sidebar.width';
+  private static readonly LS_SIDEBAR_COLLAPSED = 'chat-client.sidebar.collapsed';
   /** Initial sidebar width: wide enough to show ~15 characters of a chat
    *  title plus all chat-row icon buttons (rename, unassign, reassign,
    *  clone, delete) and the node count when chats are visible. */
@@ -32,6 +33,8 @@ export class ChatLayoutPrefsService {
   /** Sidebar width (px) — global, remembered in localStorage. */
   readonly sidebarWidth = signal(this.loadSidebarWidth());
   readonly isResizing = signal(false);
+  /** Whether the sidebar is minimized (hidden). Persisted in localStorage. */
+  readonly sidebarCollapsed = signal(this.loadSidebarCollapsed());
 
   /** Explicit height (px) of the node-nav-bar for the CURRENT chat, or null =
    *  DEFAULT handling: content-sized, capped at 4 lines with a scrollbar, and
@@ -76,6 +79,41 @@ export class ChatLayoutPrefsService {
       ChatLayoutPrefsService.SIDEBAR_WIDTH_MAX,
       Math.max(ChatLayoutPrefsService.SIDEBAR_WIDTH_MIN, n)
     );
+  }
+
+  private loadSidebarCollapsed(): boolean {
+    try {
+      return localStorage.getItem(ChatLayoutPrefsService.LS_SIDEBAR_COLLAPSED) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Minimize the sidebar (hide it completely). */
+  collapseSidebar(): void {
+    this.sidebarCollapsed.set(true);
+    this.persistSidebarCollapsed();
+  }
+
+  /** Unminimize the sidebar (show it again). */
+  expandSidebar(): void {
+    this.sidebarCollapsed.set(false);
+    this.persistSidebarCollapsed();
+  }
+
+  /** Toggle between minimized and expanded. */
+  toggleSidebarCollapsed(): void {
+    if (this.sidebarCollapsed()) this.expandSidebar();
+    else this.collapseSidebar();
+  }
+
+  private persistSidebarCollapsed(): void {
+    try {
+      localStorage.setItem(
+        ChatLayoutPrefsService.LS_SIDEBAR_COLLAPSED,
+        this.sidebarCollapsed() ? '1' : '0'
+      );
+    } catch { /* non-fatal */ }
   }
 
   startSidebarResize(event: PointerEvent): void {

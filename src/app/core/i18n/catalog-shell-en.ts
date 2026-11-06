@@ -60,6 +60,8 @@ export const EN_SHELL = {
   chat: {
     selectOrCreate: 'Select a chat or create a new one',
     resizeSidebar: 'Drag to resize sidebar',
+    collapseSidebar: 'Hide sidebar',
+    expandSidebar: 'Show sidebar',
     followStreaming: 'follow streaming',
     alwaysOpenAtLeaf: 'always open at the last section',
     generating: 'Generating…',

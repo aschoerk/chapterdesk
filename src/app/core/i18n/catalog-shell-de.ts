@@ -62,6 +62,8 @@ export const DE_SHELL: typeof EN_SHELL = {
   chat: {
     selectOrCreate: 'Wählen Sie eine Geschichte oder legen Sie eine neue an',
     resizeSidebar: 'Ziehen, um die Seitenleiste zu verändern',
+    collapseSidebar: 'Seitenleiste ausblenden',
+    expandSidebar: 'Seitenleiste einblenden',
     followStreaming: 'Streaming folgen',
     alwaysOpenAtLeaf: 'immer am letzten Abschnitt öffnen',
     generating: 'Wird erzeugt…',

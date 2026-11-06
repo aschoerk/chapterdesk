@@ -104,6 +104,8 @@ export const EN = {
   chat: {
     selectOrCreate: 'Select a chat or create a new one',
     resizeSidebar: 'Drag to resize sidebar',
+    collapseSidebar: 'Hide sidebar',
+    expandSidebar: 'Show sidebar',
     resizeNavBar: 'Drag to resize the nav bar vertically · double-click to reset',
     trash: 'Trash',
     trashTitle: 'Deleted continuations',

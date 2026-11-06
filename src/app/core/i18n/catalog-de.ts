@@ -106,6 +106,8 @@ export const DE: typeof EN = {
   chat: {
     selectOrCreate: 'Wählen Sie eine Story oder legen Sie eine neue an',
     resizeSidebar: 'Ziehen, um die Seitenleiste zu verändern',
+    collapseSidebar: 'Seitenleiste ausblenden',
+    expandSidebar: 'Seitenleiste einblenden',
     resizeNavBar: 'Ziehen, um die Größe der Navigationsleiste zu ändern · Doppelklick zum Zurücksetzen',
     trash: 'Papierkorb',
     trashTitle: 'Gelöschte Fortsetzungen',
