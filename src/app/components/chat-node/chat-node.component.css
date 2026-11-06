@@ -397,6 +397,28 @@
   background: transparent;
 }
 
+/* Reveal cursor: while a paced read is PAUSED mid-text, the visible text stops
+   here — the section continues further down. The ellipsis sits inline right
+   after the last revealed character so the cut is unmistakable. */
+.paced-ellipsis {
+  color: var(--accent, #1d4ed8);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  animation: paced-ellipsis-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes paced-ellipsis-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paced-ellipsis {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .node-content p {
   margin: 0.35em 0;
 }

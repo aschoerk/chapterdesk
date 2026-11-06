@@ -5095,6 +5095,49 @@ describe('ChatNodeComponent', () => {
       expect(component.nodeMarks()).toHaveLength(0);
     });
 
+    it('shows … at the reveal position while the paced read is paused', async () => {
+      const a1 = node({
+        id: 'a1',
+        role: 'assistant',
+        content: 'First paragraph of the chapter.\n\nSecond paragraph follows.'
+      });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1]);
+      createFixture(a1);
+      const paced = TestBed.inject(PacedReadService) as PacedReadService;
+
+      // Nothing is cut off while no read runs.
+      expect(component.pacedTruncated()).toBe(false);
+      expect(fixture.nativeElement.querySelector('.paced-ellipsis')).toBeNull();
+
+      void paced.start([{ key: 'a1', text: a1.content }]);
+      // Simulate a reveal stopped mid-text, then paused.
+      (paced as any).revealedText.set('First paragraph of the chapter.');
+      paced.pause();
+      fixture.detectChanges();
+
+      expect(component.pacedTruncated()).toBe(true);
+      const cursor = fixture.nativeElement.querySelector('.paced-ellipsis') as HTMLElement;
+      expect(cursor).not.toBeNull();
+      expect(cursor.textContent).toBe('…');
+      // It sits INSIDE the last rendered paragraph, right after the text.
+      expect(cursor.parentElement?.tagName.toLowerCase()).toBe('p');
+      expect(cursor.parentElement?.textContent).toContain('First paragraph');
+
+      // Once the reveal caught up with the text, no ellipsis is shown.
+      (paced as any).revealedText.set(a1.content);
+      fixture.detectChanges();
+      expect(component.pacedTruncated()).toBe(false);
+      expect(fixture.nativeElement.querySelector('.paced-ellipsis')).toBeNull();
+
+      // Resuming also removes it (it marks a PAUSED cut only).
+      (paced as any).revealedText.set('First paragraph of the chapter.');
+      paced.resume();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.paced-ellipsis')).toBeNull();
+
+      paced.stop();
+    });
+
     it('applies "set next read position" immediately while the read is paused', async () => {
       const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter one text' });
       const a2 = node({ id: 'a2', parentId: 'a1', role: 'assistant', content: 'Chapter two text' });

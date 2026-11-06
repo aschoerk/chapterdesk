@@ -462,14 +462,14 @@
              (click)="onContentClick($event)"
              (dblclick)="onContentDblClick($event)">
           <div #readContent class="node-content"
-               [innerHTML]="renderedHtml()"></div>
+               [innerHTML]="contentHtml()"></div>
         </div>
       } @else {
         <div #readContent class="node-content click-to-edit"
              [title]="i18n.t('node.clickToEdit')"
              (click)="onContentClick($event)"
              (dblclick)="onContentDblClick($event)"
-             [innerHTML]="renderedHtml()"></div>
+             [innerHTML]="contentHtml()"></div>
       }
     } @else if (isThinkingLive()) {
       <!-- spinner lives in thinking-content -->

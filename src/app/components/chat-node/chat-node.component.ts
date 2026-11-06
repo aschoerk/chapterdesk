@@ -2938,6 +2938,43 @@ export class ChatNodeComponent implements OnDestroy {
   /** True while THIS chapter is the one being revealed by paced reading. */
   readonly pacedReading = computed(() => this.pacedRead.isCurrent(this.node().id));
 
+  /**
+   * True while this chapter's paced reveal is INTERRUPTED part-way through:
+   * the section is currently cut off mid-text, so it must not look as if it
+   * ends at the reveal position.
+   */
+  readonly pacedTruncated = computed(() => {
+    if (!this.pacedReading() || !this.pacedRead.paused()) return false;
+    const full = this.node().content ?? '';
+    const revealed = this.pacedRead.revealedText();
+    // Strip trailing whitespace on both sides — a pause right after the last
+    // word must not show a dangling ellipsis behind the (complete) text.
+    return revealed.trimEnd().length < full.trimEnd().length;
+  });
+
+  /**
+   * The HTML painted into the content area: the rendered markdown, plus a
+   * “…” marker at the reveal position while the pacing is paused (the node
+   * continues past that point).
+   */
+  readonly contentHtml = computed(() => {
+    const html = this.renderedHtml();
+    return this.pacedTruncated() ? ChatNodeComponent.withRevealCursor(html) : html;
+  });
+
+  /**
+   * Insert the paused-reveal ellipsis INSIDE the last rendered block, so it
+   * sits right after the last revealed character instead of on a new line
+   * below the paragraph (markdown rendering always closes its tags).
+   */
+  private static withRevealCursor(html: string): string {
+    const cursor = '<span class="paced-ellipsis" aria-hidden="true">…</span>';
+    // Last block-level closing tag at the very end of the rendered output.
+    const m = /<\/(p|h[1-6]|li|blockquote|dd|dt|td|th)>[\s]*$/.exec(html);
+    if (m) return html.slice(0, m.index) + cursor + html.slice(m.index);
+    return html + cursor;
+  }
+
   /** True when the right-click menu set this chapter as the NEXT read start. */
   readonly readPositionPending = computed(
     () => this.pacedRead.hasNextReadPositionAt(this.node().id)
