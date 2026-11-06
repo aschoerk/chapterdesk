@@ -688,6 +688,29 @@ describe('ChatReaderComponent', () => {
     expect(router.navigate).toHaveBeenCalledWith(['/chat']);
   });
 
+  it('starts paced reading with Ctrl+R and interrupts/resumes it with P', async () => {
+    await openChat([
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one', version: 1, createdAt: t(2) },
+    ]);
+
+    key({ key: 'r', ctrlKey: true });
+    expect(component.pacedRead.active()).toBe(true);
+    expect(component.pacedRead.paused()).toBe(false);
+
+    key({ key: 'p' });
+    expect(component.pacedRead.paused()).toBe(true);
+
+    key({ key: 'p' });
+    expect(component.pacedRead.paused()).toBe(false);
+
+    // Escape stops paced reading instead of leaving the reader.
+    key({ key: 'Escape' });
+    expect(component.pacedRead.active()).toBe(false);
+    expect(router.navigate).not.toHaveBeenCalledWith(['/chat']);
+    component.pacedRead.stop();
+  });
+
   it('wheel scrolling turns pages', async () => {
     await openChat([
       { id: 'q1', parentId: null, role: 'user', content: 'Q1', createdAt: t(1) },

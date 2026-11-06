@@ -1,7 +1,11 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CHAT_API } from '../../api/chat-api.token';
+import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
+import { ChatService } from '../chat/chat.service';
 import { ChatViewPrefsService } from '../chat/chat-view-prefs.service';
-import { PacedReadService } from './paced-read.service';
+import { PacedReadService, type PacedReadHost } from './paced-read.service';
 
 /**
  * Deterministic frame loop: `requestAnimationFrame(cb)` queues `cb`, and
@@ -45,7 +49,15 @@ describe('PacedReadService — reveal existing text at the reading pace', () => 
     vi.stubGlobal('requestAnimationFrame', frames.raf);
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ providers: [ChatViewPrefsService, PacedReadService] });
+    TestBed.configureTestingModule({
+      providers: [
+        ChatViewPrefsService,
+        ChatService,
+        PacedReadService,
+        { provide: CHAT_API, useValue: new InMemoryChatApi() },
+        provideRouter([])
+      ]
+    });
     prefs = TestBed.inject(ChatViewPrefsService);
     service = TestBed.inject(PacedReadService);
     prefs.streamSpeedUnit.set('char');
@@ -156,6 +168,103 @@ describe('PacedReadService — reveal existing text at the reading pace', () => 
     frames.flushFrames(4000); // 'vwxyz' complete
     await done;
     expect(service.active()).toBe(false);
+  });
+
+  it('starts the next read at a pending position (chapter + character offset)', async () => {
+    service.setNextReadPosition('b', 3);
+    expect(service.hasNextReadPositionAt('b')).toBe(true);
+
+    const done = service.start([
+      { key: 'a', text: 'aaaaa' },
+      { key: 'b', text: 'abcdefghij' }
+    ]);
+    // The queue begins at 'b' with the first 3 characters already revealed.
+    expect(service.currentKey()).toBe('b');
+    expect(service.total()).toBe(1);
+    expect(service.revealedText()).toBe('abc');
+    // One-shot: consumed, so the NEXT read starts normally again.
+    expect(service.pendingStart()).toBeNull();
+
+    await flushMicrotasks();
+    frames.flushFrames(1000);
+    frames.flushFrames(2000); // 5 more chars from the offset
+    expect(service.revealedText()).toBe('abcdefgh');
+
+    service.stop();
+    await done;
+  });
+
+  it('clamps a pending offset to the chapter length and clears on stop', async () => {
+    service.setNextReadPosition('a', 9999);
+    expect(service.hasNextReadPositionAt('a')).toBe(true);
+
+    const done = service.start([{ key: 'a', text: 'abcde' }]);
+    expect(service.revealedText()).toBe('abcd'); // never starts already-complete
+    expect(service.pendingStart()).toBeNull();
+
+    service.stop();
+    await done;
+  });
+
+  it('pause remembers the place and resume hands it back to the reading view', async () => {
+    const restore = vi.fn();
+    const host: PacedReadHost = {
+      view: 'chat',
+      capture: () => ({ view: 'chat', chatId: null, nodeId: service.currentKey(), scrollTop: 420 }),
+      restore
+    };
+    service.registerHost(host);
+
+    const done = service.start([{ key: 'a', text: 'abcdefghij' }]);
+    await flushMicrotasks();
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+
+    service.pause();
+    expect(service.resumePoint()).toEqual({
+      view: 'chat', chatId: null, nodeId: 'a', scrollTop: 420
+    });
+
+    // The user wandered off and came back: resume replays the position.
+    const tick = service.followTick();
+    service.resume();
+    expect(restore).toHaveBeenCalledWith({ view: 'chat', chatId: null, nodeId: 'a', scrollTop: 420 });
+    expect(service.paused()).toBe(false);
+    // Follow-scroll is re-armed so the view returns to the reading position.
+    expect(service.followTick()).toBeGreaterThan(tick);
+
+    service.stop();
+    await done;
+    expect(service.resumePoint()).toBeNull();
+  });
+
+  it('leaving the reading view pauses the run and remembers the place', async () => {
+    const host: PacedReadHost = {
+      view: 'chat',
+      capture: () => ({ view: 'chat', chatId: null, nodeId: service.currentKey(), scrollTop: 99 }),
+      restore: vi.fn()
+    };
+    service.registerHost(host);
+    expect(service.viewLinked()).toBe(true);
+
+    const done = service.start([{ key: 'a', text: 'abcdefghij' }]);
+    await flushMicrotasks();
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+    const frozen = service.revealedText();
+
+    // Route change: the chat component is destroyed.
+    service.unregisterHost(host);
+    expect(service.viewLinked()).toBe(false);
+    expect(service.paused()).toBe(true);
+    expect(service.resumePoint()?.scrollTop).toBe(99);
+
+    frames.flushFrames(3000);
+    frames.flushFrames(4000);
+    expect(service.revealedText()).toBe(frozen); // nothing reveals in the background
+
+    service.stop();
+    await done;
   });
 
   it('falls back to a readable default pace when the slider is 0 (instant)', async () => {

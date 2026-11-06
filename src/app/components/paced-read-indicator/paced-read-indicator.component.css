@@ -1,0 +1,46 @@
+/* Global "paced reading paused" pill — visible on every page while the sight
+   of the reading (chat / reader) is gone, so Resume is always one click away. */
+.paced-indicator {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border, #d6d3d1);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+  font-size: 0.8rem;
+  color: var(--text, #1c1917);
+}
+
+.paced-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #1d4ed8);
+  flex: 0 0 auto;
+}
+
+.paced-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.paced-text strong {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  color: var(--accent, #1d4ed8);
+}
+
+.paced-count {
+  color: var(--muted, #666);
+  font-variant-numeric: tabular-nums;
+}

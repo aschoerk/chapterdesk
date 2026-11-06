@@ -19,6 +19,8 @@
  * freezes it exactly where it is; `resume()` continues from there.
  */
 import { Injectable, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { ChatService } from '../chat/chat.service';
 import { ChatViewPrefsService } from '../chat/chat-view-prefs.service';
 import { StreamReveal, type StreamRevealPrefs } from './stream-reveal';
 import {
@@ -35,12 +37,50 @@ export interface PacedReadItem {
   text: string;
 }
 
+/** Which view hosts a paced read. */
+export type PacedReadView = 'chat' | 'reader';
+
+/**
+ * Where the user was reading when they INTERRUPTED the pacing.
+ *
+ * Pausing is meant to be used: the user scrolls around, edits something,
+ * opens settings, switches chats — and Resume must bring them back to exactly
+ * this place. The point is captured by the view on {@link PacedReadService}
+ * `pause()` and replayed by {@link PacedReadService} `resume()`.
+ */
+export interface PacedReadResumePoint {
+  view: PacedReadView;
+  /** Chat the reading belongs to (re-selected on resume). */
+  chatId: string | null;
+  /** Item (ChatNode id) that was being revealed. */
+  nodeId: string | null;
+  /** Reader: which document was open. */
+  docIndex?: number;
+  /** Reader: which page was shown. */
+  page?: number;
+  /** Chat tree: scroll offset of the message scroller. */
+  scrollTop?: number;
+}
+
+/**
+ * A view that can host a paced read: reports where it currently is and can be
+ * put back there. Registered while the view is mounted, so the service can
+ * restore the position even after the user navigated away and came back.
+ */
+export interface PacedReadHost {
+  view: PacedReadView;
+  capture(): PacedReadResumePoint | null;
+  restore(point: PacedReadResumePoint): void;
+}
+
 /** Re-exported so consumers can import the pace defaults from the service. */
 export { DEFAULT_PACED_WORDS_PER_SECOND, PACED_CHARS_PER_WORD };
 
 @Injectable({ providedIn: 'root' })
 export class PacedReadService {
   private readonly viewPrefs = inject(ChatViewPrefsService);
+  private readonly chatService = inject(ChatService);
+  private readonly router = inject(Router);
 
   /** True while a queue is being revealed. */
   readonly active = signal(false);
@@ -61,12 +101,32 @@ export class PacedReadService {
    */
   readonly followTick = signal(0);
 
+  /**
+   * Where the user was when the pacing was INTERRUPTED — captured on `pause()`
+   * and replayed on `resume()`. Lets the user wander off (scroll, edit, open
+   * settings, switch chats) and still come back to the same place.
+   */
+  readonly resumePoint = signal<PacedReadResumePoint | null>(null);
+  /** True while a reading view (chat page or reader) is mounted. */
+  readonly viewLinked = signal(false);
+  /**
+   * Where the NEXT paced read must begin — set from a chapter's right-click
+   * menu ("set next read position at the cursor"). Consumed by the next
+   * {@link start}: the queue begins at that chapter, revealing from that
+   * character offset on.
+   */
+  readonly pendingStart = signal<{ nodeId: string; offset: number } | null>(null);
+
   private items: PacedReadItem[] = [];
   private index = 0;
   private reveal: StreamReveal | null = null;
   /** Generation token: `stop()`/`start()` invalidate an in-flight loop. */
   private run = 0;
   private resumeWaiters: Array<() => void> = [];
+  /** Mounted view that can capture/restore the reading position. */
+  private host: PacedReadHost | null = null;
+  /** A point whose view is not mounted yet (resume from another page). */
+  private pendingRestore: PacedReadResumePoint | null = null;
 
   /** True when `key` is the item being revealed right now. */
   isCurrent(key: string): boolean {
@@ -93,13 +153,47 @@ export class PacedReadService {
   }
 
   /**
+   * Remember where the next paced read should start (chapter + character
+   * offset, e.g. from the right-click menu at the cursor).
+   */
+  setNextReadPosition(nodeId: string, offset: number): void {
+    this.pendingStart.set({ nodeId, offset: Math.max(0, Math.round(offset || 0)) });
+  }
+
+  /** Forget a pending read position (the next read starts at the beginning). */
+  clearNextReadPosition(): void {
+    this.pendingStart.set(null);
+  }
+
+  /** True when a pending read position points at `nodeId`. */
+  hasNextReadPositionAt(nodeId: string): boolean {
+    return this.pendingStart()?.nodeId === nodeId;
+  }
+
+  /**
    * Reveal `items` in order at the configured pace. Restarts (stops) any run
    * already in progress. Items with empty text are skipped.
+   *
+   * A pending "next read position" (see {@link setNextReadPosition}) is
+   * CONSUMED here: the queue starts at that chapter and its first item begins
+   * revealing from the recorded character offset.
    */
   async start(items: PacedReadItem[]): Promise<void> {
-    const list = (items ?? []).filter(i => !!i && typeof i.text === 'string' && i.text.length > 0);
+    let list = (items ?? []).filter(i => !!i && typeof i.text === 'string' && i.text.length > 0);
     this.stop();
     if (!list.length) return;
+
+    const pending = this.pendingStart();
+    let startAt = 0;
+    if (pending) {
+      const at = list.findIndex(i => i.key === pending.nodeId);
+      if (at >= 0) {
+        list = list.slice(at);
+        startAt = Math.min(pending.offset, Math.max(0, list[0].text.length - 1));
+      }
+      // One-shot: the next run after this one starts normally again.
+      this.pendingStart.set(null);
+    }
 
     const token = ++this.run;
     this.items = list;
@@ -111,7 +205,7 @@ export class PacedReadService {
     // The first item becomes current SYNCHRONOUSLY so a view can swap to the
     // revealed slice right away (otherwise the full text flashes for a tick).
     this.currentKey.set(list[0].key);
-    this.revealedText.set('');
+    this.revealedText.set(startAt > 0 ? list[0].text.slice(0, startAt) : '');
     try {
       for (; this.index < list.length; this.index++) {
         if (token !== this.run) return;
@@ -120,27 +214,115 @@ export class PacedReadService {
         const item = list[this.index];
         this.currentIndex.set(this.index);
         this.currentKey.set(item.key);
-        this.revealedText.set('');
-        await this.playItem(item, token);
+        const offset = this.index === 0 ? startAt : 0;
+        this.revealedText.set(offset > 0 ? item.text.slice(0, offset) : '');
+        await this.playItem(item, token, offset);
       }
     } finally {
       if (token === this.run) this.reset();
     }
   }
 
-  /** Freeze the reveal where it is (safe to call when not reading). */
+  /**
+   * Freeze the reveal where it is (safe to call when not reading) and
+   * remember the reading position, so `resume()` can return there after the
+   * user used the pause to do something else.
+   */
   pause(): void {
     if (!this.active() || this.paused()) return;
     this.paused.set(true);
     this.reveal?.pause();
+    this.resumePoint.set(this.capturePoint());
   }
 
-  /** Resume a paused reveal from the frozen position. */
+  /**
+   * Resume a paused reveal from the frozen position AND return to the place
+   * the user was reading: re-opens the chat, scrolls the chapter back into
+   * view (or re-opens the reader's document/page) when they wandered off.
+   */
   resume(): void {
     if (!this.active() || !this.paused()) return;
     this.paused.set(false);
     this.reveal?.resume();
     this.flushResumeWaiters();
+    // Re-arm the view's follow-scroll: the user may have scrolled around
+    // while paused, so the reading position must be found again.
+    this.followTick.update(t => t + 1);
+    void this.restoreView(this.resumePoint());
+  }
+
+  /**
+   * Register the mounted reading view so pausing can capture its position and
+   * resuming can put it back (called from the chat / reader constructors).
+   */
+  registerHost(host: PacedReadHost): void {
+    this.host = host;
+    this.viewLinked.set(true);
+    const pending = this.pendingRestore;
+    if (pending && pending.view === host.view) {
+      this.pendingRestore = null;
+      // The view was just created — let it render its content first.
+      queueMicrotask(() => host.restore(pending));
+    }
+  }
+
+  /**
+   * The reading view is going away (route change / dialog page). Behaviour:
+   * if a reveal is still RUNNING it is frozen and the position remembered —
+   * otherwise the text would keep revealing invisibly behind another page and
+   * a later Resume would land in the wrong place.
+   */
+  unregisterHost(host: PacedReadHost): void {
+    if (this.host !== host) return;
+    if (this.active() && !this.paused()) {
+      // Capture BEFORE dropping the host: the elements are still rendered here.
+      const point = host.capture();
+      this.paused.set(true);
+      this.reveal?.pause();
+      if (point) this.resumePoint.set(point);
+    }
+    this.host = null;
+    this.viewLinked.set(false);
+  }
+
+  /** Where the reading currently is, as a restorable point. */
+  private capturePoint(): PacedReadResumePoint {
+    const captured = this.host?.capture();
+    if (captured) return captured;
+    return {
+      view: 'chat',
+      chatId: this.chatService.currentChatId(),
+      nodeId: this.currentKey()
+    };
+  }
+
+  /** Re-open the chat/reader and put the view back on the paused position. */
+  private async restoreView(point: PacedReadResumePoint | null): Promise<void> {
+    if (!point) return;
+    // Resume must return to the CHAT that was being read, even when the user
+    // used the pause to look at another story.
+    if (point.chatId && this.chatService.currentChatId() !== point.chatId) {
+      try {
+        await this.chatService.selectChat(point.chatId);
+      } catch {
+        /* best-effort — keep the reading going in whatever chat is open */
+      }
+    }
+    const host = this.host;
+    if (host && host.view === point.view) {
+      host.restore(point);
+      return;
+    }
+    // Reading view is not mounted (settings/dialogs/another page): remember
+    // the point; `registerHost` replays it once the view is created.
+    this.pendingRestore = point;
+    const path = point.view === 'reader' ? '/read' : '/chat';
+    if (this.router.url.split('?')[0] === path) return;
+    try {
+      await this.router.navigate([path]);
+    } catch {
+      /* best-effort */
+    }
   }
 
   toggle(): void {
@@ -187,16 +369,18 @@ export class PacedReadService {
       reveal.destroy();
     }
     this.flushResumeWaiters();
+    this.resumePoint.set(null);
+    this.pendingRestore = null;
     this.reset();
   }
 
   // ------------------------------------------------------------------ pump
 
-  private playItem(item: PacedReadItem, token: number): Promise<void> {
+  private playItem(item: PacedReadItem, token: number, startAt = 0): Promise<void> {
     return new Promise<void>(resolve => {
       const reveal = new StreamReveal(this.pacingPrefs(), content => {
         if (token === this.run) this.revealedText.set(content);
-      });
+      }, { startAt });
       this.reveal = reveal;
       if (this.paused()) reveal.pause();
       // The whole text is already known: buffer it, then "finish" (which keeps

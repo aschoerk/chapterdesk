@@ -24,7 +24,11 @@ import { isPromptRecordAttachment } from '../../core/llm/llm-message';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
 import { highlightMatchesIn } from '../../core/search-replace/search-utils';
-import { PacedReadService } from '../../core/llm/paced-read.service';
+import {
+  PacedReadService,
+  type PacedReadHost,
+  type PacedReadResumePoint,
+} from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
 
 export interface ReaderFont {
@@ -378,7 +382,50 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   /** Set while paced reading drives the pages — avoids a page-0 jump on end. */
   private pacedWasActive = false;
 
+  // ------------------------------------------- paced reading: position host
+
+  /**
+   * Lets pause/resume remember the reader position: pausing is meant to be
+   * used (scroll elsewhere, open settings, switch stories) — Resume comes
+   * back to the same document and page.
+   */
+  private readonly pacedReadHost: PacedReadHost = {
+    view: 'reader',
+    capture: (): PacedReadResumePoint => ({
+      view: 'reader',
+      chatId: this.chatService.currentChatId(),
+      nodeId: this.pacedRead.currentKey(),
+      docIndex: this.docIndex(),
+      page: this.page(),
+    }),
+    restore: (point: PacedReadResumePoint) => this.restorePacedPosition(point),
+  };
+
+  /** Re-open the document/page the pacing was interrupted on. */
+  private restorePacedPosition(point: PacedReadResumePoint): void {
+    const apply = () => {
+      if (typeof point.docIndex === 'number') {
+        this.docIndex.set(Math.max(0, point.docIndex));
+      }
+      this.layout();
+      if (typeof point.page === 'number') this.goTo(point.page);
+      const section = point.nodeId ? this.sectionOf(point.nodeId) : null;
+      if (section) this.goToNode(point.nodeId!);
+    };
+    apply();
+    queueMicrotask(apply);
+    requestAnimationFrame(() => requestAnimationFrame(apply));
+  }
+
+  private sectionOf(nodeId: string): HTMLElement | null {
+    const root = this.reader()?.nativeElement;
+    if (!root) return null;
+    const index = this.renderedDocNodes().findIndex(node => node.id === nodeId);
+    return index >= 0 ? root.querySelectorAll<HTMLElement>('.book-node')[index] ?? null : null;
+  }
+
   constructor() {
+    this.pacedRead.registerHost(this.pacedReadHost);
     effect(() => {
       this.bookHtml();
       this.currentChatId();
@@ -518,6 +565,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.pacedRead.unregisterHost(this.pacedReadHost);
     this.resizeObserver?.disconnect();
     this.search.setSession(null);
   }
@@ -750,6 +798,9 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
           this.pacedRead.skipLines(1);
           return;
         case ' ':
+        case 'p':
+        case 'P':
+          // Space or P — interrupt / resume the pacing.
           event.preventDefault();
           this.pacedRead.toggle();
           return;

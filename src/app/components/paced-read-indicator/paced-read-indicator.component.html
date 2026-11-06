@@ -1,0 +1,25 @@
+@if (pacedRead.active() && pacedRead.paused() && !pacedRead.viewLinked()) {
+  <div class="paced-indicator"
+       role="status"
+       [attr.aria-label]="i18n.t('chat.pacedReadIndicatorTitle')">
+    <span class="paced-dot" aria-hidden="true"></span>
+    <span class="paced-text">
+      <strong>{{ i18n.t('chat.pacedReadPaused') }}</strong>
+      @if (pacedRead.total() > 0) {
+        <span class="paced-count">
+          {{ i18n.t('chat.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
+        </span>
+      }
+    </span>
+    <button class="btn small primary" type="button"
+            (click)="resume()"
+            [title]="i18n.t('chat.pacedReadIndicatorTitle')">
+      ▶ {{ i18n.t('chat.pacedReadResumeWhere') }}
+    </button>
+    <button class="btn small" type="button"
+            (click)="stop()"
+            [title]="i18n.t('chat.pacedReadStopTitle')">
+      ⏹ {{ i18n.t('chat.pacedReadStop') }}
+    </button>
+  </div>
+}

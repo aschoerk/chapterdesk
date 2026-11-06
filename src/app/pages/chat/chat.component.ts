@@ -22,7 +22,11 @@ import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
-import { PacedReadService } from '../../core/llm/paced-read.service';
+import {
+  PacedReadService,
+  type PacedReadHost,
+  type PacedReadResumePoint
+} from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
 import type { HeldRun } from '../../core/llm/orchestration/flows/env';
 import { RevealQueue } from '../../core/llm/reveal-queue';
@@ -768,7 +772,57 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  // ------------------------------------------- paced reading: position host
+
+  /**
+   * Lets the paced read pause/resume remember the reading place: while paused
+   * the user may scroll, edit, switch chats or open another page — Resume
+   * returns to the chapter AND to the scroll position they left.
+   */
+  private readonly pacedReadHost: PacedReadHost = {
+    view: 'chat',
+    capture: (): PacedReadResumePoint => {
+      const tree = this.tree()?.nativeElement;
+      return {
+        view: 'chat',
+        chatId: this.chatService.currentChatId(),
+        nodeId: this.pacedRead.currentKey(),
+        scrollTop: tree?.scrollTop ?? 0
+      };
+    },
+    restore: (point: PacedReadResumePoint) => this.restorePacedPosition(point)
+  };
+
+  /**
+   * Put the message tree back where the pacing was interrupted: the revealed
+   * chapter at the top of the view, follow re-armed so the reveal continues
+   * visibly. Falls back to the recorded scroll offset when the node is not
+   * rendered (e.g. it left the active path).
+   */
+  private restorePacedPosition(point: PacedReadResumePoint): void {
+    const apply = () => {
+      const tree = this.tree()?.nativeElement;
+      if (!tree) return;
+      const el = point.nodeId
+        ? tree.querySelector(`[data-node-id="${point.nodeId}"]`) as HTMLElement | null
+        : null;
+      if (el) {
+        const delta = el.getBoundingClientRect().top - tree.getBoundingClientRect().top;
+        tree.scrollTop = Math.max(0, tree.scrollTop + delta - 8);
+      } else {
+        tree.scrollTop = point.scrollTop ?? 0;
+      }
+      this.positionedChatId = point.chatId;
+      this.visibleNodeId.set(point.nodeId ?? null);
+    };
+    // The tree may still be rendering right after a chat switch.
+    apply();
+    queueMicrotask(apply);
+    requestAnimationFrame(() => requestAnimationFrame(apply));
+  }
+
   ngOnDestroy() {
+    this.pacedRead.unregisterHost(this.pacedReadHost);
     this.layoutPrefs.endSidebarResize();
     // Leaving the chat page must not leave a stale edit session behind —
     // otherwise re-entering a node editor later would start out "dirty" even
@@ -1010,6 +1064,7 @@ export class ChatComponent implements OnInit {
   }
 
   constructor() {
+    this.pacedRead.registerHost(this.pacedReadHost);
     console.log('ChatComponent constructed', Date.now());
     effect(() => {
       const chatId = this.currentChatId();
@@ -1177,7 +1232,11 @@ export class ChatComponent implements OnInit {
     const path = this.getActivePath();
     if (!path.length) return;
 
-    const anchorId = this.editSession.editingNodeId() ?? this.visibleNodeId();
+    // A "next read position" set from a chapter's context menu wins over the
+    // section at the top of the view.
+    const anchorId = this.pacedRead.pendingStart()?.nodeId
+      ?? this.editSession.editingNodeId()
+      ?? this.visibleNodeId();
     let startIdx = anchorId ? path.findIndex(n => n.id === anchorId) : -1;
     if (startIdx < 0) {
       startIdx = path.findIndex(n => n.role === 'assistant' && !!n.content?.trim());
@@ -1255,6 +1314,9 @@ export class ChatComponent implements OnInit {
           this.pacedRead.skipLines(1);
           return;
         case ' ':
+        case 'p':
+        case 'P':
+          // Space or P — interrupt / resume the pacing.
           event.preventDefault();
           this.pacedRead.toggle();
           return;

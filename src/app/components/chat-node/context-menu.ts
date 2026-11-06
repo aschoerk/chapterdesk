@@ -46,6 +46,8 @@ export interface CtxMenuContext {
   hasComparableSiblings: boolean;
   /** The node is not in an editing state (compare works from read-only). */
   notEditing: boolean;
+  /** True when a pending read position already points at this node. */
+  hasReadPosition: boolean;
   /** Translation function (`I18nService.t`). */
   t: (key: string, params?: Record<string, string | number>) => string;
   /** Action callbacks — each closes the menu first (see `runCtxAction`). */
@@ -66,6 +68,8 @@ export interface CtxMenuContext {
     switchCharacters: () => void;
     chapterDescriptions: () => void;
     prepend: () => void;
+    setReadPosition: () => void;
+    clearReadPosition: () => void;
     remove: () => void;
     delete: () => void;
   };
@@ -149,6 +153,23 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
     }
   }
 
+  // Reading: mark where the NEXT paced read (Ctrl+R / Read) should start. The
+  // position is the right-clicked spot inside the text.
+  const readItems: CtxMenuItem[] = [];
+  if (n.content?.trim()) {
+    readItems.push({
+      label: ctx.t('node.ctxSetReadPosition'),
+      action: () => ctx.actions.setReadPosition(),
+      disabled: ctx.busy
+    });
+    if (ctx.hasReadPosition) {
+      readItems.push({
+        label: ctx.t('node.ctxClearReadPosition'),
+        action: () => ctx.actions.clearReadPosition()
+      });
+    }
+  }
+
   // Destructive actions, always last.
   const dangerItems: CtxMenuItem[] = [
     { label: ctx.t('node.ctxRemove'), action: () => ctx.actions.remove(), danger: true, disabled: ctx.busy },
@@ -165,6 +186,7 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
   };
   pushGroup(common);
   pushGroup(roleItems);
+  pushGroup(readItems);
   pushGroup(dangerItems);
   return result;
 }

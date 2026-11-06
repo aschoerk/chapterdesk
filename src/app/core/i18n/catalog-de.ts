@@ -138,8 +138,12 @@ export const DE: typeof EN = {
     pacedReadResume: 'Weiter',
     pacedReadResumeTitle: 'Anzeige fortsetzen (Leertaste)',
     pacedReadProgress: 'Kapitel {{current}} / {{total}}',
+    pacedReadPaused: 'pausiert',
+    pacedReadResumeWhere: 'Weiterlesen',
+    pacedReadIndicatorTitle:
+      'Tempo-Lesen ist pausiert — „Weiterlesen“ bringt Sie zum Kapitel und an die Stelle zurück (P)',
     pacedReadKeys:
-      '← 1s wiederholen · → 1s überspringen · ↑/↓ eine Zeile · Leertaste Pause · Strg+R Start/Stopp · Esc beenden',
+      '← 1s wiederholen · → 1s überspringen · ↑/↓ eine Zeile · Leertaste/P Pause · Strg+R Start/Stopp · Esc beenden',
     bookReadTime: 'Buch ≈ {{time}}',
     bookReadTimeTitle:
       'Geschätzte Lesezeit der ganzen Story im aktuellen Anzeige-Tempo (Strg+R startet das Tempo-Lesen)',
@@ -223,8 +227,9 @@ export const DE: typeof EN = {
     pacedReadResume: 'Weiter',
     pacedReadResumeTitle: 'Anzeige fortsetzen (Leertaste)',
     pacedReadProgress: '{{current}} / {{total}}',
+    pacedReadPaused: 'pausiert',
     pacedReadKeys:
-      '← 1s wiederholen · → 1s überspringen · ↑/↓ eine Zeile · Leertaste Pause · Strg+R Start/Stopp · Esc beenden',
+      '← 1s wiederholen · → 1s überspringen · ↑/↓ eine Zeile · Leertaste/P Pause · Strg+R Start/Stopp · Esc beenden',
     docReadTime: 'Dok. ≈ {{time}}',
     docReadTimeTitle: 'Geschätzte Lesezeit dieses Dokuments im aktuellen Anzeige-Tempo',
     bookReadTime: 'Buch ≈ {{time}}',
@@ -376,6 +381,10 @@ export const DE: typeof EN = {
     pacedReadTitle:
       'Dieses und die folgenden Kapitel im Lese-Tempo anzeigen — kein LLM-Aufruf',
     pacedReadStopTitle: 'Tempo-Lesen beenden',
+    ctxSetReadPosition: 'Nächste Leseposition hier setzen',
+    ctxClearReadPosition: 'Nächste Leseposition löschen',
+    readPositionSet: 'Das nächste Lesen beginnt an dieser Stelle',
+    readPositionPending: 'Leseposition gesetzt',
     readTime: '≈ {{time}} Lesezeit',
     readTimeTitle: 'Geschätzte Zeit zum Anzeigen dieses Kapitels im aktuellen Anzeige-Tempo',
     edit: 'Bearbeiten',

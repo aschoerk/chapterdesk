@@ -42,6 +42,13 @@
       </span>
     }
 
+    @if (readPositionPending()) {
+      <span class="meta read-position-badge"
+            [title]="i18n.t('node.ctxSetReadPosition')">
+        ▶ {{ i18n.t('node.readPositionPending') }}
+      </span>
+    }
+
     @if (nodeUsageLabel(); as usageLabel) {
       <span class="meta usage-meta" [title]="usageLabel">{{ usageLabel }}</span>
     }
@@ -701,8 +708,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             @if (pacedReading()) {
-              <rect x="6" y="5" width="4" height="14" rx="1"/>
-              <rect x="14" y="5" width="4" height="14" rx="1"/>
+              <rect x="6" y="6" width="12" height="12" rx="1"/>
             } @else {
               <polygon points="7 4 20 12 7 20"/>
             }

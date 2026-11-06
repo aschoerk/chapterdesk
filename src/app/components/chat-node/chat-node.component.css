@@ -258,6 +258,18 @@
   letter-spacing: 0.02em;
 }
 
+/* A pending "next read position" (set via the node's right-click menu). */
+.read-position-badge {
+  background: color-mix(in srgb, var(--accent, #1d4ed8) 12%, transparent);
+  border: 1px solid var(--accent, #1d4ed8);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  color: var(--accent, #1d4ed8);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .badge.structural {
   color: var(--color-badge-s-text, #a16207);
 }

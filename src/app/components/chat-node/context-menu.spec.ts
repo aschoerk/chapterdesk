@@ -20,6 +20,8 @@ const LABELS: Record<string, string> = {
   'node.ctxSwitchCharacters': 'Switch characters',
   'node.ctxChapterDescriptions': 'Chapter descriptions',
   'node.ctxPrepend': 'Prepend director',
+  'node.ctxSetReadPosition': 'Set next read position here',
+  'node.ctxClearReadPosition': 'Clear next read position',
   'node.ctxRemove': 'Remove section',
   'node.ctxDelete': 'Delete section & following',
 };
@@ -27,7 +29,7 @@ const t = (key: string): string => LABELS[key] ?? key;
 
 function ctx(
   overrides: Partial<
-    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions' | 'hasComparableSiblings'>
+    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions' | 'hasComparableSiblings' | 'hasReadPosition'>
   > = {}
 ): CtxMenuContext {
   const noop = () => undefined;
@@ -36,7 +38,8 @@ function ctx(
     compareVersions: noop, compareSiblings: noop,
     toggleExclude: noop, heading: noop, regenerate: noop, regenerateInPlace: noop,
     illustrate: noop, createImage: noop, continueDraft: noop, switchCharacters: noop,
-    chapterDescriptions: noop, prepend: noop, remove: noop, delete: noop,
+    chapterDescriptions: noop, prepend: noop, setReadPosition: noop,
+    clearReadPosition: noop, remove: noop, delete: noop,
   };
   return {
     node: makeNode({ role: 'assistant', content: 'Chapter' }),
@@ -47,6 +50,7 @@ function ctx(
     isUnsentQuestion: false,
     hasPriorVersions: false,
     hasComparableSiblings: false,
+    hasReadPosition: false,
     notEditing: true,
     t,
     actions,
@@ -58,6 +62,22 @@ const labels = (items: ReturnType<typeof buildCtxMenuItems>) =>
   items.filter(i => !i.divider).map(i => i.label);
 
 describe('buildCtxMenuItems (chat-node context menu)', () => {
+  it('offers "set next read position" for a chapter, plus clear when one is set', () => {
+    const none = buildCtxMenuItems(ctx({ node: makeNode({ role: 'assistant', content: 'Chapter' }) }));
+    expect(labels(none)).toContain('Set next read position here');
+    expect(labels(none)).not.toContain('Clear next read position');
+
+    const pending = buildCtxMenuItems(ctx({
+      node: makeNode({ role: 'assistant', content: 'Chapter' }),
+      hasReadPosition: true,
+    }));
+    expect(labels(pending)).toContain('Clear next read position');
+
+    // Nothing to read on an empty node → no read-position entry at all.
+    const empty = buildCtxMenuItems(ctx({ node: makeNode({ role: 'assistant', content: '  ' }) }));
+    expect(labels(empty)).not.toContain('Set next read position here');
+  });
+
   it('lists common + destructive actions for a structure node', () => {
     const items = buildCtxMenuItems(ctx({
       node: makeNode({ role: 'structural', content: '' }),
@@ -78,9 +98,10 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     expect(labels(items)).toEqual([
       'Copy', 'Edit', 'Rewrite selection…', 'Prior versions', 'Compare versions…', 'Compare siblings…',
       'Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…',
+      'Set next read position here',
       'Remove section', 'Delete section & following',
     ]);
-    expect(items.filter(i => i.divider).length).toBe(2);
+    expect(items.filter(i => i.divider).length).toBe(3);
     expect(items.find(i => i.label === 'Regenerate')?.disabled).toBe(false);
     expect(items.find(i => i.label === 'Compare versions…')?.disabled).toBe(false);
     expect(items.find(i => i.label === 'Compare siblings…')?.disabled).toBe(false);

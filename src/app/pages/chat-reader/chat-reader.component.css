@@ -42,9 +42,10 @@
 }
 
 /* Paced reading controls in the reader bar. */
-.paced-pause {
-  font-size: 0.8rem;
-  white-space: nowrap;
+.btn-icon.paused {
+  background: var(--bg-hover, #ededeb);
+  border-color: var(--accent, #1d4ed8);
+  color: var(--accent, #1d4ed8);
 }
 
 .paced-progress {
@@ -52,6 +53,11 @@
   color: var(--text-muted, #78716c);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.paced-progress.paused {
+  color: var(--accent, #1d4ed8);
+  font-weight: 600;
 }
 
 .btn-icon {

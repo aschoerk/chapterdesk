@@ -39,17 +39,22 @@
               [disabled]="docIndex() >= documents().length - 1"
               (click)="goLastDoc()" [title]="i18n.t('reader.newestDoc')">»</button>
     </div>
+    <!-- Paced reading: play starts; while running the icon INTERRUPTS/RESUMES
+         and a separate stop button ends the run. -->
     <button class="btn-icon"
             type="button"
             [class.active]="pacedRead.active()"
+            [class.paused]="pacedRead.paused()"
             [attr.aria-pressed]="pacedRead.active()"
-            (click)="startPacedRead()"
-            [title]="pacedRead.active() ? i18n.t('reader.pacedReadStopTitle') : i18n.t('reader.pacedReadTitle')">
+            (click)="pacedRead.active() ? pacedRead.toggle() : startPacedRead()"
+            [title]="!pacedRead.active()
+              ? i18n.t('reader.pacedReadTitle')
+              : (pacedRead.paused() ? i18n.t('reader.pacedReadResumeTitle') : i18n.t('reader.pacedReadPauseTitle'))">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
            stroke="currentColor" stroke-width="2"
            stroke-linecap="round" stroke-linejoin="round"
            aria-hidden="true">
-        @if (pacedRead.active()) {
+        @if (pacedRead.active() && !pacedRead.paused()) {
           <rect x="6" y="5" width="4" height="14" rx="1"/>
           <rect x="14" y="5" width="4" height="14" rx="1"/>
         } @else {
@@ -58,16 +63,19 @@
       </svg>
     </button>
     @if (pacedRead.active()) {
-      <button class="btn-icon paced-pause"
+      <button class="btn-icon paced-stop"
               type="button"
-              [class.active]="pacedRead.paused()"
-              (click)="pacedRead.toggle()"
-              [title]="pacedRead.paused() ? i18n.t('reader.pacedReadResumeTitle') : i18n.t('reader.pacedReadPauseTitle')">
-        {{ pacedRead.paused() ? i18n.t('reader.pacedReadResume') : i18n.t('reader.pacedReadPause') }}
+              (click)="pacedRead.stop()"
+              [title]="i18n.t('reader.pacedReadStopTitle')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="1"/>
+        </svg>
       </button>
       <span class="paced-progress"
+            [class.paused]="pacedRead.paused()"
             [title]="i18n.t('reader.pacedReadKeys')">
-        {{ i18n.t('reader.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
+        {{ pacedRead.paused() ? i18n.t('reader.pacedReadPaused') + ' · ' : '' }}{{ i18n.t('reader.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
       </span>
     }
     <button class="btn-icon"

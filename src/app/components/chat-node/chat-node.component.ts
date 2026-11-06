@@ -2635,6 +2635,9 @@ export class ChatNodeComponent implements OnDestroy {
     if (this.isNativeContextTarget(event.target as HTMLElement | null)) return;
     event.preventDefault();
     event.stopPropagation();
+    // Remember the CHARACTER under the pointer: the menu can then mark it as
+    // the start of the next paced read ("set next read position at cursor").
+    this.ctxClickOffset = this.captureRoClickOffset(event.clientX, event.clientY);
     // Only one node menu at a time: close the previously open one (if any)
     // before opening this node's menu.
     if (ChatNodeComponent.openMenu && ChatNodeComponent.openMenu !== this) {
@@ -2657,6 +2660,29 @@ export class ChatNodeComponent implements OnDestroy {
     }
     this.ctxMenu.set(null);
     this.ctxSize.set(null);
+    // NOTE: `ctxClickOffset` is deliberately NOT cleared here — the chosen
+    // action runs AFTER the menu closed and still needs the cursor position.
+    // It is overwritten by the next `openNodeMenu`.
+  }
+
+  /** Character offset in the source that was right-clicked (null if unknown). */
+  private ctxClickOffset: number | null = null;
+
+  /**
+   * Mark the right-clicked character as the start of the NEXT paced read:
+   * Ctrl+R (or the chapter's Read button) then begins at this chapter and
+   * reveals from that spot on. Without a resolvable cursor position the
+   * chapter simply starts at its beginning.
+   */
+  setNextReadPosition(): void {
+    const offset = this.ctxClickOffset ?? 0;
+    this.pacedRead.setNextReadPosition(this.node().id, offset);
+    this.toast.success(this.i18n.t('node.readPositionSet'));
+  }
+
+  /** Drop a pending read position for this chapter. */
+  clearNextReadPosition(): void {
+    this.pacedRead.clearNextReadPosition();
   }
 
   private isNativeContextTarget(el: HTMLElement | null): boolean {
@@ -2698,6 +2724,7 @@ export class ChatNodeComponent implements OnDestroy {
       hasPriorVersions: this.priorVersions().length > 0,
       hasComparableSiblings: this.comparableSiblings().length > 0,
       notEditing: !this.isEditing(),
+      hasReadPosition: this.pacedRead.hasNextReadPositionAt(n.id),
       t: (key, params) => this.i18n.t(key, params),
       actions: {
         copy: () => void this.copyContent(),
@@ -2716,6 +2743,8 @@ export class ChatNodeComponent implements OnDestroy {
         switchCharacters: () => void this.switchCharactersDraft(),
         chapterDescriptions: () => void this.openChapterDescriptionsDialog(),
         prepend: () => void this.openPrependDialog(),
+        setReadPosition: () => this.setNextReadPosition(),
+        clearReadPosition: () => this.clearNextReadPosition(),
         remove: () => void this.deleteNodeOnly(),
         delete: () => void this.deleteNode(),
       },
@@ -2799,6 +2828,11 @@ export class ChatNodeComponent implements OnDestroy {
 
   /** True while THIS chapter is the one being revealed by paced reading. */
   readonly pacedReading = computed(() => this.pacedRead.isCurrent(this.node().id));
+
+  /** True when the right-click menu set this chapter as the NEXT read start. */
+  readonly readPositionPending = computed(
+    () => this.pacedRead.hasNextReadPositionAt(this.node().id)
+  );
 
   /**
    * Estimated paced-read duration of this chapter at the current reveal speed
@@ -3125,7 +3159,10 @@ export class ChatNodeComponent implements OnDestroy {
     }
     const self = this.node();
     const path = this.chatService.getActivePath();
-    const idx = path.findIndex(n => n.id === self.id);
+    // A "next read position" set from the context menu wins over the chapter
+    // this button belongs to.
+    const anchorId = this.pacedRead.pendingStart()?.nodeId ?? self.id;
+    const idx = path.findIndex(n => n.id === anchorId);
     const from = idx >= 0 ? path.slice(idx) : [self];
     const items = from
       .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)

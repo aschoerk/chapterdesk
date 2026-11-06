@@ -37,45 +37,25 @@
           <div class="title-row">
             <chat-title-editor></chat-title-editor>
 
-            @if (chatService.generatingNodeId() || pacedRead.active()) {
+            @if (chatService.generatingNodeId()) {
               <div class="view-prefs">
-                @if (pacedRead.active()) {
-                  <div class="view-prefs-row paced-read-row">
-                    <button class="btn small" type="button"
-                            [title]="pacedRead.paused() ? i18n.t('chat.pacedReadResumeTitle') : i18n.t('chat.pacedReadPauseTitle')"
-                            (click)="pacedRead.toggle()">
-                      {{ pacedRead.paused() ? i18n.t('chat.pacedReadResume') : i18n.t('chat.pacedReadPause') }}
-                    </button>
-                    <button class="btn small" type="button"
-                            [title]="i18n.t('chat.pacedReadStopTitle')"
-                            (click)="pacedRead.stop()">
-                      {{ i18n.t('chat.pacedReadStop') }}
-                    </button>
-                    <span class="meta">
-                      {{ i18n.t('chat.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
-                    </span>
-                    <span class="paced-read-hint">{{ i18n.t('chat.pacedReadKeys') }}</span>
-                  </div>
-                }
-                @if (chatService.generatingNodeId()) {
-                  <div class="view-prefs-row">
-                    <label>
-                      <input type="checkbox"
-                             [checked]="chatService.followStreaming()"
-                             (change)="chatService.setFollowStreaming($any($event.target).checked)" />
-                      {{ i18n.t('chat.followStreaming') }}
-                    </label>
-                    <label>
-                      <input type="checkbox"
-                             [checked]="chatService.alwaysOpenAtLeaf()"
-                             (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
-                      {{ i18n.t('chat.alwaysOpenAtLeaf') }}
-                    </label>
-                    <span class="gen-spinner on"
-                          [title]="i18n.t('chat.generating')"
-                          aria-live="polite"></span>
-                  </div>
-                }
+                <div class="view-prefs-row">
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.followStreaming()"
+                           (change)="chatService.setFollowStreaming($any($event.target).checked)" />
+                    {{ i18n.t('chat.followStreaming') }}
+                  </label>
+                  <label>
+                    <input type="checkbox"
+                           [checked]="chatService.alwaysOpenAtLeaf()"
+                           (change)="chatService.setAlwaysOpenAtLeaf($any($event.target).checked)" />
+                    {{ i18n.t('chat.alwaysOpenAtLeaf') }}
+                  </label>
+                  <span class="gen-spinner on"
+                        [title]="i18n.t('chat.generating')"
+                        aria-live="polite"></span>
+                </div>
 
                 <div class="view-prefs-row stream-speed-row">
                   <label class="stream-speed">
@@ -101,6 +81,51 @@
               </div>
             }
           </div>
+
+          <!-- Paced reading (Ctrl+R / a chapter's Read button) — its own bar so
+               it stays reachable on narrow layouts (view-prefs is hidden by a
+               container query) and so pause/resume is always one click away. -->
+          @if (pacedRead.active()) {
+            <div class="paced-read-bar" role="group" [attr.aria-label]="i18n.t('chat.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() })">
+              <button class="btn small primary" type="button"
+                      [attr.aria-pressed]="pacedRead.paused()"
+                      [title]="pacedRead.paused() ? i18n.t('chat.pacedReadResumeTitle') : i18n.t('chat.pacedReadPauseTitle')"
+                      (click)="pacedRead.toggle()">
+                {{ pacedRead.paused() ? '▶ ' + i18n.t('chat.pacedReadResume') : '⏸ ' + i18n.t('chat.pacedReadPause') }}
+              </button>
+              <button class="btn small" type="button"
+                      [title]="i18n.t('chat.pacedReadStopTitle')"
+                      (click)="pacedRead.stop()">
+                ⏹ {{ i18n.t('chat.pacedReadStop') }}
+              </button>
+              <span class="meta">
+                {{ i18n.t('chat.pacedReadProgress', { current: pacedRead.currentIndex() + 1, total: pacedRead.total() }) }}
+              </span>
+              @if (pacedRead.paused()) {
+                <span class="paced-paused-flag">{{ i18n.t('chat.pacedReadPaused') }}</span>
+              }
+              <label class="stream-speed paced-speed">
+                {{ i18n.t('chat.reveal') }}
+                <select
+                  [ngModel]="chatService.streamSpeedUnit()"
+                  (ngModelChange)="chatService.setStreamSpeedUnit($event)">
+                  <option value="char">{{ i18n.t('chat.charsPerSec') }}</option>
+                  <option value="word">{{ i18n.t('chat.wordsPerSec') }}</option>
+                </select>
+                <input
+                  type="range"
+                  min="0"
+                  [max]="chatService.streamSpeedUnit() === 'word' ? 30 : 160"
+                  [step]="chatService.streamSpeedUnit() === 'word' ? 1 : 5"
+                  [ngModel]="chatService.streamSpeed()"
+                  (ngModelChange)="chatService.setStreamSpeed(+$event)" />
+                <span class="speed-val">
+                  {{ chatService.streamSpeed() === 0 ? i18n.t('chat.instant') : chatService.streamSpeed() }}
+                </span>
+              </label>
+              <span class="paced-read-hint">{{ i18n.t('chat.pacedReadKeys') }}</span>
+            </div>
+          }
           <!-- Chat params / structure / lore / search / trash toolbar -->
           <div class="params-bar">
             <button class="btn small" type="button" (click)="toggleChatParams()">

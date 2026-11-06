@@ -840,6 +840,28 @@ describe('Chat', () => {
     expect(component.showElaborateDialog()).toBe(false);
   });
 
+  it('starts paced reading with Ctrl+R and interrupts/resumes it with P (no LLM call)', async () => {
+    await openStory();
+    fixture.detectChanges();
+
+    const prevent = vi.fn();
+    component.onKey({ key: 'r', ctrlKey: true, preventDefault: prevent } as unknown as KeyboardEvent);
+    expect(prevent).toHaveBeenCalled();
+    expect(component.pacedRead.active()).toBe(true);
+    expect(component.pacedRead.paused()).toBe(false);
+
+    component.onKey({ key: 'p', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(component.pacedRead.paused()).toBe(true);
+
+    // Space works as the same interrupt/resume command.
+    component.onKey({ key: ' ', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(component.pacedRead.paused()).toBe(false);
+
+    component.onKey({ key: 'Escape', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(component.pacedRead.active()).toBe(false);
+    component.pacedRead.stop();
+  });
+
   it('initializes first/last chapter to 1 with empty characters the first time', async () => {
     await openElaborateStory();
 

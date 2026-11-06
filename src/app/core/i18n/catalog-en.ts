@@ -134,8 +134,12 @@ export const EN = {
     pacedReadResume: 'Resume',
     pacedReadResumeTitle: 'Resume the reveal (Space)',
     pacedReadProgress: 'Chapter {{current}} / {{total}}',
+    pacedReadPaused: 'paused',
+    pacedReadResumeWhere: 'Resume reading',
+    pacedReadIndicatorTitle:
+      'Paced reading is paused — Resume brings you back to the chapter and place you were reading (P)',
     pacedReadKeys:
-      '← repeat 1s · → skip 1s · ↑/↓ one line · Space pause · Ctrl+R start/stop · Esc stop',
+      '← repeat 1s · → skip 1s · ↑/↓ one line · Space/P pause · Ctrl+R start/stop · Esc stop',
     bookReadTime: 'book ≈ {{time}}',
     bookReadTimeTitle:
       'Estimated time to read the whole story at the current reveal speed (Ctrl+R starts paced reading)',
@@ -218,8 +222,9 @@ export const EN = {
     pacedReadResume: 'Resume',
     pacedReadResumeTitle: 'Resume the reveal (Space)',
     pacedReadProgress: '{{current}} / {{total}}',
+    pacedReadPaused: 'paused',
     pacedReadKeys:
-      '← repeat 1s · → skip 1s · ↑/↓ one line · Space pause · Ctrl+R start/stop · Esc stop',
+      '← repeat 1s · → skip 1s · ↑/↓ one line · Space/P pause · Ctrl+R start/stop · Esc stop',
     docReadTime: 'doc ≈ {{time}}',
     docReadTimeTitle: 'Estimated time to read this document at the current reveal speed',
     bookReadTime: 'book ≈ {{time}}',
@@ -370,6 +375,10 @@ export const EN = {
     pacedReadTitle:
       'Reveal this chapter and the following chapters at the reading pace — no LLM call',
     pacedReadStopTitle: 'Stop paced reading',
+    ctxSetReadPosition: 'Set next read position here',
+    ctxClearReadPosition: 'Clear next read position',
+    readPositionSet: 'Next read will start at this spot',
+    readPositionPending: 'read position set',
     readTime: '≈ {{time}} to read',
     readTimeTitle:
       'Estimated time to reveal this chapter at the current reveal speed',

@@ -15,6 +15,7 @@ import { makeAttachment, makeModel, makeNode, seedApi } from '../../../../test-h
 import { ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
+import { PacedReadService } from '../../core/llm/paced-read.service';
 import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
@@ -4980,10 +4981,11 @@ describe('ChatNodeComponent', () => {
         'Rewrite in place',
         'Illustrate',
         'Create image of selection…',
+        'Set next read position here',
         'Remove section',
         'Delete section & following',
       ]);
-      expect(items.filter((i) => i.divider).length).toBe(2);
+      expect(items.filter((i) => i.divider).length).toBe(3);
       // The regenerate action is enabled (nothing is generating).
       expect(items.find((i) => i.label === 'Regenerate')?.disabled).toBe(false);
     });
@@ -5014,6 +5016,34 @@ describe('ChatNodeComponent', () => {
 
       expect(copySpy).toHaveBeenCalled();
       expect(component.ctxMenu()).toBeNull();
+    });
+
+    it('sets the next read position at the right-clicked character', () => {
+      const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter text here' });
+      createFixture(a1);
+      // jsdom has no layout — stub the caret mapping to a known offset.
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(8);
+
+      component.openNodeMenu(ctxEvent());
+      fixture.detectChanges();
+      const item = component.ctxMenuItems().find((i) => i.label === 'Set next read position here')!;
+      expect(item).toBeTruthy();
+
+      component.runCtxAction(item);
+      fixture.detectChanges();
+
+      const paced = TestBed.inject(PacedReadService) as PacedReadService;
+      expect(paced.pendingStart()).toEqual({ nodeId: 'a1', offset: 8 });
+      // The chapter header shows the pending marker.
+      expect(component.readPositionPending()).toBe(true);
+      // The menu offers to clear it again.
+      expect(component.ctxMenuItems().map((i) => i.label)).toContain('Clear next read position');
+
+      // Clearing removes it.
+      component.clearNextReadPosition();
+      expect(paced.pendingStart()).toBeNull();
+      expect(component.readPositionPending()).toBe(false);
+      paced.clearNextReadPosition();
     });
 
     it('ignores disabled and divider items', () => {

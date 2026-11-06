@@ -61,10 +61,18 @@ export class StreamReveal {
   private readonly prefs: StreamRevealPrefs;
   private readonly paint: StreamRevealPaint;
 
-  constructor(prefs: StreamRevealPrefs, paint: StreamRevealPaint, opts: { hold?: boolean } = {}) {
+  constructor(
+    prefs: StreamRevealPrefs,
+    paint: StreamRevealPaint,
+    opts: { hold?: boolean; startAt?: number } = {}
+  ) {
     this.prefs = prefs;
     this.paint = paint;
     this.hold = !!opts.hold;
+    // Start part-way in: everything before `startAt` counts as already
+    // revealed ("start the next read at the cursor"), so the first paint shows
+    // that prefix and pacing continues from there.
+    if (opts.startAt && opts.startAt > 0) this.committed = Math.round(opts.startAt);
   }
 
   /**

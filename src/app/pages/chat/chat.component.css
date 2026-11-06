@@ -933,11 +933,54 @@ body.nav-resizing * {
   font-variant-numeric: tabular-nums;
 }
 
-/* Paced reading (Read button on a chapter) — its own control row above the
-   reveal-speed slider while the reveal runs without an LLM call. */
-.paced-read-row .meta {
+/* Paced reading (Ctrl+R / a chapter's Read button) — its own bar, NOT hidden
+   by the container query on .view-prefs, so pause/resume stays reachable. */
+.paced-read-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  padding: 0.3rem 0.75rem;
+  border-top: 1px dashed var(--border, #e7e5e4);
+  border-bottom: 1px dashed var(--border, #e7e5e4);
+  background: var(--panel, #fff);
+}
+
+.paced-read-bar .meta {
   font-size: 0.75rem;
   color: var(--muted, #666);
+  font-variant-numeric: tabular-nums;
+}
+
+.paced-paused-flag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent, #1d4ed8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.paced-read-bar .paced-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--muted, #666);
+  white-space: nowrap;
+}
+
+.paced-read-bar .paced-speed select {
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.paced-read-bar .paced-speed input[type="range"] {
+  width: 88px;
+  vertical-align: middle;
+}
+
+.paced-read-bar .paced-speed .speed-val {
+  min-width: 3.2rem;
   font-variant-numeric: tabular-nums;
 }
 
