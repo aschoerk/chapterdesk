@@ -1,4 +1,4 @@
-import {NodeAttachment} from '../models/chat';
+import {NodeAttachment, ReadingMark} from '../models/chat';
 import { ProviderConfig, ModelEntry, ModelArchitecture } from '../models/chat-config';
 
 export interface CreateProjectRequest {
@@ -36,6 +36,8 @@ export interface PatchChatRequest {
   lore?: string | null;
   /** Per-chat mode: auto-exclude newly created directions after their first send. */
   autoExcludeDirections?: boolean;
+  /** Persistent reading marks (positions / selections + notes) — replaces the list. */
+  readingMarks?: ReadingMark[];
 }
 
 export interface BranchQuestionRequest {

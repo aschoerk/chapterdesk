@@ -258,6 +258,94 @@
   letter-spacing: 0.02em;
 }
 
+/* ===== Persistent reading marks (positions / selections + notices) ===== */
+.reading-marks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0.2rem;
+}
+
+.mark-chip {
+  border: 1px solid var(--border, #e7e5e4);
+  border-left: 3px solid var(--accent, #1d4ed8);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #1d4ed8) 4%, transparent);
+  font-size: 0.78rem;
+}
+
+.mark-note-text {
+  margin: 0;
+  padding: 0 0.4rem 0.25rem 1.25rem;
+  font-size: 0.76rem;
+  color: var(--text-muted, #57534e);
+  white-space: pre-wrap;
+  cursor: pointer;
+  max-height: 6rem;
+  overflow: auto;
+}
+
+.mark-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.3rem;
+}
+
+.mark-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+.mark-icon {
+  color: var(--accent, #1d4ed8);
+  font-size: 0.7rem;
+  flex: 0 0 auto;
+}
+
+.mark-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted, #57534e);
+}
+
+.mark-note-flag {
+  color: var(--accent, #1d4ed8);
+  flex: 0 0 auto;
+}
+
+.mark-but-read,
+.mark-read {
+  flex: 0 0 auto;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.mark-delete {
+  flex: 0 0 auto;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  opacity: 0.65;
+}
+
+.mark-delete:hover {
+  opacity: 1;
+  color: var(--danger, #b91c1c);
+}
+
 /* A pending "next read position" (set via the node's right-click menu). */
 .read-position-badge {
   background: color-mix(in srgb, var(--accent, #1d4ed8) 12%, transparent);

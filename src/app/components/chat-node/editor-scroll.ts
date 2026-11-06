@@ -283,6 +283,137 @@ export function ensureEditorTopOnScreen(
   }
 }
 
+/** A position inside the rendered content (text node + offset). */
+export interface DomTextPosition {
+  node: Text;
+  offset: number;
+}
+
+/**
+ * A whitespace-NORMALIZED view of `root`'s text with a map back to the DOM.
+ *
+ * The rendered markdown collapses the source's whitespace and splits text
+ * across inline elements (`<em>`, `<strong>`, …), so a stored quote can rarely
+ * be found with a plain `indexOf` on a single text node. This walks the text
+ * nodes in order, collapses every whitespace run to ONE space and records the
+ * DOM position of every character of the resulting string — so a match in the
+ * normalized string can be turned back into a real {@link Range}.
+ */
+/** Nearest block-level ancestor of a text node (used as a line boundary). */
+function blockOf(node: Node): Element | null {
+  return node.parentElement?.closest(BLOCK_SELECTOR) ?? null;
+}
+
+const BLOCK_SELECTOR =
+  'p,div,li,h1,h2,h3,h4,h5,h6,blockquote,pre,td,th,dd,dt,section,article,' +
+  'header,footer,tr,ul,ol,table,hr';
+
+function normalizedTextMap(root: Element): { text: string; positions: DomTextPosition[] } {
+  const chars: string[] = [];
+  const positions: DomTextPosition[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let lastWasSpace = false;
+  let prevBlock: Element | null = null;
+  let n: Node | null;
+  while ((n = walker.nextNode())) {
+    const data = (n as Text).data ?? '';
+    if (!data) continue;
+    // Two text nodes in DIFFERENT blocks are separated by a line break in the
+    // rendered text (and by \n\n in the source) — represent it as one space so
+    // a quote spanning paragraphs still matches.
+    const block = blockOf(n);
+    if (block && prevBlock && block !== prevBlock && chars.length && !lastWasSpace) {
+      chars.push(' ');
+      positions.push({ node: n as Text, offset: 0 });
+      lastWasSpace = true;
+    }
+    prevBlock = block;
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+      if (/\s/.test(ch)) {
+        if (lastWasSpace) continue; // collapse a whitespace run
+        chars.push(' ');
+        lastWasSpace = true;
+      } else {
+        chars.push(ch);
+        lastWasSpace = false;
+      }
+      positions.push({ node: n as Text, offset: i });
+    }
+  }
+  return { text: chars.join(''), positions };
+}
+
+/**
+ * Locate `needle` inside the RENDERED content of `root` and return a DOM Range
+ * covering it, ignoring whitespace differences (the rendered text collapses
+ * the source's newlines / indentation and may span inline elements).
+ * Returns null when the text is no longer there (the section was edited).
+ */
+export function findTextRange(root: Element | null | undefined, needle: string): Range | null {
+  if (!root) return null;
+  const target = (needle ?? '').replace(/\s+/g, ' ').trim();
+  if (!target) return null;
+  const { text, positions } = normalizedTextMap(root);
+  const idx = text.indexOf(target);
+  if (idx < 0) return null;
+  const start = positions[idx];
+  const last = positions[idx + target.length - 1];
+  if (!start || !last) return null;
+  try {
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(last.node, last.offset + 1);
+    return range;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Select `range` in the document (so the text looks SELECTED and can be
+ * copied) and scroll it into the middle of its scroll container. Falls back to
+ * `scrollIntoView` when the browser cannot measure the range (jsdom/tests).
+ */
+export function selectRangeAndScroll(
+  range: Range,
+  scrollParentOf: (el: HTMLElement | null) => HTMLElement | null
+): void {
+  const selection = typeof window.getSelection === 'function' ? window.getSelection() : null;
+  if (selection) {
+    try {
+      // jsdom / test doubles may expose a reduced Selection object.
+      selection.removeAllRanges?.();
+      selection.addRange?.(range);
+    } catch {
+      /* selecting is best-effort — the scroll below still runs */
+    }
+  }
+  const host = (range.startContainer.nodeType === Node.ELEMENT_NODE
+    ? range.startContainer
+    : range.startContainer.parentElement) as HTMLElement | null;
+  const scroller = scrollParentOf(host);
+  // jsdom has no layout: getBoundingClientRect is missing / zero-sized.
+  const rect = range.getBoundingClientRect?.();
+  const hostRect = rect && (rect.width || rect.height)
+    ? rect
+    : host?.getBoundingClientRect?.();
+  if (!hostRect || (!hostRect.width && !hostRect.height)) {
+    host?.scrollIntoView?.({ block: 'center' });
+    return;
+  }
+  if (!scroller) {
+    host?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+    return;
+  }
+  const band = scroller.getBoundingClientRect();
+  if (!band.width && !band.height) return; // no layout (tests)
+  // Center the found line in the visible band.
+  const target = hostRect.top + hostRect.height / 2;
+  const middle = band.top + band.height / 2;
+  scroller.scrollTop = Math.max(0, scroller.scrollTop + (target - middle));
+}
+
 /**
  * Live-stream follow scroll: keep the streamed answer's anchor (its bottom
  * edge) visible inside its nearest scroll container, so the page never jumps

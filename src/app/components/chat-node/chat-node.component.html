@@ -495,6 +495,35 @@
     <!-- Streaming anchor for live follow-scroll -->
     <div #streamEnd class="stream-end"></div>
 
+    <!-- Persistent reading marks: positions / text selections + notices -->
+    @if (nodeMarks().length) {
+      <div class="reading-marks">
+        @for (mark of nodeMarks(); track mark.id) {
+          <div class="mark-chip">
+            <div class="mark-row">
+              <button type="button" class="mark-toggle"
+                      [title]="i18n.t('node.markToggleTitle')"
+                      (click)="editMarkNote(mark); $event.stopPropagation()">
+                <span class="mark-icon">{{ isPositionMark(mark) ? '▶' : '❝' }}</span>
+                <span class="mark-label">{{ markLabel(mark) || i18n.t('node.markPositionLabel') }}</span>
+                @if (mark.note) { <span class="mark-note-flag" aria-hidden="true">✎</span> }
+              </button>
+              <button type="button" class="btn-icon mark-read"
+                      [title]="i18n.t('node.markReadTitle')"
+                      (click)="readFromMark(mark); $event.stopPropagation()">▶</button>
+              <button type="button" class="btn-icon mark-delete"
+                      [title]="i18n.t('node.markDelete')"
+                      (click)="deleteMark(mark); $event.stopPropagation()">✕</button>
+            </div>
+            @if (mark.note) {
+              <p class="mark-note-text" [title]="mark.note"
+                 (click)="editMarkNote(mark); $event.stopPropagation()">{{ mark.note }}</p>
+            }
+          </div>
+        }
+      </div>
+    }
+
     <!-- Prior versions -->
     @if (priorVersions().length) {
       <div class="prior-versions">

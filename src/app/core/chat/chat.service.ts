@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary } from '../../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary, ReadingMark } from '../../models/chat';
 import type { StreamRevealPrefs } from '../llm/stream-reveal';
 import { NodeEditSession } from './node-edit-session';
 import { ChatViewPrefsService } from './chat-view-prefs.service';
@@ -249,7 +249,12 @@ export class ChatService {
   }
   patchChatMeta(
     chatId: string,
-    changes: { lore?: string | null; autoExcludeDirections?: boolean }
+    changes: {
+      lore?: string | null;
+      autoExcludeDirections?: boolean;
+      /** Persistent reading positions / selections + notices (replaces the list). */
+      readingMarks?: ReadingMark[];
+    }
   ): Promise<Chat> {
     return this.writer.patchChatMeta(chatId, changes);
   }

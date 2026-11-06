@@ -563,6 +563,93 @@ body.nav-resizing * {
 
 
 /* ==========================================================================
+   Marks panel (persistent reading positions / selections + notices)
+   ========================================================================== */
+.marks-panel {
+  margin: 0 0.75rem 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #3333);
+  border-radius: 8px;
+  background: var(--panel, transparent);
+}
+
+.marks-panel h3 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.marks-hint,
+.marks-empty {
+  margin: 0.2rem 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted, #888);
+}
+
+.marks-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.marks-item {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border, #3333);
+  border-left: 3px solid var(--accent, #3355ff);
+  border-radius: 6px;
+}
+
+.marks-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted, #888);
+}
+
+.marks-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.marks-quote {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.marks-note {
+  margin: 0.2rem 0 0;
+  padding-left: 0.45rem;
+  border-left: 2px solid var(--border, #3333);
+  font-size: 0.8rem;
+  color: var(--muted, #888);
+  white-space: pre-wrap;
+}
+
+.marks-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  margin-top: 0.3rem;
+}
+
+.marks-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* ==========================================================================
    Trash panel (soft-deleted branches)
    ========================================================================== */
 .trash-panel {

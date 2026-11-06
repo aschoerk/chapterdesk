@@ -224,6 +224,28 @@ export class PacedReadService {
   }
 
   /**
+   * Move the CURRENT session to `nodeId` / `offset` of `items` right away,
+   * keeping the paused state.
+   *
+   * Used by "set next read position" while the reading is paused: the user
+   * wants the CONTINUATION to start at that spot, so it must take effect
+   * immediately (a pending position would only apply to the next fresh start).
+   */
+  async relocate(items: PacedReadItem[], nodeId: string, offset: number): Promise<void> {
+    const wasPaused = this.active() && this.paused();
+    this.setNextReadPosition(nodeId, offset);
+    // `start()` consumes the pending position and rebuilds the queue from it.
+    const run = this.start(items);
+    if (wasPaused) {
+      // start() clears the pause — freeze again at the new spot.
+      this.paused.set(true);
+      // A later Resume must return HERE, not to the pre-relocation place.
+      this.resumePoint.set(this.capturePoint());
+    }
+    await run;
+  }
+
+  /**
    * Freeze the reveal where it is (safe to call when not reading) and
    * remember the reading position, so `resume()` can return there after the
    * user used the pause to do something else.

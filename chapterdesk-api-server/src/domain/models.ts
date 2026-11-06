@@ -54,6 +54,22 @@ export interface NodeUsageSummary {
   cost?: number;
 }
 
+/**
+ * A persistent reading mark: a POSITION (`start === end`) or a TEXT SELECTION
+ * inside a node's markdown source, optionally carrying a note. A chat may hold
+ * any number of them; they live on the chat record.
+ */
+export interface ReadingMark {
+  id: string;
+  nodeId: string;
+  start: number;
+  end: number;
+  quote: string;
+  note: string;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
 export interface Chat {
   id: string;
   title: string;
@@ -63,6 +79,8 @@ export interface Chat {
   lore?: string | null;
   /** When true, a direction node is automatically excluded from the LLM context after it was sent the first time. */
   autoExcludeDirections?: boolean;
+  /** Persistent reading positions / text-selection marks + notes (any number). */
+  readingMarks?: ReadingMark[];
   node_number: number;
   created_at: string;
   updated_at: string;

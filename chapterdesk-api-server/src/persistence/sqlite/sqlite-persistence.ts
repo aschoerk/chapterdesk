@@ -75,6 +75,7 @@ function mapChat(row: Row): Chat {
     chatParametersId: (row.chat_parameters_id as string | null) ?? null,
     lore: (row.lore as string | null) ?? null,
     autoExcludeDirections: bool(row.auto_exclude_directions),
+    readingMarks: json(row.reading_marks as string | null, [] as Chat['readingMarks']),
     node_number: Number(row.node_number ?? 0),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -302,7 +303,7 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', default_model_id TEXT, chat_parameters_id TEXT, default_system_prompt TEXT DEFAULT '', icon TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS topic_projects (topic_id TEXT NOT NULL, project_id TEXT NOT NULL, PRIMARY KEY(topic_id, project_id));
       CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT NOT NULL, description TEXT DEFAULT '', avatar TEXT DEFAULT '', main_topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, reading_marks TEXT, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
@@ -324,6 +325,7 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('chats', 'chat_parameters_id', 'TEXT');
     this.addColumn('chats', 'lore', 'TEXT');
     this.addColumn('chats', 'auto_exclude_directions', 'INTEGER DEFAULT 0');
+    this.addColumn('chats', 'reading_marks', 'TEXT');
     this.addColumn('chats', 'prompt_tokens', 'INTEGER');
     this.addColumn('chats', 'completion_tokens', 'INTEGER');
     this.addColumn('chats', 'cached_tokens', 'INTEGER');
@@ -818,7 +820,7 @@ export class SqlitePersistence implements PersistencePort {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          'INSERT INTO chats(id,title,project_id,chat_parameters_id,lore,auto_exclude_directions,node_number,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,created_at,updated_at) SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
+          'INSERT INTO chats(id,title,project_id,chat_parameters_id,lore,auto_exclude_directions,reading_marks,node_number,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,created_at,updated_at) SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, reading_marks, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
         )
         .run(id, ' (copy)', ts, ts, chatId);
       const insert = this.db.prepare(
@@ -862,13 +864,16 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.chat(id);
     if (data.projectId) this.requireRow('project', data.projectId, 'projects');
     this.db
-      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,updated_at=? WHERE id=?')
+      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,reading_marks=?,updated_at=? WHERE id=?')
       .run(
         data.title ?? old.title,
         data.projectId !== undefined ? data.projectId : old.projectId,
         data.chatParametersId !== undefined ? data.chatParametersId : old.chatParametersId,
         data.lore !== undefined ? data.lore : old.lore,
         data.autoExcludeDirections !== undefined ? (data.autoExcludeDirections ? 1 : 0) : (old.autoExcludeDirections ? 1 : 0),
+        data.readingMarks !== undefined
+          ? JSON.stringify(data.readingMarks)
+          : JSON.stringify(old.readingMarks ?? []),
         now(),
         id,
       );

@@ -22,6 +22,8 @@ const LABELS: Record<string, string> = {
   'node.ctxPrepend': 'Prepend director',
   'node.ctxSetReadPosition': 'Set next read position here',
   'node.ctxClearReadPosition': 'Clear next read position',
+  'node.ctxMarkPosition': 'Mark this position (notice)',
+  'node.ctxMarkSelection': 'Add notice to the marked text',
   'node.ctxRemove': 'Remove section',
   'node.ctxDelete': 'Delete section & following',
 };
@@ -29,7 +31,7 @@ const t = (key: string): string => LABELS[key] ?? key;
 
 function ctx(
   overrides: Partial<
-    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions' | 'hasComparableSiblings' | 'hasReadPosition'>
+    Pick<CtxMenuContext, 'node' | 'busy' | 'loading' | 'canIllustrate' | 'showClosedContinue' | 'isUnsentQuestion' | 'hasPriorVersions' | 'hasComparableSiblings' | 'hasReadPosition' | 'canMarkSelection'>
   > = {}
 ): CtxMenuContext {
   const noop = () => undefined;
@@ -39,7 +41,8 @@ function ctx(
     toggleExclude: noop, heading: noop, regenerate: noop, regenerateInPlace: noop,
     illustrate: noop, createImage: noop, continueDraft: noop, switchCharacters: noop,
     chapterDescriptions: noop, prepend: noop, setReadPosition: noop,
-    clearReadPosition: noop, remove: noop, delete: noop,
+    clearReadPosition: noop, markPosition: noop, markSelection: noop,
+    remove: noop, delete: noop,
   };
   return {
     node: makeNode({ role: 'assistant', content: 'Chapter' }),
@@ -51,6 +54,7 @@ function ctx(
     hasPriorVersions: false,
     hasComparableSiblings: false,
     hasReadPosition: false,
+    canMarkSelection: false,
     notEditing: true,
     t,
     actions,
@@ -62,6 +66,19 @@ const labels = (items: ReturnType<typeof buildCtxMenuItems>) =>
   items.filter(i => !i.divider).map(i => i.label);
 
 describe('buildCtxMenuItems (chat-node context menu)', () => {
+  it('offers the reading-mark commands (position always, selection only while text is marked)', () => {
+    const none = buildCtxMenuItems(ctx({ node: makeNode({ role: 'assistant', content: 'Chapter' }) }));
+    expect(labels(none)).toContain('Mark this position (notice)');
+    // Nothing selected → the selection entry is present but disabled.
+    expect(none.find(i => i.label === 'Add notice to the marked text')?.disabled).toBe(true);
+
+    const selected = buildCtxMenuItems(ctx({
+      node: makeNode({ role: 'assistant', content: 'Chapter' }),
+      canMarkSelection: true,
+    }));
+    expect(selected.find(i => i.label === 'Add notice to the marked text')?.disabled).toBe(false);
+  });
+
   it('offers "set next read position" for a chapter, plus clear when one is set', () => {
     const none = buildCtxMenuItems(ctx({ node: makeNode({ role: 'assistant', content: 'Chapter' }) }));
     expect(labels(none)).toContain('Set next read position here');
@@ -98,7 +115,7 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     expect(labels(items)).toEqual([
       'Copy', 'Edit', 'Rewrite selection…', 'Prior versions', 'Compare versions…', 'Compare siblings…',
       'Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…',
-      'Set next read position here',
+      'Set next read position here', 'Mark this position (notice)', 'Add notice to the marked text',
       'Remove section', 'Delete section & following',
     ]);
     expect(items.filter(i => i.divider).length).toBe(3);

@@ -194,6 +194,69 @@ describe('PacedReadService — reveal existing text at the reading pace', () => 
     await done;
   });
 
+  it('relocate() moves a PAUSED read to the new spot and stays paused there', async () => {
+    const items = [
+      { key: 'a', text: 'aaaaaaaaaa' },
+      { key: 'b', text: 'bbbbbbbbbb' }
+    ];
+    const done = service.start(items);
+    await flushMicrotasks();
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+    expect(service.currentKey()).toBe('a');
+
+    service.pause();
+    expect(service.paused()).toBe(true);
+
+    // "Set next read position" while paused applies immediately.
+    const relocated = service.relocate(items, 'b', 4);
+    expect(service.active()).toBe(true);
+    expect(service.paused()).toBe(true);
+    expect(service.currentKey()).toBe('b');
+    expect(service.revealedText()).toBe('bbbb');
+    expect(service.resumePoint()?.nodeId).toBe('b');
+    // Let the reveal pump for the relocated item be created (it is built on
+    // the next microtask, frozen because the session is paused).
+    await flushMicrotasks();
+
+    // Nothing advances while still paused.
+    frames.flushFrames(3000);
+    frames.flushFrames(4000);
+    expect(service.revealedText()).toBe('bbbb');
+
+    // Resume continues from the relocated spot.
+    service.resume();
+    frames.flushFrames(5000);
+    frames.flushFrames(6000);
+    expect(service.revealedText()).toBe('bbbbbbbbb');
+
+    service.stop();
+    await relocated;
+    await done;
+  });
+
+  it('relocate() keeps a RUNNING read running', async () => {
+    const items = [{ key: 'a', text: 'aaaaaaaaaa' }, { key: 'b', text: 'bbbbbbbbbb' }];
+    const done = service.start(items);
+    await flushMicrotasks();
+    frames.flushFrames(1000);
+    frames.flushFrames(2000);
+
+    const relocated = service.relocate(items, 'b', 2);
+    expect(service.paused()).toBe(false);
+    expect(service.currentKey()).toBe('b');
+    expect(service.revealedText()).toBe('bb');
+
+    await flushMicrotasks();
+    frames.flushFrames(3000);
+    frames.flushFrames(4000);
+    expect(service.revealedText()).toBe('bbbbbbb');
+
+    service.stop();
+    await relocated;
+    await done;
+  });
+
   it('clamps a pending offset to the chapter length and clears on stop', async () => {
     service.setNextReadPosition('a', 9999);
     expect(service.hasNextReadPositionAt('a')).toBe(true);

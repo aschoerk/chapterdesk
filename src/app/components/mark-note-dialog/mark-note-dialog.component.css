@@ -1,0 +1,92 @@
+.mark-note-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 5vw;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.mark-note-dialog {
+  width: min(560px, 100%);
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow: auto;
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: var(--panel, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, #e5e5e5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.mark-note-dialog h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.mark-note-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #666);
+  line-height: 1.4;
+}
+
+.mark-note-quote {
+  margin: 0 0 0.85rem;
+  padding: 0.3rem 0.7rem;
+  border-left: 3px solid var(--accent, #1d4ed8);
+  background: color-mix(in srgb, var(--accent, #1d4ed8) 6%, transparent);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text-muted, #57534e);
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.mark-note-position {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-muted, #666);
+}
+
+.mark-note-field {
+  display: block;
+}
+
+.mark-note-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #666);
+}
+
+.mark-note-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 7rem;
+}
+
+.mark-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}

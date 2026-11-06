@@ -20,6 +20,7 @@ import {
 import { ProviderConfig, ModelEntry } from '../../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../../models/chat-parameters';
 import { ChatService } from '../../core/chat/chat.service';
+import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -838,6 +839,68 @@ describe('Chat', () => {
     } as unknown as KeyboardEvent);
 
     expect(component.showElaborateDialog()).toBe(false);
+  });
+
+  it('jumpToMark asks the section to reveal the exact spot, else scrolls to the section', async () => {
+    await openStory();
+    fixture.detectChanges();
+
+    const reveal = vi.fn().mockReturnValue(true);
+    const nodeComps = (component as any).nodeComps as () => { node: () => ChatNode; revealMark: typeof reveal }[];
+    const first = nodeComps()[0];
+    vi.spyOn(first, 'revealMark').mockImplementation(reveal);
+
+    const mark = { id: 'm1', nodeId: first.node().id, start: 3, end: 9, quote: 'Answer', note: 'n', createdAt: '' };
+    component.jumpToMark(mark as any);
+    expect(reveal).toHaveBeenCalledWith(mark);
+
+    // Stale mark: the section cannot reveal it → falls back to scrolling.
+    reveal.mockReturnValue(false);
+    const scroll = vi.spyOn(component, 'scrollToNode').mockImplementation(() => {});
+    component.jumpToMark(mark as any);
+    expect(scroll).toHaveBeenCalledWith(mark.nodeId);
+    vi.restoreAllMocks();
+  });
+
+  it('Read from a mark relocates a paused read instead of stopping it', async () => {
+    await openChapteredStory();
+    fixture.detectChanges();
+
+    // A paused read on the first chapter.
+    void component.pacedRead.start([{ key: 'a1', text: 'Answer one' }]);
+    component.pacedRead.pause();
+    expect(component.pacedRead.paused()).toBe(true);
+
+    component.readFromMark({
+      id: 'm1', nodeId: 'a2', start: 2, end: 8, quote: 'Answer', note: '', createdAt: ''
+    } as any);
+
+    expect(component.pacedRead.active()).toBe(true);
+    expect(component.pacedRead.paused()).toBe(true);
+    expect(component.pacedRead.currentKey()).toBe('a2');
+    component.pacedRead.stop();
+  });
+
+  it('Ctrl+M marks the position of the visible section and opens the notice modal', async () => {
+    await openStory();
+    fixture.detectChanges();
+
+    // The section at the top of the tree is the target when nothing is selected.
+    component.visibleNodeId.set('a1');
+    const prevent = vi.fn();
+    component.onKey({ key: 'm', ctrlKey: true, preventDefault: prevent } as unknown as KeyboardEvent);
+    expect(prevent).toHaveBeenCalled();
+
+    const dialog = TestBed.inject(MarkNoteDialogService) as MarkNoteDialogService;
+    expect(dialog.current()).toMatchObject({ isPosition: true });
+
+    dialog.submit('chapter one note');
+    await fixture.whenStable();
+
+    const marks = chatService.chats().find(c => c.id === 'chat-1')?.readingMarks ?? [];
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ nodeId: 'a1', note: 'chapter one note' });
+    component.pacedRead.stop();
   });
 
   it('starts paced reading with Ctrl+R and interrupts/resumes it with P (no LLM call)', async () => {

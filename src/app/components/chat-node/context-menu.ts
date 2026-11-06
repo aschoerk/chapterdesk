@@ -48,6 +48,8 @@ export interface CtxMenuContext {
   notEditing: boolean;
   /** True when a pending read position already points at this node. */
   hasReadPosition: boolean;
+  /** True when a part of the node's text is currently selected. */
+  canMarkSelection: boolean;
   /** Translation function (`I18nService.t`). */
   t: (key: string, params?: Record<string, string | number>) => string;
   /** Action callbacks — each closes the menu first (see `runCtxAction`). */
@@ -70,6 +72,8 @@ export interface CtxMenuContext {
     prepend: () => void;
     setReadPosition: () => void;
     clearReadPosition: () => void;
+    markPosition: () => void;
+    markSelection: () => void;
     remove: () => void;
     delete: () => void;
   };
@@ -153,8 +157,8 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
     }
   }
 
-  // Reading: mark where the NEXT paced read (Ctrl+R / Read) should start. The
-  // position is the right-clicked spot inside the text.
+  // Reading: mark where the NEXT paced read (Ctrl+R / Read) should start, and
+  // keep PERSISTENT marks (positions / selections + notices) on the text.
   const readItems: CtxMenuItem[] = [];
   if (n.content?.trim()) {
     readItems.push({
@@ -168,6 +172,16 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
         action: () => ctx.actions.clearReadPosition()
       });
     }
+    readItems.push({
+      label: ctx.t('node.ctxMarkPosition'),
+      action: () => ctx.actions.markPosition(),
+      disabled: ctx.busy
+    });
+    readItems.push({
+      label: ctx.t('node.ctxMarkSelection'),
+      action: () => ctx.actions.markSelection(),
+      disabled: ctx.busy || !ctx.canMarkSelection
+    });
   }
 
   // Destructive actions, always last.

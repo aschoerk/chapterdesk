@@ -47,6 +47,31 @@ export interface Topic {
   updatedAt: string;
 }
 
+/**
+ * One PERSISTENT reading mark on a chat.
+ *
+ * A mark is either a bare POSITION (`start === end`, e.g. "continue reading
+ * here" or a bookmark) or a TEXT SELECTION (`start < end`) inside a node's
+ * markdown source, and it can carry a NOTE (notice). A chat may hold any
+ * number of them; they survive reloads / browsers because they are stored on
+ * the chat record itself (`Chat.readingMarks`).
+ */
+export interface ReadingMark {
+  id: string;
+  /** The section (ChatNode) the mark refers to. */
+  nodeId: string;
+  /** Character offset into the node's markdown source (0-based, inclusive). */
+  start: number;
+  /** End offset — equal to `start` for a position-only mark. */
+  end: number;
+  /** The quoted source text of the selection ('' for a position). */
+  quote: string;
+  /** The user's notice / annotation for this mark. */
+  note: string;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
 export interface Chat {
   id: string;
   title: string;
@@ -56,6 +81,8 @@ export interface Chat {
   lore?: string | null;
   /** When true, newly created direction nodes are automatically excluded from the LLM context after they were sent the first time. */
   autoExcludeDirections?: boolean;
+  /** Persistent reading positions / text-selection marks with notes (any number). */
+  readingMarks?: ReadingMark[];
   node_number: number;
   created_at: string;
   updated_at: string;

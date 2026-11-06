@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
 import { LastModelService } from '../../core/settings/last-model.service';
-import { Chat, ChatNode, NodeAttachment } from '../../models/chat';
+import { Chat, ChatNode, NodeAttachment, ReadingMark } from '../../models/chat';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../components/chat-parameters-editor/chat-parameters-editor.component';
@@ -28,6 +28,8 @@ import {
   type PacedReadResumePoint
 } from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
+import { ReadingMarksService } from '../../core/chat/reading-marks.service';
+import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import type { HeldRun } from '../../core/llm/orchestration/flows/env';
 import { RevealQueue } from '../../core/llm/reveal-queue';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
@@ -64,6 +66,12 @@ export class ChatComponent implements OnInit {
   readonly i18n = inject(I18nService);
   /** Paced reading of already-written text (started from a chapter's Read button). */
   readonly pacedRead = inject(PacedReadService);
+  /** Persistent reading marks (positions / selections + notices) of the chat. */
+  readonly readingMarks = inject(ReadingMarksService);
+  /** Marks panel open state. */
+  readonly showMarks = signal(false);
+  /** Modal that collects a mark's notice. */
+  private readonly markNoteDialog = inject(MarkNoteDialogService);
   readonly projectService = inject(ProjectService);
   /** Client-side node clipboard; used here to paste a copied branch at the top. */
   readonly clipboard = inject(NodeClipboardService);
@@ -1243,12 +1251,136 @@ export class ChatComponent implements OnInit {
     }
     if (startIdx < 0) return;
 
-    const items = path
-      .slice(startIdx)
-      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
-      .map(n => ({ key: n.id, text: n.content ?? '' }));
+    const items = this.pacedReadItemsFrom(path[startIdx].id);
     if (!items.length) return;
     void this.pacedRead.start(items);
+  }
+
+  // ------------------------------------------- persistent reading marks
+
+  /** One-line description of a mark for the panel (quote or position excerpt). */
+  markPreview(mark: ReadingMark): string {
+    return this.readingMarks.label(mark, this.chatService.currentNodes());
+  }
+
+  /** "chapter 3"-ish reference of the node a mark belongs to. */
+  markNodeLabel(mark: ReadingMark): string {
+    const path = this.getActivePath();
+    const idx = path.findIndex(n => n.id === mark.nodeId);
+    if (idx < 0) return this.i18n.t('chat.marksOrphan');
+    const n = path[idx];
+    const role = n.role === 'user' ? this.i18n.t('node.roleUser') : this.i18n.t('node.roleAssistant');
+    return `${role} ${idx + 1}`;
+  }
+
+  /**
+   * Go to a mark: scroll to its EXACT spot inside the section and re-select
+   * the marked text (it looks selected again and can be copied). Falls back to
+   * scrolling the section into view when the text is no longer there (the
+   * section was edited after the mark was set).
+   */
+  jumpToMark(mark: ReadingMark): void {
+    const comp = this.nodeComps().find(c => c.node().id === mark.nodeId) ?? null;
+    // revealMark centres the exact line itself — scrolling the section first
+    // would fight its own scroll (both move the same scroller).
+    if (comp?.revealMark(mark)) return;
+    this.scrollToNode(mark.nodeId);
+    if (mark.quote?.trim()) {
+      // The mark was a text selection but that text is gone (edited section).
+      this.toast.info(this.i18n.t('chat.marksGone'));
+    }
+  }
+
+  /**
+   * Read from a mark. When a read is already running/paused it RELOCATES to
+   * the mark (keeping the paused state) instead of stopping the session — the
+   * panel is how you pick the next spot while the reading is paused.
+   */
+  readFromMark(mark: ReadingMark): void {
+    if (this.pacedRead.active()) {
+      void this.pacedRead.relocate(this.pacedReadItemsFrom(mark.nodeId), mark.nodeId, mark.start);
+      return;
+    }
+    this.pacedRead.setNextReadPosition(mark.nodeId, mark.start);
+    this.startPacedReadFromView();
+  }
+
+  /** Chapters to reveal when reading starts at `nodeId` (it + the followers). */
+  private pacedReadItemsFrom(nodeId: string): { key: string; text: string }[] {
+    const path = this.getActivePath();
+    const idx = path.findIndex(n => n.id === nodeId);
+    const from = idx >= 0 ? path.slice(idx) : [];
+    return from
+      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
+      .map(n => ({ key: n.id, text: n.content ?? '' }));
+  }
+
+  async deleteMark(mark: ReadingMark): Promise<void> {
+    await this.readingMarks.remove(mark.id);
+  }
+
+  /** Edit a mark's notice in the modal (Cancel keeps the old notice). */
+  async editMarkNote(mark: ReadingMark): Promise<void> {
+    const note = await this.markNoteDialog.open({
+      note: mark.note ?? '',
+      quote: mark.quote ?? '',
+      isPosition: this.readingMarks.isPosition(mark)
+    });
+    if (note == null) return;
+    await this.readingMarks.setNote(mark.id, note);
+  }
+
+  /**
+   * Ctrl+M — mark the current position (or the marked text) with a notice.
+   * Works on the section that owns the text selection, else on the section at
+   * the top of the view.
+   */
+  markAtCursor(): void {
+    const node = this.nodeComponentAtSelection() ?? this.visibleNodeComponent();
+    if (!node) return;
+    if (node.hasContentSelection()) void node.markSelection();
+    else void node.markPosition();
+  }
+
+  /** The rendered node component whose content contains the DOM selection. */
+  private nodeComponentAtSelection(): ChatNodeComponent | null {
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount === 0) return null;
+    // `viewChildren` yields component instances; the owning section is found
+    // through the `data-node-id` wrapper of the selected text.
+    const id = this.nodeIdOfDomNode(selection.anchorNode)
+      ?? this.nodeIdOfDomNode(selection.focusNode);
+    if (!id) return null;
+    return this.nodeComps().find(c => c.node().id === id) ?? null;
+  }
+
+  /** The `data-node-id` of the chat-node element wrapping a DOM node. */
+  private nodeIdOfDomNode(domNode: Node | null): string | null {
+    if (!domNode) return null;
+    const el = domNode.nodeType === Node.ELEMENT_NODE
+      ? domNode as Element
+      : domNode.parentElement;
+    return el?.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null;
+  }
+
+  /** The rendered node component of the section at the top of the view. */
+  private visibleNodeComponent(): ChatNodeComponent | null {
+    const id = this.visibleNodeId() ?? this.getCurrentLeaf()?.id ?? null;
+    if (!id) return null;
+    return this.nodeComps().find(c => c.node().id === id) ?? this.nodeComps()[0] ?? null;
+  }
+
+  async clearMarks(): Promise<void> {
+    const ok = await this.confirm.ask({
+      title: this.i18n.t('chat.marksClearTitle'),
+      message: this.i18n.t('chat.marksClearMsg', { count: this.readingMarks.count() }),
+      confirmLabel: this.i18n.t('chat.marksClear'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true
+    });
+    if (!ok) return;
+    await this.readingMarks.clear();
+    this.showMarks.set(false);
   }
 
   getSiblingIndex(node: ChatNode): number {
@@ -1288,6 +1420,13 @@ export class ChatComponent implements OnInit {
     if (ctrl && (event.key === 'r' || event.key === 'R')) {
       event.preventDefault();
       this.startPacedReadFromView();
+      return;
+    }
+
+    // Ctrl+M — mark the current position (or the marked text) with a notice.
+    if (ctrl && (event.key === 'm' || event.key === 'M')) {
+      event.preventDefault();
+      this.markAtCursor();
       return;
     }
 

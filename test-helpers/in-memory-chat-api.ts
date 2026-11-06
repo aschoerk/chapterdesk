@@ -121,7 +121,17 @@ class InMemoryChatApi implements Pick<
     this.chats = this.chats.filter(c => c.id !== id);
     this.nodes = this.nodes.filter(n => n.chatId !== id);
   }
-  async patchChat(id: string, data: { title?: string; projectId?: string | null; chatParametersId?: string | null }) {
+  async patchChat(
+    id: string,
+    data: {
+      title?: string;
+      projectId?: string | null;
+      chatParametersId?: string | null;
+      lore?: string | null;
+      autoExcludeDirections?: boolean;
+      readingMarks?: Chat['readingMarks'];
+    }
+  ) {
     const row = this.must(this.chats, id, 'Chat');
     Object.assign(row, data, { updated_at: new Date().toISOString() });
     return { ...row };

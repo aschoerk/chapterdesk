@@ -191,6 +191,13 @@
             }
 
             <button class="btn small" type="button"
+                    [class.active]="showMarks()"
+                    (click)="showMarks.set(!showMarks())"
+                    [title]="i18n.t('chat.marksTitle')">
+              {{ i18n.t('chat.marks') }}@if (readingMarks.count() > 0) { ({{ readingMarks.count() }}) }
+            </button>
+
+            <button class="btn small" type="button"
                     [class.danger]="trashCount() > 0"
                     (click)="toggleTrash()"
                     [title]="i18n.t('chat.trashTitle')">
@@ -236,6 +243,65 @@
               <div class="modal-actions">
                 <button class="btn" type="button" (click)="showChatParams.set(false)">{{ i18n.t('common.close') }}</button>
                 <button class="btn primary" type="button" (click)="saveChatParams()">{{ i18n.t('chat.applyToChat') }}</button>
+              </div>
+            </div>
+          }
+
+          <!-- Marks panel: every persistent position / selection + notice -->
+          @if (showMarks()) {
+            <div class="marks-panel" role="dialog" aria-modal="true"
+                 [attr.aria-label]="i18n.t('chat.marksTitle')">
+              <h3>{{ i18n.t('chat.marksTitle') }}</h3>
+              <p class="marks-hint">{{ i18n.t('chat.marksHint') }}</p>
+              @if (readingMarks.count() === 0) {
+                <p class="marks-empty">{{ i18n.t('chat.marksEmpty') }}</p>
+              } @else {
+                <ul class="marks-list">
+                  @for (mark of readingMarks.marks(); track mark.id) {
+                    <li class="marks-item">
+                      <div class="marks-item-head">
+                        <span class="marks-node">{{ markNodeLabel(mark) }}</span>
+                        <span class="marks-kind">
+                          {{ readingMarks.isPosition(mark) ? i18n.t('chat.marksKindPosition') : i18n.t('chat.marksKindSelection') }}
+                        </span>
+                      </div>
+                      <div class="marks-quote">{{ markPreview(mark) || i18n.t('node.markPositionLabel') }}</div>
+                      @if (mark.note) {
+                        <div class="marks-note">{{ mark.note }}</div>
+                      }
+                      <div class="marks-actions">
+                        <button class="btn small" type="button"
+                                (click)="jumpToMark(mark)"
+                                [title]="i18n.t('chat.marksJumpTitle')">
+                          {{ i18n.t('chat.marksJump') }}
+                        </button>
+                        <button class="btn small" type="button"
+                                (click)="editMarkNote(mark)"
+                                [title]="i18n.t('chat.marksNoteTitle')">
+                          {{ i18n.t('chat.marksNote') }}
+                        </button>
+                        <button class="btn small primary" type="button"
+                                (click)="readFromMark(mark)"
+                                [title]="i18n.t('chat.marksReadTitle')">
+                          {{ i18n.t('chat.marksRead') }}
+                        </button>
+                        <button class="btn small danger" type="button"
+                                (click)="deleteMark(mark)"
+                                [title]="i18n.t('chat.marksDeleteTitle')">
+                          {{ i18n.t('chat.marksDelete') }}
+                        </button>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
+              <div class="marks-footer">
+                @if (readingMarks.count() > 0) {
+                  <button class="btn small danger" type="button" (click)="clearMarks()">
+                    {{ i18n.t('chat.marksClear') }}
+                  </button>
+                }
+                <button class="btn" type="button" (click)="showMarks.set(false)">{{ i18n.t('common.close') }}</button>
               </div>
             </div>
           }

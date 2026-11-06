@@ -61,6 +61,38 @@ describe('GET /api/health', () => {
   });
 });
 
+describe('PATCH /api/chats/:id — reading marks', () => {
+  test('persists an arbitrary number of positions / selections + notices', async () => {
+    const id = await createChat('Marks Chat');
+    const q = await addNode(id, { content: 'Q?', role: 'user' });
+    const a = await addNode(id, { content: 'Chapter one', role: 'assistant', parentId: q.id });
+
+    const readingMarks = [
+      { id: 'm1', nodeId: a.id as string, start: 0, end: 7, quote: 'Chapter', note: 'opening', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'm2', nodeId: a.id as string, start: 8, end: 8, quote: '', note: '', createdAt: '2026-01-02T00:00:00.000Z' },
+    ];
+
+    const patched = await request(app).patch(`/api/chats/${id}`).send({ readingMarks });
+    expect(patched.status).toBe(200);
+    expect(patched.body.readingMarks).toHaveLength(2);
+
+    // Round-trips through the aggregate (and the sqlite JSON column).
+    const fetched = await request(app).get('/api/chats');
+    const row = fetched.body.find((c: { id: string }) => c.id === id);
+    expect(row.readingMarks).toHaveLength(2);
+    expect(row.readingMarks[1]).toMatchObject({ id: 'm2', start: 8, end: 8 });
+
+    // Clearing replaces the list.
+    const cleared = await request(app).patch(`/api/chats/${id}`).send({ readingMarks: [] });
+    expect(cleared.body.readingMarks).toEqual([]);
+
+    // A chat without the field stays untouched by other patches.
+    const retitled = await request(app).patch(`/api/chats/${id}`).send({ title: 'Renamed' });
+    expect(retitled.body.title).toBe('Renamed');
+    expect(retitled.body.readingMarks).toEqual([]);
+  });
+});
+
 describe('GET /api/chats/search-ids', () => {
   test('finds a chat by title fragment', async () => {
     const id = await createChat('Unicorn Quest');

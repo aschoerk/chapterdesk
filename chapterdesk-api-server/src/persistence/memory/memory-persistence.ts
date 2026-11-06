@@ -409,6 +409,7 @@ export class MemoryPersistence implements PersistencePort {
       chatParametersId: null,
       lore: null,
       autoExcludeDirections: false,
+      readingMarks: [],
       node_number: 0,
       created_at: ts,
       updated_at: ts,
@@ -466,6 +467,9 @@ export class MemoryPersistence implements PersistencePort {
     if (data.chatParametersId !== undefined) chat.chatParametersId = data.chatParametersId;
     if (data.lore !== undefined) chat.lore = data.lore;
     if (data.autoExcludeDirections !== undefined) chat.autoExcludeDirections = data.autoExcludeDirections;
+    if (data.readingMarks !== undefined) {
+      chat.readingMarks = clone(data.readingMarks ?? []);
+    }
     chat.updated_at = now();
     return clone(chat);
   }

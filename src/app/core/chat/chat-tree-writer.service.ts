@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary } from '../../models/chat';
+import { Chat, ChatNode, CreateNodeRequest, NodeAttachment, NodeUsageSummary, ReadingMark } from '../../models/chat';
 import { CHAT_API } from '../../api/chat-api.token';
 import { isImageMime, resolvedMime } from '../llm/llm-message';
 import { ChatTreeStateService } from './chat-tree-state.service';
@@ -606,10 +606,14 @@ export class ChatTreeWriterService {
     return chat;
   }
 
-  /** Patch per-chat meta (lore text, auto-exclude-directions mode) and refresh the local list. */
+  /** Patch per-chat meta (lore text, auto-exclude-directions mode, reading marks) and refresh the local list. */
   async patchChatMeta(
     chatId: string,
-    changes: { lore?: string | null; autoExcludeDirections?: boolean }
+    changes: {
+      lore?: string | null;
+      autoExcludeDirections?: boolean;
+      readingMarks?: ReadingMark[];
+    }
   ): Promise<Chat> {
     const chat = await this.api.patchChat(chatId, changes);
     this.state.chats.update(list =>

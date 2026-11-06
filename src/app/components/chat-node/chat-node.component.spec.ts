@@ -16,6 +16,8 @@ import { ChatNode } from '../../models/chat';
 import { ModelEntry } from '../../models/chat-config';
 import { AttachmentClipboardService } from '../../core/clipboard/attachment-clipboard.service';
 import { PacedReadService } from '../../core/llm/paced-read.service';
+import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
+import { ReadingMarksService } from '../../core/chat/reading-marks.service';
 import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { decodeDataUrlToText } from '../../core/llm/llm-message';
@@ -4982,6 +4984,8 @@ describe('ChatNodeComponent', () => {
         'Illustrate',
         'Create image of selection…',
         'Set next read position here',
+        'Mark this position (notice)',
+        'Add notice to the marked text',
         'Remove section',
         'Delete section & following',
       ]);
@@ -5044,6 +5048,123 @@ describe('ChatNodeComponent', () => {
       expect(paced.pendingStart()).toBeNull();
       expect(component.readPositionPending()).toBe(false);
       paced.clearNextReadPosition();
+    });
+
+    it('asks for the notice in the MODAL and stores it with the mark', async () => {
+      const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter text here' });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1]);
+      createFixture(a1);
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(8);
+
+      // The right-click captures the character under the cursor.
+      component.openNodeMenu(ctxEvent());
+      const dialog = TestBed.inject(MarkNoteDialogService) as MarkNoteDialogService;
+      const creating = component.markPosition();
+      await fixture.whenStable();
+
+      // The modal is open; the mark does not exist until it is saved.
+      expect(dialog.current()).toMatchObject({ isPosition: true, note: '' });
+      expect(component.nodeMarks()).toHaveLength(0);
+
+      dialog.submit('check this later');
+      await creating;
+      fixture.detectChanges();
+
+      expect(component.nodeMarks()).toHaveLength(1);
+      expect(component.nodeMarks()[0]).toMatchObject({
+        nodeId: 'a1', start: 8, end: 8, note: 'check this later'
+      });
+
+      // Cancelling the modal for a NEW mark creates nothing.
+      const cancelled = component.markPosition();
+      await fixture.whenStable();
+      dialog.cancel();
+      await cancelled;
+      expect(component.nodeMarks()).toHaveLength(1);
+
+      // Editing an existing notice goes through the same modal.
+      const edit = component.editMarkNote(component.nodeMarks()[0]);
+      await fixture.whenStable();
+      expect(dialog.current()?.note).toBe('check this later');
+      dialog.submit('changed');
+      await edit;
+      expect(component.nodeMarks()[0].note).toBe('changed');
+
+      await component.deleteMark(component.nodeMarks()[0]);
+      await fixture.whenStable();
+      expect(component.nodeMarks()).toHaveLength(0);
+    });
+
+    it('applies "set next read position" immediately while the read is paused', async () => {
+      const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter one text' });
+      const a2 = node({ id: 'a2', parentId: 'a1', role: 'assistant', content: 'Chapter two text' });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1, a2]);
+      createFixture(a2);
+      const paced = TestBed.inject(PacedReadService) as PacedReadService;
+
+      // A read is running on chapter one; the user pauses it.
+      void paced.start([
+        { key: 'a1', text: 'Chapter one text' },
+        { key: 'a2', text: 'Chapter two text' }
+      ]);
+      paced.pause();
+      expect(paced.currentKey()).toBe('a1');
+      expect(paced.paused()).toBe(true);
+
+      // Right-clicking inside chapter two and choosing the command relocates
+      // the (paused) session right away.
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(8);
+      component.openNodeMenu(ctxEvent());
+      component.setNextReadPosition();
+
+      expect(paced.active()).toBe(true);
+      expect(paced.paused()).toBe(true);
+      expect(paced.currentKey()).toBe('a2');
+      expect(paced.revealedText()).toBe('Chapter ');
+      // No pending position is left over — it was applied, not deferred.
+      expect(paced.pendingStart()).toBeNull();
+      paced.stop();
+    });
+
+    it('defers the position when no read is running', async () => {
+      const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter one text' });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1]);
+      createFixture(a1);
+      const paced = TestBed.inject(PacedReadService) as PacedReadService;
+
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(4);
+      component.openNodeMenu(ctxEvent());
+      component.setNextReadPosition();
+
+      expect(paced.active()).toBe(false);
+      expect(paced.pendingStart()).toEqual({ nodeId: 'a1', offset: 4 });
+      paced.clearNextReadPosition();
+    });
+
+    it('reveals a mark by selecting its exact text, and reports a stale mark', async () => {
+      const a1 = node({
+        id: 'a1',
+        role: 'assistant',
+        content: 'The hero enters the old tower and climbs.'
+      });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1]);
+      createFixture(a1);
+      const mark = await (component.readingMarks as ReadingMarksService).add({
+        nodeId: 'a1', start: 18, end: 31, quote: 'the old tower'
+      });
+
+      // jsdom has no real Selection: install one that records the range.
+      let selected = '';
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        removeAllRanges: vi.fn(),
+        addRange: (r: Range) => { selected = r.toString(); }
+      } as unknown as Selection);
+
+      expect(component.revealMark(mark!)).toBe(true);
+      expect(selected).toBe('the old tower');
+      // A stale mark (text gone) is reported so the caller can fall back.
+      expect(component.revealMark({ ...mark!, quote: 'a vanished sentence' })).toBe(false);
+      vi.restoreAllMocks();
     });
 
     it('ignores disabled and divider items', () => {

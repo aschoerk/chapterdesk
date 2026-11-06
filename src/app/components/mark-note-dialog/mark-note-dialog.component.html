@@ -1,0 +1,48 @@
+@if (dialog.current(); as d) {
+  <div
+    class="mark-note-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="mark-note-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mark-note-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="mark-note-title">
+        {{ d.isPosition ? i18n.t('markNote.titlePosition') : i18n.t('markNote.titleSelection') }}
+      </h3>
+      <p class="mark-note-hint">{{ i18n.t('markNote.hint') }}</p>
+
+      @if (d.quote) {
+        <blockquote class="mark-note-quote">{{ d.quote }}</blockquote>
+      } @else {
+        <p class="mark-note-position">{{ i18n.t('markNote.positionHint') }}</p>
+      }
+
+      <label class="mark-note-field">
+        <span class="mark-note-label">{{ i18n.t('markNote.label') }}</span>
+        <textarea
+          #noteInput
+          rows="5"
+          [ngModel]="note()"
+          (ngModelChange)="note.set($event)"
+          [placeholder]="i18n.t('markNote.placeholder')"
+        ></textarea>
+      </label>
+
+      <div class="mark-note-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('markNote.save') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

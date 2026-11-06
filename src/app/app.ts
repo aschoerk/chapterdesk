@@ -16,6 +16,7 @@ import {ShortcutHelpComponent} from './components/shortcut-help/shortcut-help.co
 import {NameReplaceDialogComponent} from './components/name-replace-dialog/name-replace-dialog.component';
 import {NameListDialogComponent} from './components/name-list-dialog/name-list-dialog.component';
 import {PacedReadIndicatorComponent} from './components/paced-read-indicator/paced-read-indicator.component';
+import {MarkNoteDialogComponent} from './components/mark-note-dialog/mark-note-dialog.component';
 import {ThemeService} from './core/settings/theme.service';
 import {EnvironmentService} from './core/settings/environment.service';
 import {SettingsService} from './core/settings/settings.service';
@@ -30,7 +31,7 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, NodeVersionDiffDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, ChatImagePickerComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent, NameReplaceDialogComponent, NameListDialogComponent, PacedReadIndicatorComponent],
+  imports: [RouterOutlet, AppNavComponent, ConfirmDialogComponent, IllustrateDialogComponent, PrependDialogComponent, RewriteDialogComponent, NodeVersionDiffDialogComponent, ResendDialogComponent, CreateImageDialogComponent, ChapterDescriptionsDialogComponent, ImageLightboxComponent, ChatImagePickerComponent, SetupWizardComponent, ToastHostComponent, ShortcutHelpComponent, NameReplaceDialogComponent, NameListDialogComponent, PacedReadIndicatorComponent, MarkNoteDialogComponent],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

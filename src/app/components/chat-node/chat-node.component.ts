@@ -46,6 +46,8 @@ import { type LlmImagePart } from '../../core/llm/llm-message';
 import { StreamReveal } from '../../core/llm/stream-reveal';
 import { PacedReadService } from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
+import { ReadingMarksService } from '../../core/chat/reading-marks.service';
+import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import { LlmLogService } from '../../core/llm/llm-log.service';
 import {
   startHeldAnswerStream,
@@ -62,9 +64,11 @@ import { filesToAttachments as convertFilesToAttachments } from './attachments';
 import {
   captureRoSourceOffset,
   ensureEditorTopOnScreen,
+  findTextRange,
   followLiveScroll,
   scrollTextareaToOffset,
   scrollTopForOffset as draftScrollTopForOffset,
+  selectRangeAndScroll,
   sourceOffsetAtPoint
 } from './editor-scroll';
 
@@ -98,6 +102,10 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly parameters = inject(ChatParametersService);
   /** Paced reading of ALREADY-WRITTEN text (the "Read" button on a chapter). */
   private readonly pacedRead = inject(PacedReadService);
+  /** Persistent positions / selections + notices for the open chat. */
+  readonly readingMarks = inject(ReadingMarksService);
+  /** Modal that collects the notice of a mark. */
+  private readonly markNoteDialog = inject(MarkNoteDialogService);
   private readonly generation = inject(GenerationSettingsService);
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly illustrateDialog = inject(IllustrateDialogService);
@@ -2669,20 +2677,118 @@ export class ChatNodeComponent implements OnDestroy {
   private ctxClickOffset: number | null = null;
 
   /**
-   * Mark the right-clicked character as the start of the NEXT paced read:
-   * Ctrl+R (or the chapter's Read button) then begins at this chapter and
-   * reveals from that spot on. Without a resolvable cursor position the
-   * chapter simply starts at its beginning.
+   * Mark the right-clicked character as where reading continues.
+   *
+   *  - While a read is ACTIVE (typically paused) it takes effect immediately:
+   *    the session relocates to this chapter/offset and stays frozen, so the
+   *    next Resume continues from here.
+   *  - Otherwise it is remembered for the next Ctrl+R / Read.
    */
   setNextReadPosition(): void {
+    const node = this.node();
     const offset = this.ctxClickOffset ?? 0;
-    this.pacedRead.setNextReadPosition(this.node().id, offset);
+    if (this.pacedRead.active()) {
+      void this.pacedRead.relocate(this.pacedReadItemsFrom(node), node.id, offset);
+    } else {
+      this.pacedRead.setNextReadPosition(node.id, offset);
+    }
     this.toast.success(this.i18n.t('node.readPositionSet'));
+  }
+
+  /** Chapters to reveal when reading starts at `node` (it + the followers). */
+  private pacedReadItemsFrom(node: ChatNode): { key: string; text: string }[] {
+    const path = this.chatService.getActivePath();
+    const idx = path.findIndex(n => n.id === node.id);
+    const from = idx >= 0 ? path.slice(idx) : [node];
+    return from
+      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
+      .map(n => ({ key: n.id, text: n.content ?? '' }));
   }
 
   /** Drop a pending read position for this chapter. */
   clearNextReadPosition(): void {
     this.pacedRead.clearNextReadPosition();
+  }
+
+  /**
+   * Marked text inside this node's rendered content, mapped back to the
+   * source offsets. null when nothing (or something outside this node) is
+   * selected.
+   */
+  private captureSelectionMark(): { start: number; end: number; quote: string } | null {
+    const contentEl = this.readContent()?.nativeElement;
+    const selection = window.getSelection();
+    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+    if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) return null;
+    const quote = selection.toString().trim();
+    if (!quote) return null;
+    const loc = markFragmentInSource(this.node().content ?? '', quote);
+    if (!loc) return { start: 0, end: 0, quote };
+    return { start: loc.index, end: loc.index + loc.length, quote };
+  }
+
+  /** True when a part of this node's text is currently selected. */
+  hasContentSelection(): boolean {
+    return this.captureSelectionMark() !== null;
+  }
+
+  /**
+   * Add a PERSISTENT position mark at the right-clicked character (or at the
+   * collapsed text caret, e.g. for Ctrl+M) and ask for its notice in the
+   * modal. Cancelling the modal does NOT create the mark.
+   */
+  async markPosition(): Promise<void> {
+    const node = this.node();
+    const offset = this.ctxClickOffset ?? this.captureCaretOffset() ?? 0;
+    const note = await this.markNoteDialog.open({ isPosition: true, note: '' });
+    if (note == null) return;
+    const mark = await this.readingMarks.add({ nodeId: node.id, start: offset, note });
+    if (!mark) return;
+    this.toast.success(this.i18n.t('node.markAdded'));
+  }
+
+  /**
+   * Add a PERSISTENT mark for the selected text (quote + range) and ask for
+   * its notice in the modal. Cancelling does NOT create the mark.
+   */
+  async markSelection(): Promise<void> {
+    const node = this.node();
+    const range = this.captureSelectionMark();
+    if (!range) {
+      this.toast.error(this.i18n.t('node.markNoSelection'));
+      return;
+    }
+    const note = await this.markNoteDialog.open({
+      isPosition: false,
+      quote: range.quote,
+      note: ''
+    });
+    if (note == null) return;
+    const mark = await this.readingMarks.add({
+      nodeId: node.id,
+      start: range.start,
+      end: range.end,
+      quote: range.quote,
+      note
+    });
+    if (!mark) return;
+    this.toast.success(this.i18n.t('node.markAdded'));
+  }
+
+  /**
+   * Source offset of the collapsed text caret inside this node (clicking into
+   * the text leaves one). Used by Ctrl+M when nothing is selected.
+   */
+  private captureCaretOffset(): number | null {
+    const contentEl = this.readContent()?.nativeElement;
+    const selection = window.getSelection();
+    if (!contentEl || !selection || selection.rangeCount === 0) return null;
+    if (!contentEl.contains(selection.anchorNode)) return null;
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    const rect = range.getClientRects?.()[0] ?? range.getBoundingClientRect?.();
+    if (!rect) return null;
+    return this.captureRoClickOffset(rect.left + 1, rect.top + 1);
   }
 
   private isNativeContextTarget(el: HTMLElement | null): boolean {
@@ -2725,6 +2831,7 @@ export class ChatNodeComponent implements OnDestroy {
       hasComparableSiblings: this.comparableSiblings().length > 0,
       notEditing: !this.isEditing(),
       hasReadPosition: this.pacedRead.hasNextReadPositionAt(n.id),
+      canMarkSelection: this.hasContentSelection(),
       t: (key, params) => this.i18n.t(key, params),
       actions: {
         copy: () => void this.copyContent(),
@@ -2745,6 +2852,8 @@ export class ChatNodeComponent implements OnDestroy {
         prepend: () => void this.openPrependDialog(),
         setReadPosition: () => this.setNextReadPosition(),
         clearReadPosition: () => this.clearNextReadPosition(),
+        markPosition: () => void this.markPosition(),
+        markSelection: () => void this.markSelection(),
         remove: () => void this.deleteNodeOnly(),
         delete: () => void this.deleteNode(),
       },
@@ -2833,6 +2942,76 @@ export class ChatNodeComponent implements OnDestroy {
   readonly readPositionPending = computed(
     () => this.pacedRead.hasNextReadPositionAt(this.node().id)
   );
+
+  /** Persistent marks (positions + selections with notices) of this node. */
+  readonly nodeMarks = computed(() => this.readingMarks.marksFor(this.node().id));
+
+  isPositionMark(mark: { start: number; end: number }): boolean {
+    return mark.end <= mark.start;
+  }
+
+  markLabel(mark: import('../../models/chat').ReadingMark): string {
+    return this.readingMarks.label(mark, this.chatService.currentNodes());
+  }
+
+  /**
+   * Open the NOTICE MODAL for an existing mark and persist the result.
+   * Cancelling leaves the mark untouched.
+   */
+  async editMarkNote(mark: import('../../models/chat').ReadingMark): Promise<void> {
+    const note = await this.markNoteDialog.open({
+      note: mark.note ?? '',
+      quote: mark.quote ?? '',
+      isPosition: this.isPositionMark(mark)
+    });
+    if (note == null) return;
+    await this.readingMarks.setNote(mark.id, note);
+  }
+
+  async deleteMark(mark: import('../../models/chat').ReadingMark): Promise<void> {
+    await this.readingMarks.remove(mark.id);
+  }
+
+  /**
+   * Jump to the EXACT spot of a mark inside this section and re-select its
+   * text (so it looks selected again and can be copied). Returns false when
+   * the text is no longer there (the section was edited / the mark is stale),
+   * so the caller can fall back to scrolling the section into view.
+   */
+  revealMark(mark: import('../../models/chat').ReadingMark): boolean {
+    const contentEl = this.readContent()?.nativeElement;
+    if (!contentEl) return false;
+    // A selection mark stores the RENDERED text — search for exactly that. A
+    // bare position has no quote, so use a short excerpt of what follows it.
+    const needle = mark.quote?.trim() || this.markExcerpt(mark);
+    const range = needle ? findTextRange(contentEl, needle) : null;
+    if (!range) return false;
+    selectRangeAndScroll(range, el => (el ? this.scrollParentOf(el) : null));
+    return true;
+  }
+
+  /**
+   * Text following a position mark, usable as a DOM search needle: taken from
+   * the node source, stripped of markdown markers and normalized.
+   */
+  private markExcerpt(mark: import('../../models/chat').ReadingMark): string {
+    const source = this.node().content ?? '';
+    if (!source.trim()) return '';
+    const from = Math.min(Math.max(0, mark.start), Math.max(0, source.length - 1));
+    const raw = source.slice(from, from + 80)
+      .replace(/^[\s*>#`\-_+\d.)\]]+/, '')
+      .replace(/[*_`~#>|]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    // A few whole words are enough to be unambiguous and survive wrapping.
+    return raw.split(' ').slice(0, 6).join(' ').trim();
+  }
+
+  /** Start a paced read exactly at this mark's spot. */
+  readFromMark(mark: import('../../models/chat').ReadingMark): void {
+    this.pacedRead.setNextReadPosition(mark.nodeId, mark.start);
+    this.startPacedRead();
+  }
 
   /**
    * Estimated paced-read duration of this chapter at the current reveal speed
@@ -3158,15 +3337,11 @@ export class ChatNodeComponent implements OnDestroy {
       return;
     }
     const self = this.node();
-    const path = this.chatService.getActivePath();
     // A "next read position" set from the context menu wins over the chapter
     // this button belongs to.
     const anchorId = this.pacedRead.pendingStart()?.nodeId ?? self.id;
-    const idx = path.findIndex(n => n.id === anchorId);
-    const from = idx >= 0 ? path.slice(idx) : [self];
-    const items = from
-      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
-      .map(n => ({ key: n.id, text: n.content ?? '' }));
+    const anchor = this.chatService.getActivePath().find(n => n.id === anchorId) ?? self;
+    const items = this.pacedReadItemsFrom(anchor);
     if (!items.length) return;
     this.followPausedByUser = false;
     void this.pacedRead.start(items);

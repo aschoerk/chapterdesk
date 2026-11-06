@@ -1,4 +1,4 @@
-import type { ModelArchitecture, ModelEntry, NodeAttachment, ProviderConfig } from './models.js';
+import type { ModelArchitecture, ModelEntry, NodeAttachment, ProviderConfig, ReadingMark } from './models.js';
 
 export interface CreateProjectRequest {
   name: string;
@@ -35,6 +35,8 @@ export interface PatchChatRequest {
   lore?: string | null;
   /** Per-chat mode: auto-exclude a direction node after it was sent the first time. */
   autoExcludeDirections?: boolean;
+  /** Persistent reading marks (positions / selections + notes) — replaces the list. */
+  readingMarks?: ReadingMark[];
 }
 
 export interface BranchQuestionRequest {
