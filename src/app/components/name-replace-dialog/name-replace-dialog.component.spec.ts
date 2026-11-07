@@ -825,10 +825,10 @@ describe('NameReplaceDialogComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const liz = component.rows().find((r) => r.form === 'Liz')!;
-    expect(liz.proposed).toBe('Eliza');
-    expect(liz.fromSaved).toBe(true);
-    expect(liz.approved).toBe(false);
+    const filled = component.rows().find((r) => r.form === 'Liz')!;
+    expect(filled.proposed).toBe('Eliza');
+    expect(filled.fromSaved).toBe(true);
+    expect(filled.approved).toBe(false);
 
     // The button now offers to ACTIVATE the proposals.
     expect(component.savedProposalsFilled()).toBe(true);
@@ -842,7 +842,9 @@ describe('NameReplaceDialogComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(liz.approved).toBe(true);
+    // Re-read the row: accepting replaces the row objects.
+    const approved = component.rows().find((r) => r.form === 'Liz')!;
+    expect(approved.approved).toBe(true);
     expect(component.approvedCount()).toBe(1);
     // The button returns to its propose state.
     expect(component.savedProposalsFilled()).toBe(false);
@@ -907,10 +909,12 @@ describe('NameReplaceDialogComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
+    // Re-read the rows: accepting replaces the row objects.
     const liz = component.rows().find((r) => r.form === 'Liz')!;
+    const edited = component.rows().find((r) => r.form === 'Elizabeth')!;
     expect(liz.approved).toBe(true);
     // The manually edited row keeps its own proposal.
-    expect(elizabeth.proposed).toBe('Lizzie');
+    expect(edited.proposed).toBe('Lizzie');
     expect(component.approvedCount()).toBe(2);
 
     dialog.cancel();
