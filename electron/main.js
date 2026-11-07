@@ -40,8 +40,10 @@ function windowStateFile() {
  */
 function initialWindowBounds(savedState) {
   return windowState.resolveWindowBounds(
-    // On Wayland the saved x/y is meaningless — restore the size only.
-    canPosition ? savedState : null,
+    // On Wayland the saved x/y is meaningless — keep the SIZE, drop the
+    // position (x/y = null makes resolveWindowBounds return size-only bounds,
+    // so Electron centers the window itself).
+    savedState && !canPosition ? { ...savedState, x: null, y: null } : savedState,
     screen.getPrimaryDisplay().workArea,
     screen.getAllDisplays(),
   );
