@@ -682,6 +682,73 @@ describe('name-replace pure engine', () => {
       const updated = applyNameReplacements([{ key: 'n', text: 'Liz.' }], rows);
       expect(updated[0].text).toBe('Liz.');
     });
+
+    it('replaces the ALL-CAPS mention with the capitalized replacement', () => {
+      const rows: NameReplaceRow[] = [
+        {
+          form: 'Liz',
+          kind: 'full',
+          entry: null,
+          count: 2,
+          allCapsForm: 'LIZ',
+          proposed: 'Elizabeth',
+          allCandidates: [{ form: 'Elizabeth', gender: null, category: 'given' }],
+          candidates: ['Elizabeth'],
+          filters: { male: true, female: true, surname: false },
+          approved: true,
+          excluded: false,
+        },
+      ];
+      const updated = applyNameReplacements(
+        [{ key: 'n', text: 'Liz met LIZ. Then LIZ left.' }],
+        rows,
+      );
+      // The title-case occurrence takes the proposal as it is, the all-caps
+      // occurrence takes the UPPER-CASED proposal.
+      expect(updated[0].text).toBe('Elizabeth met ELIZABETH. Then ELIZABETH left.');
+    });
+
+    it('does not mis-handle a name whose found form is already all-caps', () => {
+      const rows: NameReplaceRow[] = [
+        {
+          form: 'LIZ',
+          kind: 'full',
+          entry: null,
+          count: 1,
+          allCapsForm: 'LIZ',
+          proposed: 'Elizabeth',
+          allCandidates: [],
+          candidates: [],
+          filters: { male: true, female: true, surname: false },
+          approved: true,
+          excluded: false,
+        },
+      ];
+      const updated = applyNameReplacements([{ key: 'n', text: 'LIZ and Liz.' }], rows);
+      // Taken once, not twice: the all-caps pattern is the form itself.
+      expect(updated[0].text).toBe('Elizabeth and Liz.');
+    });
+
+    it('preserves the replacement of a mixed ß/ss all-caps spelling', () => {
+      const rows: NameReplaceRow[] = [
+        {
+          form: 'Weiß',
+          kind: 'full',
+          entry: null,
+          count: 2,
+          allCapsForm: 'WEISS',
+          proposed: 'Wagner',
+          allCandidates: [],
+          candidates: [],
+          filters: { male: true, female: true, surname: false },
+          approved: true,
+          excluded: false,
+        },
+      ];
+      // "WEISS".toUpperCase() is "WEISS"; "Weiß".toUpperCase() is "WEISS" too.
+      const updated = applyNameReplacements([{ key: 'n', text: 'Weiß und WEISS.' }], rows);
+      expect(updated[0].text).toBe('Wagner und WAGNER.');
+    });
   });
 
   describe('nameKey / isSurnameRow', () => {

@@ -884,10 +884,33 @@ function perUnitFrom(
 }
 
 /**
+ * The search/replacement pairs of ONE approved row: the found form itself,
+ * plus — when the name ALSO occurs completely capitalized in the text
+ * (`row.allCapsForm`, e.g. "LIZ" for "Liz") — that all-caps variant, replaced
+ * by the UPPER-CASED proposal ("ELIZABETH"). So a mention in capitals carries
+ * the same replacement, typeset in capitals.
+ */
+function replacementPatterns(row: NameReplaceRow): { form: string; to: string }[] {
+  const out: { form: string; to: string }[] = [{ form: row.form, to: row.proposed }];
+  const caps = (row.allCapsForm ?? '').trim();
+  // Only a DIFFERENT SPELLING needs its own entry — when the found form is
+  // already the all-caps one, the first pattern covers it. Compare the EXACT
+  // strings (a folded comparison would treat "Liz"/"LIZ" as equal and drop the
+  // pattern). Matching stays case-sensitive, so both patterns are disjoint.
+  if (caps && caps !== row.form) {
+    out.push({ form: caps, to: row.proposed.toUpperCase() });
+  }
+  return out;
+}
+
+/**
  * Apply the approved replacements to the units. Returns the updated units.
  * Replacements are computed from the ORIGINAL positions (exact whole-word
  * matches), so a later proposal can never re-match a form inserted earlier
  * (no cascade) and there is no overlap between names.
+ *
+ * A name that also appears COMPLETELY CAPITALIZED ("LIZ") is replaced too —
+ * with the capitalized proposal ("ELIZABETH") — see {@link replacementPatterns}.
  */
 export function applyNameReplacements(
   units: NameTextUnit[],
@@ -900,16 +923,22 @@ export function applyNameReplacements(
 
   return units.map((unit) => {
     const hits: { start: number; length: number; to: string }[] = [];
+    /** Start offsets already taken — one row's patterns must never overlap. */
+    const taken = new Set<number>();
     for (const row of approved) {
-      // Exact case + whole word, bounded by WORD_CHAR (Unicode-aware).
-      const re = wholeWordRegExp(row.form, 'gu');
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(unit.text)) !== null) {
-        if (m[0].length === 0) {
-          re.lastIndex++;
-          continue;
+      for (const pattern of replacementPatterns(row)) {
+        // Exact case + whole word, bounded by WORD_CHAR (Unicode-aware).
+        const re = wholeWordRegExp(pattern.form, 'gu');
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(unit.text)) !== null) {
+          if (m[0].length === 0) {
+            re.lastIndex++;
+            continue;
+          }
+          if (taken.has(m.index)) continue;
+          taken.add(m.index);
+          hits.push({ start: m.index, length: m[0].length, to: pattern.to });
         }
-        hits.push({ start: m.index, length: m[0].length, to: row.proposed });
       }
     }
     if (hits.length === 0) return unit;
