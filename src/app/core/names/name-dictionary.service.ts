@@ -1,11 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { NameApiService } from './name-api.service';
-import type {
-  CreateNameEntryRequest,
-  CreateNameReplacementRequest,
-  NameEntry,
-  NameReplacement,
-  UpdateNameEntryRequest,
+import {
+  EXCLUDED_WORD_LANGUAGE,
+  type CreateNameEntryRequest,
+  type CreateNameReplacementRequest,
+  type NameEntry,
+  type NameReplacement,
+  type UpdateNameEntryRequest,
 } from '../../models/name-entry';
 import { nameKey } from './name-replace';
 
@@ -54,11 +55,21 @@ export class NameDictionaryService {
     return match.language.toLowerCase() === language.toLowerCase() ? match : null;
   }
 
-  /** Entries for a given language (null = language-neutral only). */
+  /**
+   * Entries for a given language (null = all entries). Excluded-word entries
+   * (`EXCLUDED_WORD_LANGUAGE`) are ALWAYS returned: an exclusion is global
+   * ("never a name again"), so the language filter must not hide it — the
+   * find engine needs it to suppress the word in every language.
+   */
   entriesForLanguage(language: string | null): NameEntry[] {
     const all = this.entries();
     if (!language) return all;
-    return all.filter((e) => !e.language || e.language.toLowerCase() === language.toLowerCase());
+    return all.filter(
+      (e) =>
+        !e.language ||
+        e.language.toLowerCase() === language.toLowerCase() ||
+        e.language.toLowerCase() === EXCLUDED_WORD_LANGUAGE,
+    );
   }
 
   async load(force = false): Promise<NameEntry[]> {

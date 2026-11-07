@@ -578,6 +578,33 @@ describe('name-replace pure engine', () => {
       });
       expect(withUnknown.map((r) => r.form)).not.toContain('Hunter');
     });
+
+    it('suppresses a KNOWN name that is excluded forever', () => {
+      // "Rich" is a regular male name in the name list, but the user excluded
+      // it. The regular entry must not resurface a row for it.
+      const known = entry({ id: 'k1', name: 'Rich', language: 'en', category: 'male' });
+      const excluded = entry({ id: 'x1', name: 'Rich', language: EXCLUDED_WORD_LANGUAGE });
+      const units = [{ key: 'n', text: 'Rich met Rich. Rich smiled.' }];
+      const rows = findNames(units, [known, excluded], { language: 'en' });
+      expect(rows.map((r) => r.form)).not.toContain('Rich');
+      // The same holds without a language filter.
+      const unfiltered = findNames(units, [known, excluded], {});
+      expect(unfiltered.map((r) => r.form)).not.toContain('Rich');
+    });
+
+    it('applies a global exclusion even when the language filter is set', () => {
+      // The excluded entry's language is the special marker, not 'en' — the
+      // engine must still honor it when scanning English text.
+      const known = entry({ id: 'k1', name: 'Rich', language: 'en', category: 'male' });
+      const excluded = entry({ id: 'x1', name: 'Rich', language: EXCLUDED_WORD_LANGUAGE });
+      const units = [{ key: 'n', text: 'Rich met Rich. Rich smiled.' }];
+      const rows = findNames(units, [known, excluded], {
+        language: 'en',
+        includeUnknown: true,
+        unknownMinCount: 1,
+      });
+      expect(rows.map((r) => r.form)).not.toContain('Rich');
+    });
   });
 
   describe('applyNameReplacements', () => {

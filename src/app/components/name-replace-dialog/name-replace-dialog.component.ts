@@ -26,7 +26,7 @@ import {
   type NameIndex,
   type NameTextUnit,
 } from '../../core/names/name-replace';
-import { EXCLUDED_WORD_LANGUAGE } from '../../models/name-entry';
+import { EXCLUDED_WORD_LANGUAGE, type NameReplacement } from '../../models/name-entry';
 
 /** How the found names are ordered in the list. */
 export type NameReplaceSortMode = 'first' | 'alpha';
@@ -106,10 +106,49 @@ export class NameReplaceDialogComponent {
   readonly savedProposalCount = computed(
     () => this.rows().filter((r) => r.fromSaved && !r.excluded).length,
   );
-  /** Number of replacements remembered in the database. */
+  /** Number of replacements remembered in the database (absolute). */
   readonly savedCount = computed(() => this.dictionary.replacements().length);
+  /**
+   * The saved replacements that FIT the current document — i.e. those whose
+   * `from` is one of the names found in this dialog. The absolute
+   * {@link savedCount} can be much larger, so the dialog only lists (and lets
+   * the user forget) the relevant ones.
+   */
+  readonly savedMatches = computed(() => {
+    const language = this.language();
+    const seen = new Set<string>();
+    const out: NameReplacement[] = [];
+    for (const row of this.allRows()) {
+      const saved = this.dictionary.savedReplacementFor(row.form, language);
+      if (!saved || !saved.to.trim()) continue;
+      if (seen.has(saved.id)) continue;
+      seen.add(saved.id);
+      out.push(saved);
+    }
+    return out;
+  });
+  /**
+   * Number of saved replacements that FIT the current found names — drives the
+   * "Use saved replacements (n)" label and the saved-replacements panel.
+   */
+  readonly savedMatchCount = computed(() => this.savedMatches().length);
   /** Feedback line after "Use saved replacements" (null = none). */
   readonly savedInfo = signal<string | null>(null);
+  /**
+   * Two-state toolbar button: the FIRST click fills the saved replacements in
+   * as proposals (state 1); the SECOND click approves the pending saved rows —
+   * i.e. ticks their checkbox so the replacements are really done (state 2).
+   * A proposal the user edited manually is already approved and therefore not
+   * part of the pending count.
+   */
+  readonly savedProposalsFilled = signal(false);
+  /**
+   * Rows whose proposal came from a saved replacement, are NOT excluded and
+   * are NOT approved yet — the ones the second click (activate) approves.
+   */
+  readonly savedPendingCount = computed(
+    () => this.rows().filter((r) => r.fromSaved && !r.excluded && !r.approved).length,
+  );
   /**
    * Rows ticked "exclude": unknown words are written to the dictionary as
    * excluded words (forever), dictionary names are only marked as handled in
@@ -400,8 +439,10 @@ export class NameReplaceDialogComponent {
         // Runs after Angular has rendered the dialog → the element rect exists.
         queueMicrotask(() => this.reclampAndPersist());
       }
-      void this.recompute(s.units);
+      // Set the language filter BEFORE the first scan: the scan must use the
+      // language from THIS dialog state, not the previous open's value.
       this.language.set(s.language ?? null);
+      void this.recompute(s.units);
     });
   }
 
@@ -426,6 +467,8 @@ export class NameReplaceDialogComponent {
     this.rebuildOccurrences(this.scopedUnits, found);
     this.allRows.set(found);
     this.savedInfo.set(null);
+    // A fresh scan starts in state 1: propose first, activate second.
+    this.savedProposalsFilled.set(false);
   }
 
   /** Switch the list order between text order and alphabetical order. */
@@ -456,6 +499,9 @@ export class NameReplaceDialogComponent {
         return { ...row, proposed: saved.to.trim(), fromSaved: true };
       }),
     );
+    // Only switch to state 2 when something was actually filled — otherwise
+    // the button would offer to approve nothing.
+    this.savedProposalsFilled.set(matched > 0);
     this.savedInfo.set(
       matched > 0
         ? this.i18n.t('nameReplace.savedApplied', { count: matched })
@@ -464,17 +510,40 @@ export class NameReplaceDialogComponent {
   }
 
   /**
+   * Two-state toolbar button:
+   *  1. no saved proposal filled yet → fill them ({@link useSavedReplacements}),
+   *  2. filled → approve the pending saved rows ({@link acceptSavedProposals}).
+   */
+  onSavedButton(): void {
+    if (this.savedProposalsFilled()) {
+      this.acceptSavedProposals();
+    } else {
+      this.useSavedReplacements();
+    }
+  }
+
+  /**
    * "Accept proposals" — approve ONLY the rows whose proposal came from a
-   * saved replacement. Every other row keeps its current approve state.
+   * saved replacement (and are not excluded / not approved yet). A proposal
+   * the user edited manually is already approved and stays untouched. Every
+   * other row keeps its current approve state. After approving, the button
+   * returns to its propose state so the saved set can be applied again.
    */
   acceptSavedProposals(): void {
     const visible = new Set(this.rows().map((r) => r.form));
+    let approved = 0;
     this.allRows.update((list) =>
-      list.map((r) =>
-        visible.has(r.form) && r.fromSaved && !r.excluded
-          ? { ...r, approved: true }
-          : r,
-      ),
+      list.map((r) => {
+        if (!visible.has(r.form) || !r.fromSaved || r.excluded || r.approved) return r;
+        approved++;
+        return { ...r, approved: true };
+      }),
+    );
+    this.savedProposalsFilled.set(false);
+    this.savedInfo.set(
+      approved > 0
+        ? this.i18n.t('nameReplace.savedActivated', { count: approved })
+        : null,
     );
   }
 
@@ -683,6 +752,20 @@ clearAll(): void {
     // the entry's name is added to the "known forms → skip" set, so neither the
     // name list nor the capital-letter detection can surface it again.
     for (const row of exclusions) {
+      const key = nameKey(row.form);
+      // The same word can be excluded several times (different chats/rows).
+      // Persist ONE exclusion per word: a repeated exclusion is a no-op.
+      const already = this.dictionary
+        .entries()
+        .some(
+          (e) =>
+            (e.language ?? '').toLowerCase() === EXCLUDED_WORD_LANGUAGE &&
+            nameKey(e.name) === key,
+        );
+      if (already) {
+        row.excluded = false; // already persisted — drop the grey state
+        continue;
+      }
       try {
         await this.dictionary.create({ name: row.form, language: EXCLUDED_WORD_LANGUAGE });
         row.excluded = false; // already persisted — drop the grey state

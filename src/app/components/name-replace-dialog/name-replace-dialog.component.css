@@ -173,6 +173,13 @@
   margin-bottom: 0.4rem;
 }
 
+/* Second state of the button: the saved proposals are filled in and the next
+   click approves (ticks the checkbox of) the pending rows. */
+.nr-saved-btn-active {
+  border-color: var(--accent, #2f6fed);
+  color: var(--accent, #2f6fed);
+}
+
 .nr-saved-info {
   margin: -0.4rem 0 0.8rem;
   font-size: 0.8rem;

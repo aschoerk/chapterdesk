@@ -80,11 +80,20 @@
         <button
           type="button"
           class="nr-btn nr-saved-btn"
-          (click)="useSavedReplacements()"
-          [disabled]="savedCount() === 0 || rows().length === 0"
-          [title]="i18n.t('nameReplace.useSavedTitle')"
+          [class.nr-saved-btn-active]="savedProposalsFilled()"
+          (click)="onSavedButton()"
+          [disabled]="savedProposalsFilled()
+            ? savedPendingCount() === 0
+            : savedMatchCount() === 0 || rows().length === 0"
+          [title]="savedProposalsFilled()
+            ? i18n.t('nameReplace.acceptProposalsTitle')
+            : i18n.t('nameReplace.useSavedTitle')"
         >
-          {{ i18n.t('nameReplace.useSaved') }} ({{ savedCount() }})
+          @if (savedProposalsFilled()) {
+            {{ i18n.t('nameReplace.acceptProposals', { count: savedPendingCount() }) }}
+          } @else {
+            {{ i18n.t('nameReplace.useSaved') }} ({{ savedMatchCount() }})
+          }
         </button>
       </div>
 
@@ -241,12 +250,12 @@
         </div>
       }
 
-      @if (savedCount() > 0) {
+      @if (savedMatches().length > 0) {
         <details class="nr-handled nr-saved">
-          <summary>{{ i18n.t('nameReplace.savedTitle', { count: savedCount() }) }}</summary>
+          <summary>{{ i18n.t('nameReplace.savedTitle', { count: savedMatches().length }) }}</summary>
           <p class="nr-handled-hint">{{ i18n.t('nameReplace.savedHint') }}</p>
           <div class="nr-handled-list">
-            @for (saved of dictionary.replacements(); track saved.id) {
+            @for (saved of savedMatches(); track saved.id) {
               <span class="nr-handled-chip nr-saved-chip">
                 {{ saved.from }} → {{ saved.to }}
                 <button
@@ -288,11 +297,6 @@
           {{ i18n.t('nameReplace.summary', { approved: approvedCount(), excluded: excludedCount(), total: rows().length }) }}
         </span>
         <span class="nr-spacer"></span>
-        <button type="button" class="nr-btn" (click)="acceptSavedProposals()"
-                [disabled]="savedProposalCount() === 0"
-                [title]="i18n.t('nameReplace.acceptProposalsTitle')">
-          {{ i18n.t('nameReplace.acceptProposals', { count: savedProposalCount() }) }}
-        </button>
         <button type="button" class="nr-btn" (click)="approveAll()"
                 [disabled]="rows().length === 0"
                 [title]="i18n.t('nameReplace.approveAllTitle')">

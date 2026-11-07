@@ -785,32 +785,44 @@ export function findNames(
   const idx: NameIndex = index ?? buildNameIndex(units);
   const rows = new Map<string, NameReplaceRow>();
   const knownForms = new Set<string>();
+  /** Forms excluded forever — never a name, never a suggestion. */
+  const excludedForms = new Set<string>();
 
   for (const entry of entries) {
-    // Excluded words are never names: they only feed the "skip these" set so
-    // the capital-letter detection cannot re-surface them — regardless of the
-    // currently selected language filter.
-    if ((entry.language ?? '').toLowerCase() === EXCLUDED_WORD_LANGUAGE) {
-      for (const { form } of entryForms(entry)) knownForms.add(foldKey(form));
-      continue;
+    // Excluded words are never names: they feed BOTH the "skip these" set
+    // (capital-letter detection) and the row-level exclusion set — so a
+    // regular name-list entry with the same spelling cannot resurface it.
+    if ((entry.language ?? '').toLowerCase() !== EXCLUDED_WORD_LANGUAGE) continue;
+    for (const { form } of entryForms(entry)) {
+      const key = foldKey(form);
+      excludedForms.add(key);
+      knownForms.add(key);
     }
+  }
+
+  for (const entry of entries) {
+    if ((entry.language ?? '').toLowerCase() === EXCLUDED_WORD_LANGUAGE) continue;
     if (language && entry.language && entry.language.toLowerCase() !== language.toLowerCase()) {
       continue;
     }
     for (const { form, kind } of entryForms(entry)) {
-      knownForms.add(foldKey(form));
+      const key = foldKey(form);
+      // An excluded word is not a name — not even when a regular name-list
+      // entry shares the spelling (e.g. "Rich" as a male given name).
+      if (excludedForms.has(key)) continue;
+      knownForms.add(key);
       const occList = exactOccurrences(idx, form, /* matchAllCaps */ true);
       if (occList.length === 0) continue;
-      const existing = rows.get(foldKey(form));
+      const existing = rows.get(key);
       if (existing) {
         // Same form shared by two entries — keep the FIRST entry (its
         // proposals + candidates) and do NOT double-count the occurrences.
         continue;
       }
-      const wordInfo = CLEAN_WORD.test(form) ? idx.words.get(foldKey(form)) : undefined;
+      const wordInfo = CLEAN_WORD.test(form) ? idx.words.get(key) : undefined;
       const allCandidates = sameLetterCandidates(entries, form, language);
       const filters = initializeNameFilters(entry, kind);
-      rows.set(foldKey(form), {
+      rows.set(key, {
         form,
         kind,
         entry,

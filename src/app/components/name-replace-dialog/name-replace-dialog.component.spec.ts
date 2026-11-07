@@ -794,6 +794,244 @@ describe('NameReplaceDialogComponent', () => {
     await p;
   });
 
+  it('turns the saved-replacements button into a two-state button', async () => {
+    savedReplacements = [
+      {
+        id: 'r-liz',
+        from: 'Liz',
+        to: 'Eliza',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const btn = fixture.nativeElement.querySelector('.nr-saved-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(component.savedProposalsFilled()).toBe(false);
+    expect(btn.textContent).toContain('Use saved replacements');
+    expect(btn.textContent).toContain('(1)');
+
+    // FIRST click: fills the proposal but approves nothing.
+    btn.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    expect(liz.proposed).toBe('Eliza');
+    expect(liz.fromSaved).toBe(true);
+    expect(liz.approved).toBe(false);
+
+    // The button now offers to ACTIVATE the proposals.
+    expect(component.savedProposalsFilled()).toBe(true);
+    expect(component.savedPendingCount()).toBe(1);
+    expect(btn.textContent).toContain('Accept proposals');
+    expect(btn.textContent).toContain('(1)');
+    expect(btn.classList.contains('nr-saved-btn-active')).toBe(true);
+
+    // SECOND click: approves the pending saved row (sets the checkbox).
+    btn.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(liz.approved).toBe(true);
+    expect(component.approvedCount()).toBe(1);
+    // The button returns to its propose state.
+    expect(component.savedProposalsFilled()).toBe(false);
+    expect(btn.textContent).toContain('Use saved replacements');
+    expect(btn.classList.contains('nr-saved-btn-active')).toBe(false);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('counts a manually changed proposal as already approved', async () => {
+    // Two saved replacements; the user changes one proposal manually.
+    savedReplacements = [
+      {
+        id: 'r-liz',
+        from: 'Liz',
+        to: 'Eliza',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'r-elizabeth',
+        from: 'Elizabeth',
+        to: 'Beth',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const btn = fixture.nativeElement.querySelector('.nr-saved-btn') as HTMLButtonElement;
+
+    // FIRST click: both saved proposals are filled in.
+    btn.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component.savedPendingCount()).toBe(2);
+
+    // The user changes ONE proposal manually → its checkbox is already set.
+    const elizabeth = component.rows().find((r) => r.form === 'Elizabeth')!;
+    component.setProposed(elizabeth, 'Lizzie');
+    fixture.detectChanges();
+
+    expect(elizabeth.approved).toBe(true);
+    expect(elizabeth.fromSaved).toBe(false);
+    // Only the remaining saved row is still pending.
+    expect(component.savedPendingCount()).toBe(1);
+    expect(btn.textContent).toContain('Accept proposals');
+    expect(btn.textContent).toContain('(1)');
+
+    // SECOND click: activates only the remaining saved row.
+    btn.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    expect(liz.approved).toBe(true);
+    // The manually edited row keeps its own proposal.
+    expect(elizabeth.proposed).toBe('Lizzie');
+    expect(component.approvedCount()).toBe(2);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('shows only the saved replacements that fit the current found names', async () => {
+    // Three saved replacements exist in the database, but only "Liz" matches
+    // the names found in this dialog.
+    savedReplacements = [
+      {
+        id: 'r-liz',
+        from: 'Liz',
+        to: 'Eliza',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'r-bob',
+        from: 'Bob',
+        to: 'Robert',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'r-alice',
+        from: 'Alice',
+        to: 'Alicia',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The absolute count is 3, but only 1 saved replacement fits the found names.
+    expect(component.savedCount()).toBe(3);
+    expect(component.savedMatchCount()).toBe(1);
+
+    const btn = fixture.nativeElement.querySelector('.nr-saved-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain('(1)');
+    expect(btn.textContent).not.toContain('(3)');
+    expect(btn.disabled).toBe(false);
+
+    // The saved-replacements panel lists ONLY the fitting replacement.
+    const chips = fixture.nativeElement.querySelectorAll('.nr-saved-chip');
+    expect(chips).toHaveLength(1);
+    expect((chips[0] as HTMLElement).textContent).toContain('Liz');
+    expect((chips[0] as HTMLElement).textContent).toContain('Eliza');
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('hides the saved-replacements panel when no saved replacement fits', async () => {
+    savedReplacements = [
+      {
+        id: 'r-bob',
+        from: 'Bob',
+        to: 'Robert',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.savedMatches()).toHaveLength(0);
+    expect(fixture.nativeElement.querySelector('.nr-saved')).toBeNull();
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('disables the saved replacements button when no saved replacement fits', async () => {
+    savedReplacements = [
+      {
+        id: 'r-bob',
+        from: 'Bob',
+        to: 'Robert',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.savedCount()).toBe(1);
+    expect(component.savedMatchCount()).toBe(0);
+    const btn = fixture.nativeElement.querySelector('.nr-saved-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.disabled).toBe(true);
+
+    dialog.cancel();
+    await p;
+  });
+
   it('persists an applied replacement in the database (from → to)', async () => {
     savedReplacements = [];
     const p = dialog.open({
@@ -908,5 +1146,32 @@ describe('NameReplaceDialogComponent', () => {
 
     dialog.cancel();
     await p2;
+  });
+
+  it('does not create a duplicate exclusion for an already excluded name', async () => {
+    // The dictionary already knows the exclusion (and a regular name entry).
+    const all: NameEntry[] = [
+      entry({ id: 'k1', name: 'Rich', language: 'en', category: 'male' }),
+      entry({ id: 'x1', name: 'Rich', language: EXCLUDED_WORD_LANGUAGE }),
+    ];
+    dictionary.entries = () => all;
+    dictionary.entriesForLanguage = () => all;
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Rich met Elizabeth.' }],
+      apply: applyMock,
+      language: 'en',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The excluded name is not offered at all — so nothing can be excluded
+    // a second time and no duplicate dictionary row is created.
+    expect(component.rows().find((r) => r.form === 'Rich')).toBeUndefined();
+    expect(dictionary.create).not.toHaveBeenCalled();
+
+    dialog.cancel();
+    await p;
   });
 });
