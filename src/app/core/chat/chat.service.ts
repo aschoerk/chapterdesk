@@ -208,8 +208,12 @@ export class ChatService {
 
   // ------------------------------------------------------------------ lore
 
-  ensureLoreNodeBefore(chatId: string, directionNodeId: string): Promise<void> {
-    return this.lore.ensureLoreNodeBefore(chatId, directionNodeId);
+  ensureLoreNodeBefore(
+    chatId: string,
+    directionNodeId: string,
+    extra?: string | null
+  ): Promise<void> {
+    return this.lore.ensureLoreNodeBefore(chatId, directionNodeId, extra);
   }
   markSentOnceExcluded(chatId: string, nodeId: string): Promise<void> {
     return this.lore.markSentOnceExcluded(chatId, nodeId);

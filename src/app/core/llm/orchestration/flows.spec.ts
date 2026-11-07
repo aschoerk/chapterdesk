@@ -14,6 +14,7 @@ import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
 import { LlmLogService } from '../llm-log.service';
 import { buildLoreNodeContent, isChatLoreNode } from '../../chat/chat.service';
+import { readChapterPlan } from '../chapter-plan';
 
 /** Streaming SSE body (one `data:` line per chunk + [DONE]). */
 function sseResponse(chunks: string[]): Response {
@@ -720,6 +721,14 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(answer.content).toBe('1. One — start.\n2. Two — continue.');
     expect(chatService.getActiveChild('a1')?.id).toBe(question!.id);
     expect(slots.flow?.value?.activateId).toBe(answerId);
+
+    // The request carries the FORMAT CONTRACT and the generated answer stores
+    // a machine-readable chapter-plan record next to the readable list.
+    expect(question!.content).toContain('FORMAT — follow it exactly');
+    expect(question!.content).toContain('begins at column 1 with the chapter number');
+    const plan = readChapterPlan(answer);
+    expect(plan?.entries.map(e => e.chapter)).toEqual([4, 5]);
+    expect(plan?.entries[0].text).toBe('One — start.');
   });
 });
 
@@ -1506,6 +1515,63 @@ it('inlines a text attachment on the current question into the final user messag
     );
     expect(buildLoreNodeContent('   ')).toBe('');
     expect(buildLoreNodeContent(undefined)).toBe('');
+  });
+
+  it('buildLoreNodeContent appends the TEMPORARY chapter-plan section', () => {
+    const withPlan = buildLoreNodeContent(
+      'Ashley is married to Dr. Harvey.',
+      '7. The Gate — Mara finds the key.\n8. The Road — They leave before dawn.',
+    );
+    expect(withPlan).toContain('[Current chat-lore');
+    expect(withPlan).toContain('Ashley is married to Dr. Harvey.');
+    expect(withPlan).toContain(
+      '[Chapter plan for this chapter — fixed canon that must be respected]\n7. The Gate — Mara finds the key.\n8. The Road — They leave before dawn.\n[/End of chapter plan]',
+    );
+
+    // A plan-only section is valid too (a chat without lore text).
+    const planOnly = buildLoreNodeContent(null, '7. The Gate — Mara finds the key.');
+    expect(planOnly).not.toContain('[Current chat-lore');
+    expect(planOnly).toContain('[Chapter plan for this chapter');
+    expect(buildLoreNodeContent('lore', '   ')).toBe(
+      '[Current chat-lore — fixed canon that must be respected and never contradicted]\nlore\n[/End of chat-lore]',
+    );
+    expect(buildLoreNodeContent(undefined, '')).toBe('');
+  });
+
+  it('ensureLoreNodeBefore carries the temporary plan slice into the ONE lore node only', async () => {
+    const chatService = await openChat([
+      makeNode({ id: 'a0', role: 'assistant', content: 'The air smells of rain.', isCurrent: true }),
+      makeNode({ id: 'd1', parentId: 'a0', role: 'user', content: 'Elaborate chapter 7.', isCurrent: true }),
+    ]);
+    await chatService.patchChatMeta(CHAT_ID, { lore: 'Ashley is married to Dr. Harvey.' });
+    const factory = TestBed.inject(UsecaseContextFactory);
+
+    const slice = '7. The Gate — Mara finds the key.\n8. The Road — They leave before dawn.';
+    await chatService.ensureLoreNodeBefore(CHAT_ID, 'd1', slice);
+
+    const d1 = chatService.nodes().find(n => n.id === 'd1')!;
+    const lore = chatService.nodes().find(n => n.id === d1.parentId)!;
+    expect(isChatLoreNode(lore)).toBe(true);
+    expect(lore.content).toContain('Ashley is married to Dr. Harvey.');
+    expect(lore.content).toContain('7. The Gate — Mara finds the key.');
+    expect(lore.content).toContain('8. The Road — They leave before dawn.');
+    expect(lore.excludeAfterSend).toBe(true);
+
+    // It reaches the model with THIS send …
+    const sent = textOf(factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'd1' }));
+    expect(sent).toContain('7. The Gate — Mara finds the key.');
+
+    // … and the chat's lore itself is untouched (nothing leaked permanently).
+    const chat = chatService.chats().find(c => c.id === CHAT_ID)!;
+    expect(chat.lore).toBe('Ashley is married to Dr. Harvey.');
+
+    // Re-arming with a DIFFERENT slice updates the same node (idempotent).
+    await chatService.ensureLoreNodeBefore(CHAT_ID, 'd1', '8. The Road — They leave before dawn.');
+    const currentD1 = chatService.nodes().find(n => n.id === 'd1')!;
+    const updated = chatService.nodes().find(n => n.id === currentD1.parentId)!;
+    expect(updated.id).toBe(lore.id);
+    expect(updated.content).toContain('8. The Road');
+    expect(updated.content).not.toContain('7. The Gate');
   });
 
   it('ensureLoreNodeBefore inserts a wrapped lore node in front of the direction, sent once then deactivated; the next direction gets a fresh one', async () => {

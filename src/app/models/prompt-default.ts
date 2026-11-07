@@ -150,12 +150,14 @@ Describe what happens up to that moment, in no way preclude any of those events,
     id: 'structure.chapterDescriptions',
     category: 'structure',
     label: 'Chapter description list',
-    description: 'Heads the "Create chapter descriptions" request at the end of the chat. The concrete parameters (number of chapters, sentences per description, first chapter number, goal) are appended by the flow. Model must output the ordered chapter description list.',
+    description: 'Heads the "Create chapter descriptions" request at the end of the chat. The concrete parameters (number of chapters, sentences per description, first chapter number, goal) AND the output format contract are appended by the flow — this template only describes WHAT to plan.',
     default:
-      `Plan a list of chapter headings and descriptions for the chapters that still have to be written.
-Base the chapters on the story content above and make them lead toward what the user wants to achieve.
-Every description must say in a few sentences what happens in that chapter, written in the voice of an outline, not of the finished prose.
-Return only the chapter heading and description list, numbered starting at the given first chapter number, in the format: "<number>. <heading> — <description>".`
+      `Plan the chapters that still have to be written, in story order, as a numbered list of headings with descriptions.
+
+Base them on the story content above and let them lead toward what the user wants to achieve.
+Each description says in a few plain sentences what happens in that chapter — the voice of an outline, not of the finished prose. Name the characters and places the way the story names them.
+
+Change the story as little as possible: keep established facts, and let every chapter follow from the previous one.`
   },
   {
     id: 'structure.continue',

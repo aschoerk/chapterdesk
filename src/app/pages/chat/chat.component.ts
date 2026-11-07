@@ -28,6 +28,7 @@ import {
   type PacedReadResumePoint
 } from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
+import { chapterPlanLabel, chapterPlanSlice } from '../../core/llm/chapter-plan';
 import { ReadingMarksService } from '../../core/chat/reading-marks.service';
 import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import type { HeldRun } from '../../core/llm/orchestration/flows/env';
@@ -726,6 +727,15 @@ export class ChatComponent implements OnInit {
   readonly elaborateStickLast = this.elaborateDialog.stickLast;
   readonly elaborateModelId = this.elaborateDialog.modelId;
   readonly elaboratePreview = this.elaborateDialog.preview;
+  /** Chapter-plan options: "add the descriptions to the lore" + how many
+   *  FOLLOWING chapters travel with each elaboration. */
+  readonly elaborateUsePlan = this.elaborateDialog.usePlan;
+  readonly elaboratePlanFollowing = this.elaborateDialog.planFollowing;
+  readonly elaboratePlanNodeId = this.elaborateDialog.planNodeId;
+  readonly elaboratePlanCandidates = this.elaborateDialog.planCandidates;
+  readonly elaborateActivePlan = this.elaborateDialog.activePlan;
+  readonly elaborateActivePlanLabel = this.elaborateDialog.activePlanLabel;
+  readonly elaboratePlanCoversRange = this.elaborateDialog.planCoversRange;
 
   /** Sidebar drag — state + persistence live in ChatLayoutPrefsService. */
   startSidebarResize(event: PointerEvent) {
@@ -1885,6 +1895,11 @@ export class ChatComponent implements OnInit {
     this.elaboratePrefix.set(state.prefix);
     this.elaborateHints.set(state.hints);
     this.elaborateStickLast.set(false);
+    // Chapter-plan options are remembered per chat as well. The checkbox only
+    // stays on when the chat actually has a usable plan.
+    this.elaboratePlanNodeId.set(state.planNodeId ?? null);
+    this.elaboratePlanFollowing.set(state.planFollowing ?? 1);
+    this.elaborateUsePlan.set((state.usePlan ?? false) && !!this.elaborateActivePlan());
 
     // initial model = the one that created the visible tree's last answer
     const model = this.resolveElaborateModel(anchor);
@@ -1894,6 +1909,12 @@ export class ChatComponent implements OnInit {
 
   cancelElaborate(): void {
     this.elaborateDialog.close();
+  }
+
+  /** Clamp the "following chapters" input (0..50) — templates cannot use Math. */
+  setPlanFollowing(value: number | string): void {
+    const n = Math.floor(Number(value));
+    this.elaboratePlanFollowing.set(Number.isFinite(n) ? Math.min(50, Math.max(0, n)) : 0);
   }
 
   /** Toggle "stick to last chapter". While checked the First/Last fields are
@@ -1942,12 +1963,22 @@ export class ChatComponent implements OnInit {
     }
     const { model, provider } = resolved;
 
+    // Chapter plan: when enabled, every elaboration send carries the matching
+    // entry plus the next N entries as a TEMPORARY lore section. The plan is
+    // the node's stored `chapter-plan.json` record (or a parsed hand-written
+    // list); nothing is written to chat.lore.
+    const plan = this.elaborateUsePlan() ? this.elaborateActivePlan() : null;
+    const planFollowing = this.elaboratePlanFollowing();
+
     // Remember what was used, per chat, for the next dialog opening.
     this.elaborateDialog.saveState(chatId, {
       lastChapter: last,
       characters: this.elaborateNames(),
       hints: this.elaborateHints(),
-      prefix
+      prefix,
+      usePlan: this.elaborateUsePlan(),
+      planFollowing,
+      planNodeId: this.elaboratePlanNodeId()
     });
 
     this.isElaborating.set(true);
@@ -1963,7 +1994,7 @@ export class ChatComponent implements OnInit {
       // views — nothing is started here. Each prompt remembers its CHAPTER
       // number, so the toolbar progress can show "chapter N → destination"
       // (a chapter may consist of several named views).
-      const prompts: { prompt: string; chapter: number }[] = [];
+      const prompts: { prompt: string; chapter: number; loreExtra: string }[] = [];
       for (let chapter = first; chapter <= last; chapter++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
         // ends the chain, but only AFTER the current chapter's answer has
@@ -1983,12 +2014,26 @@ export class ChatComponent implements OnInit {
               isFirst: !this.elaborateStickLast() && i === 0
             }, topicId))
           : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
+        // The plan slice is per CHAPTER (not per named view): "this chapter +
+        // the next N" — the same temporary lore section for every view.
+        const loreExtra = plan ? chapterPlanSlice(plan, chapter, planFollowing) : '';
         for (const prompt of chapterPrompts) {
           if (this.chatService.shouldStopAfterCurrentStep()) break;
-          prompts.push({ prompt, chapter });
+          prompts.push({ prompt, chapter, loreExtra });
         }
       }
       if (prompts.length === 0) return;
+      // The plan is enabled but covers none of the requested chapters — say so
+      // instead of silently sending without the plan section.
+      if (plan && prompts.every(p => !p.loreExtra)) {
+        this.toast.info(
+          this.i18n.t('chat.elaboratePlanNoMatch', {
+            first,
+            last,
+            range: chapterPlanLabel(plan),
+          }),
+        );
+      }
 
       // A shared PRESENTER QUEUE decouples presenting from generation: each
       // chapter registers as a slot — the first becomes the live head (its
@@ -2003,7 +2048,11 @@ export class ChatComponent implements OnInit {
       }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
 
       let parentId: string | null = anchor.id;
-      const startStep = async (prompt: string, prev?: HeldRun): Promise<HeldRun> => {
+      const startStep = async (
+        prompt: string,
+        loreExtra: string,
+        prev?: HeldRun
+      ): Promise<HeldRun> => {
         // The anchor for each step is the answer node of the previous one
         // (the first anchor is the visible tree's last assistant answer).
         const parentNode = parentId
@@ -2017,6 +2066,8 @@ export class ChatComponent implements OnInit {
             content: prompt,
             modelId: model.modelId,
             providerId: model.providerId,
+            // TEMPORARY lore section: this chapter's plan entry + the next N.
+            ...(loreExtra ? { loreExtra } : {}),
             // The previous chapter's reveal pump clamps its node's displayed
             // content to the revealed slice while its tail is still pacing —
             // pass the FULL text so this chapter's context is never truncated.
@@ -2032,7 +2083,10 @@ export class ChatComponent implements OnInit {
       // The FIRST chapter is the queue head — it reveals live as it streams.
       // Every later chapter is prefetched as a background slot.
       this.chatService.batchProgress.set({ current: prompts[0].chapter, total: last, unit: 'chapter' });
-      let current: HeldRun | null = await startStep(prompts[0].prompt);
+      let current: HeldRun | null = await startStep(
+        prompts[0].prompt,
+        prompts[0].loreExtra,
+      );
       for (let i = 1; i < prompts.length; i++) {
         // Wait for the current chapter's LLM to STOP, then finalize it — the
         // data model is complete from here on, so the NEXT chapter's context
@@ -2048,7 +2102,11 @@ export class ChatComponent implements OnInit {
         }
         // Prefetch the NEXT prepared chapter as a BACKGROUND slot — its LLM
         // runs immediately but its text buffers (nothing paints yet).
-        const next = await startStep(prompts[i].prompt, current);
+        const next = await startStep(
+          prompts[i].prompt,
+          prompts[i].loreExtra,
+          current,
+        );
         // Keep pacing the current tail; once it fully reveals, the queue
         // advances to `next` and the reveal flows seamlessly into it. The
         // chapter counter advances only THEN — it follows the chapter being

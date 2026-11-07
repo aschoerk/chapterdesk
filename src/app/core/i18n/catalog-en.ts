@@ -195,6 +195,20 @@ export const EN = {
     elaborateModel: 'Model',
     elaborateModelTitle:
       'Model used for the elaborations (initially the one of the most recent answer)',
+    elaboratePlan: 'Chapter descriptions → lore',
+    elaboratePlanTitle:
+      'Send the matching chapter description plus the following chapters as a temporary lore section with every elaboration. Nothing is added to the story lore permanently.',
+    elaboratePlanFollowing: 'Following chapters',
+    elaboratePlanFollowingTitle:
+      'How many chapters AFTER the elaborated one travel with it (0 = only that chapter)',
+    elaboratePlanSource: 'Plan from',
+    elaboratePlanSourceTitle:
+      'Which chapter description list to use (newest first)',
+    elaboratePlanNewest: 'Newest plan',
+    elaboratePlanMissing:
+      'No chapter description list found in this story. Create one with “Chapter descriptions” first, or write a numbered list.',
+    elaboratePlanNoMatch:
+      'The chapter list ({{range}}) does not cover chapters {{first}}–{{last}} — nothing was added to the lore.',
     elaboratePreviewLabel: 'Prompt preview',
     elaboratePreviewCount: 'will be elaborated {{count}} times',
     elaborateProgress: 'Chapter {{current}} → {{total}}',

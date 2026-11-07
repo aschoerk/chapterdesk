@@ -15,6 +15,12 @@ import {
   streamAnswerNode
 } from './text-send';
 import { startHeldAnswerStream, type HeldAnswerStreamDeps } from '../../held-answer-stream';
+import {
+  CHAPTER_PLAN_FORMAT_CONTRACT,
+  chapterPlanRecord,
+  parseChapterPlan,
+  parseStrictChapterPlan,
+} from '../../chapter-plan';
 import type { FlowEnv, FlowController, HeldRun } from './env';
 
 // ---------------------------------------------------------------------------
@@ -235,8 +241,9 @@ const sendElaborate: FlowController = async env => {
   const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
 
   // Current chat-lore: materialize a lore node in front of the elaborate
-  // direction.
-  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+  // direction. `loreExtra` is the TEMPORARY chapter-plan slice for THIS
+  // chapter (matching description + n following ones).
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id, env.cx.vars.loreExtra);
 
   // History = text-only path up to the question + topic system prompt; the
   // final user message is the rendered elaborate prompt.
@@ -275,8 +282,9 @@ export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
   const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
 
   // Current chat-lore: materialize a lore node in front of the elaborate
-  // direction.
-  await env.chatService.ensureLoreNodeBefore(chatId, question.id);
+  // direction. `loreExtra` is the TEMPORARY chapter-plan slice for THIS
+  // chapter (matching description + n following ones).
+  await env.chatService.ensureLoreNodeBefore(chatId, question.id, env.cx.vars.loreExtra);
 
   // History = text-only path up to the question + topic system prompt; the
   // final user message is the rendered elaborate prompt. `historyOverrides`
@@ -432,7 +440,10 @@ const sendChapterDescriptions: FlowController = async env => {
     lines.push('What the chapters are meant to achieve:');
     lines.push(goal);
   }
-  lines.push(`Return only the chapter list, starting at chapter ${first}.`);
+  // The FORMAT contract lives in the flow (not in the user-editable prompt) so
+  // the text that produces the list and the parser that reads it cannot drift
+  // apart. It still yields plain, readable prose.
+  lines.push(CHAPTER_PLAN_FORMAT_CONTRACT);
   const request = lines.filter(Boolean).join('\n');
 
   // "Another branch to the first one": branch a NEW sibling question off the
@@ -453,6 +464,26 @@ const sendChapterDescriptions: FlowController = async env => {
   const prep = await prepareTextSend(env, chatId, newQuestion, { content: request });
   await persistInterpretation(env, chatId, newQuestion, prep);
   const { answerNodeId, slots } = await streamAnswerNode(env, chatId, newQuestion.id, prep.messages);
+
+  // Keep a MACHINE-READABLE copy of the plan next to the readable list, so a
+  // later elaboration can inject "this chapter + n following" into the lore
+  // without ever parsing the prose again. The record attachment is excluded
+  // from the LLM context (see nodeToMessageContent).
+  try {
+    const text = slots.text?.value ?? '';
+    const anchors = { firstChapter: first, chapterCount: count };
+    const plan = parseStrictChapterPlan(text, anchors) ?? parseChapterPlan(text, anchors);
+    if (plan.entries.length > 0) {
+      const answer = env.chatService.nodes().find(n => n.id === answerNodeId);
+      await env.chatService.patchNode(chatId, answerNodeId, {
+        attachments: [...(answer?.attachments ?? []), chapterPlanRecord(plan)],
+      });
+    }
+  } catch (err) {
+    // The visible list is the deliverable; a failed record must not fail it.
+    console.warn('[chapter-plan] could not store the parsed plan', err);
+  }
+
   return flowResult(slots, {
     questionNodeId: newQuestion.id,
     answerNodeId,

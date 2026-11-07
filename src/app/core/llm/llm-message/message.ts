@@ -1,6 +1,7 @@
 import { ChatMessage, ChatNode, NodeAttachment } from '../../../models/chat';
 import { decodeDataUrlToText, isImageMime, isTextualMime, resolvedMime } from './mime';
 import { isGeneratedImageAttachment, isPromptRecordAttachment } from './image';
+import { isChapterPlanRecordAttachment } from '../chapter-plan';
 
 /**
  * MESSAGE-COMPOSITION helpers: the message-part types and turning chat nodes
@@ -54,14 +55,18 @@ function hasUsableDataUrl(dataUrl?: string | null): dataUrl is string {
 export function nodeToMessageContent(
   node: Pick<ChatNode, 'content' | 'attachments'>
 ): string | MessagePart[] {
-  // Internal illustration metadata is never part of the story context sent to
-  // the model: the recorded prompt files (prompt-N.txt / refused-prompt-N.txt)
-  // AND the generated pictures themselves (illustration-N.*, whose base64
-  // payload would bloat every story-progression call). Hand-attached images
-  // (any other image name) are kept — those are intentional inputs the model
-  // should see.
+  // Internal metadata is never part of the story context sent to the model:
+  //   – the recorded illustration prompts (prompt-N.txt / refused-prompt-N.txt),
+  //   – the generated pictures themselves (illustration-N.*: their base64
+  //     payload would bloat every story-progression call),
+  //   – the parsed chapter-plan record (chapter-plan.json), which only exists
+  //     so the app can inject a plan slice into the lore.
+  // Hand-attached images (any other name) are kept — those are intentional
+  // inputs the model should see.
   const isContextMeta = (a: NodeAttachment): boolean =>
-    isPromptRecordAttachment(a) || isGeneratedImageAttachment(a);
+    isPromptRecordAttachment(a) ||
+    isGeneratedImageAttachment(a) ||
+    isChapterPlanRecordAttachment(a);
   const attachments = (node.attachments || []).filter(a => !isContextMeta(a));
   if (attachments.length === 0) {
     return node.content || '';

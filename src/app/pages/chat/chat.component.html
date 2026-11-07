@@ -433,6 +433,64 @@
                   </select>
                 </label>
 
+                <!-- Chapter descriptions → temporary lore.
+                     Sends the matching description (+ the following chapters)
+                     with each elaboration; nothing is written to the lore. -->
+                <div class="elaborate-plan">
+                  <label class="elaborate-field elaborate-stick"
+                         [title]="i18n.t('chat.elaboratePlanTitle')">
+                    <input type="checkbox"
+                           [ngModel]="elaborateUsePlan()"
+                           [disabled]="elaboratePlanCandidates().length === 0"
+                           (ngModelChange)="elaborateUsePlan.set($event)" />
+                    <span>{{ i18n.t('chat.elaboratePlan') }}</span>
+                  </label>
+
+                  @if (elaboratePlanCandidates().length === 0) {
+                    <p class="elaborate-plan-missing">{{ i18n.t('chat.elaboratePlanMissing') }}</p>
+                  } @else if (elaborateUsePlan()) {
+                    <div class="elaborate-row">
+                      <label class="elaborate-field compact">
+                        <span>{{ i18n.t('chat.elaboratePlanFollowing') }}</span>
+                        <input type="number" min="0" max="50"
+                               [ngModel]="elaboratePlanFollowing()"
+                               (ngModelChange)="setPlanFollowing($event)"
+                               [title]="i18n.t('chat.elaboratePlanFollowingTitle')" />
+                      </label>
+                      @if (elaboratePlanCandidates().length > 1) {
+                        <label class="elaborate-field">
+                          <span>{{ i18n.t('chat.elaboratePlanSource') }}</span>
+                          <select [ngModel]="elaboratePlanNodeId()"
+                                  (ngModelChange)="elaboratePlanNodeId.set($event)"
+                                  [title]="i18n.t('chat.elaboratePlanSourceTitle')">
+                            <option [ngValue]="null">{{ i18n.t('chat.elaboratePlanNewest') }}</option>
+                            @for (candidate of elaboratePlanCandidates(); track candidate.node.id) {
+                              <option [ngValue]="candidate.node.id">
+                                {{ candidate.label }}
+                              </option>
+                            }
+                          </select>
+                        </label>
+                      }
+                    </div>
+                    @if (elaborateActivePlan()) {
+                      <p class="elaborate-plan-meta">
+                        {{ i18n.t('chat.elaboratePlanSource') }}:
+                        <strong>{{ elaborateActivePlanLabel() }}</strong>
+                        @if (!elaboratePlanCoversRange()) {
+                          <span class="elaborate-plan-warn">
+                            {{ i18n.t('chat.elaboratePlanNoMatch', {
+                                 first: elaborateFirst(),
+                                 last: elaborateLast(),
+                                 range: elaborateActivePlanLabel()
+                               }) }}
+                          </span>
+                        }
+                      </p>
+                    }
+                  }
+                </div>
+
                 @if (elaboratePreview(); as preview) {
                   <div class="elaborate-preview">
                     <span class="elaborate-preview-label">

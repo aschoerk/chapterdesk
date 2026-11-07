@@ -340,6 +340,13 @@ export interface UsecaseVars {
    * text from here instead of the (temporarily partial) node.
    */
   historyOverrides?: Record<string, string>;
+  /**
+   * TEMPORARY extra lore for this single send — the chapter-plan slice (the
+   * matching chapter description plus n following ones) the Elaborate dialog
+   * passes. Materialized into the one-shot lore node; never stored in
+   * `chat.lore`.
+   */
+  loreExtra?: string;
   /** Structural flows: the director/instruction text for `send-prepend`. */
   directorText?: string;
   /** Structural flows: pre-built following-chapters text for `send-prepend`. */

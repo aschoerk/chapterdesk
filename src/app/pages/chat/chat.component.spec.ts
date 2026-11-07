@@ -22,6 +22,8 @@ import { ChatParameters, ChatParametersDraft } from '../../models/chat-parameter
 import { ChatService } from '../../core/chat/chat.service';
 import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
+import { chapterPlanRecord, parseStrictChapterPlan } from '../../core/llm/chapter-plan';
+import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -608,6 +610,60 @@ describe('Chat', () => {
     expect(q1.providerId).toBe('prov-1');
     expect(q2.modelId).toBe('alpha/model');
     expect(a2.modelId).toBe('alpha/model');
+  });
+
+  it('adds the matching chapter-plan slice (+ n following) to the lore of each elaboration', async () => {
+    await openElaborateStory();
+    // A generated chapter-description list with its machine-readable record.
+    const plan = parseStrictChapterPlan(
+      '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.',
+      { firstChapter: 1, chapterCount: 3 },
+    )!;
+    seedApi(api, {
+      nodes: [{
+        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.',
+        attachments: [chapterPlanRecord(plan)],
+        createdAt: '2025-01-03T00:00:00Z',
+      }],
+    });
+    await chatService.loadNodes('chat-1');
+    await chatService.patchChatMeta('chat-1', { lore: 'Ashley is married.' });
+
+    // The plan is detected and preselected (checkbox stays off until ticked).
+    expect(component.elaboratePlanCandidates().map(c => c.node.id)).toEqual(['plan1']);
+    expect(component.elaborateUsePlan()).toBe(false);
+    component.elaborateUsePlan.set(true);
+    component.setPlanFollowing(1);
+
+    orch.completion.mockClear();
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // Each elaboration got its own one-shot lore node carrying the slice.
+    const loreNodes = chatService.nodes().filter(n => n.role === 'user' && isChatLoreNode(n));
+    expect(loreNodes).toHaveLength(2);
+    expect(loreNodes[0].content).toContain('Ashley is married.');
+    expect(loreNodes[0].content).toContain('1. The Gate — Mara finds the key.');
+    expect(loreNodes[0].content).toContain('2. The Road — They leave before dawn.');
+    // Chapter 2 must NOT contain chapter 1 any more.
+    expect(loreNodes[1].content).toContain('2. The Road — They leave before dawn.');
+    expect(loreNodes[1].content).toContain('3. The Ledger — A creditor is named.');
+    expect(loreNodes[1].content).not.toContain('The Gate');
+    // …and the story lore itself was never modified.
+    expect(chatService.chats().find(c => c.id === 'chat-1')?.lore).toBe('Ashley is married.');
+  });
+
+  it('clamps "following chapters" to 0..50', async () => {
+    await openElaborateStory();
+    component.setPlanFollowing(99);
+    expect(component.elaboratePlanFollowing()).toBe(50);
+    component.setPlanFollowing(-3);
+    expect(component.elaboratePlanFollowing()).toBe(0);
+    component.setPlanFollowing('abc' as unknown as number);
+    expect(component.elaboratePlanFollowing()).toBe(0);
   });
 
   it('reports elaborate progress as current chapter → destination chapter', async () => {

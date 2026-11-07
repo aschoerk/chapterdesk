@@ -839,6 +839,33 @@ body.nav-resizing * {
   white-space: normal;
 }
 
+/* Chapter descriptions → temporary lore block. */
+.elaborate-plan {
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+  background: var(--panel-soft, #fafafa);
+}
+
+.elaborate-plan-missing,
+.elaborate-plan-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-muted, #666);
+}
+
+.elaborate-plan-meta strong {
+  color: var(--text, #111);
+}
+
+.elaborate-plan-warn {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--danger, #c0392b);
+}
+
 .elaborate-row .elaborate-field {
   margin-bottom: 0;
   flex: 1 1 0%;
