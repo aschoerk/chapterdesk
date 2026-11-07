@@ -94,6 +94,11 @@
               </select>
             </label>
             <span class="prompt-source-label">Using: {{ sourceLabel(def.id) }}</span>
+            @if (activeVersion(def.id)) {
+              <button type="button" class="btn small" (click)="compareWithDefault(def.id)">
+                Compare with default
+              </button>
+            }
             <button type="button" class="btn small" (click)="startNewVersion(def.id)">
               Save as version…
             </button>
@@ -167,6 +172,7 @@
                       <span class="prompt-version-name">{{ version.name }}</span>
                     }
                     <span class="prompt-version-actions">
+                      <button type="button" class="btn small" (click)="compareVersion(def.id, version)">Compare</button>
                       <button type="button" class="btn small" (click)="startRename(def.id, version)">Rename</button>
                       <button type="button" class="btn small danger" (click)="deleteVersion(def.id, version.id)">Delete</button>
                     </span>

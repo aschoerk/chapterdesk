@@ -13,7 +13,10 @@ import type * as Monaco from 'monaco-editor';
 import { DiffEditorComponent, type DiffEditorModel } from 'ngx-monaco-editor-v2';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ThemeService } from '../../core/settings/theme.service';
-import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
+import {
+  NodeVersionDiffDialogService,
+  type TextDiffOption,
+} from '../../core/dialogs/node-version-diff-dialog.service';
 import { ChatNode } from '../../models/chat';
 
 /** Change navigation / summary info derived from Monaco's line changes. */
@@ -21,6 +24,13 @@ interface ChangeInfo {
   count: number;
   added: number;
   removed: number;
+}
+
+/** Normalized option of the read-only "compare-with" dropdown. */
+interface CompareEntry {
+  id: string;
+  label: string;
+  text: string;
 }
 
 /**
@@ -36,6 +46,11 @@ interface ChangeInfo {
  * block back from the old version into the editor. Dialog is resizable.
  * The edited result is only written back to the caller's draft on Apply — so
  * the change stays temporary until the caller's own Save is pressed.
+ *
+ * The same dialog also serves READ-ONLY text comparisons of versioned general
+ * texts (topic / environment / persona fields) and prompt versions: there the
+ * left side is a recorded text option and the right side is the current text,
+ * both read-only (no restore / Apply).
  */
 @Component({
   selector: 'app-node-version-diff-dialog',
@@ -63,10 +78,32 @@ export class NodeVersionDiffDialogComponent {
   /** True when comparing against siblings (compare-siblings mode). */
   readonly isSiblingMode = computed(() => (this.dialog.current()?.siblings?.length ?? 0) > 0);
 
-  /** The READ-ONLY "compare-with" list: siblings (if any) else prior versions. */
+  /** True for a generic text comparison (topic / environment / persona / prompt). */
+  readonly isTextMode = computed(() => (this.dialog.current()?.texts?.length ?? 0) > 0);
+
+  /** True when the right side must not be edited and Apply is hidden. */
+  readonly readOnly = computed(() => this.dialog.current()?.readOnly === true);
+
+  /** The READ-ONLY "compare-with" nodes: siblings (if any) else prior versions. */
   readonly versions = computed<ChatNode[]>(() => {
     const s = this.dialog.current();
     return s?.siblings && s.siblings.length > 0 ? s.siblings : (s?.versions ?? []);
+  });
+
+  /** The READ-ONLY "compare-with" entries: generic texts, else nodes. */
+  readonly entries = computed<CompareEntry[]>(() => {
+    const s = this.dialog.current();
+    if (s?.texts && s.texts.length > 0) return s.texts;
+    return this.versions().map((v) => ({
+      id: v.id,
+      label: this.optionLabel(v),
+      text: v.content ?? '',
+    }));
+  });
+
+  readonly selectedEntry = computed<CompareEntry | null>(() => {
+    const id = this.selectedVersionId();
+    return this.entries().find((v) => v.id === id) ?? this.entries()[0] ?? null;
   });
 
   readonly selectedVersion = computed<ChatNode | null>(() => {
@@ -75,7 +112,7 @@ export class NodeVersionDiffDialogComponent {
   });
 
   readonly originalModel = computed<DiffEditorModel>(() => ({
-    code: this.selectedVersion()?.content ?? '',
+    code: this.selectedEntry()?.text ?? '',
     language: 'plaintext',
   }));
 
@@ -84,10 +121,13 @@ export class NodeVersionDiffDialogComponent {
     language: 'plaintext',
   }));
 
-  /** Stable editor options (never re-created, so Monaco is not re-inited). */
-  readonly options: Monaco.editor.IStandaloneDiffEditorConstructionOptions = {
+  /**
+   * Editor options. `readOnly` follows the dialog mode: chat-node version
+   * compare = editable right side; generic text compare = both read-only.
+   */
+  readonly options = computed<Monaco.editor.IStandaloneDiffEditorConstructionOptions>(() => ({
     renderSideBySide: true,
-    readOnly: false, // modified (right) side is editable
+    readOnly: this.readOnly(), // modified (right) side is editable only in node mode
     originalEditable: false, // old (left) side stays read-only
     automaticLayout: true, // tracks the resizable dialog
     wordWrap: 'off',
@@ -101,7 +141,7 @@ export class NodeVersionDiffDialogComponent {
     scrollbar: { verticalScrollbarSize: 10 },
     fontSize: 12.8,
     lineHeight: 20,
-  };
+  }));
 
   /** Current change index for prev/next navigation. */
   readonly changeIndex = signal(0);
@@ -114,8 +154,11 @@ export class NodeVersionDiffDialogComponent {
       if (!s) return;
       this.openSeed.set(s.newText);
       this.preservedDraft.set(null);
-      const list = s.siblings && s.siblings.length > 0 ? s.siblings : (s.versions ?? []);
-      this.selectedVersionId.set(list[0]?.id ?? null);
+      const ids = s.texts && s.texts.length > 0
+        ? s.texts.map((t) => t.id)
+        : (s.siblings && s.siblings.length > 0 ? s.siblings : (s.versions ?? [])).map((v) => v.id);
+      const initial = s.initialId && ids.includes(s.initialId) ? s.initialId : ids[0] ?? null;
+      this.selectedVersionId.set(initial);
       this.changeIndex.set(0);
     });
     // Keep Monaco's theme in step with the app theme without re-creating the editor.
@@ -281,8 +324,35 @@ export class NodeVersionDiffDialogComponent {
   }
 
   apply(): void {
+    // Read-only comparisons have nothing to write back — closing is Apply.
+    if (this.readOnly()) {
+      this.dialog.cancel();
+      return;
+    }
     const value = this.editor ? this.editor.getModifiedEditor().getValue() : this.openSeed();
     this.dialog.submit(value);
+  }
+
+  /** Explicit pane labels (generic text comparisons only; may be empty). */
+  originalLabel(): string {
+    return this.dialog.current()?.originalLabel ?? '';
+  }
+
+  modifiedLabel(): string {
+    return this.dialog.current()?.modifiedLabel ?? '';
+  }
+
+  /** True when the caller supplied pane labels to show above the editor. */
+  hasPaneLabels(): boolean {
+    return !!(this.originalLabel() || this.modifiedLabel());
+  }
+
+  /** Hint line under the editor for the current mode. */
+  hintKey(): string {
+    if (this.readOnly()) return 'nodeVersionDiff.readonlyHintTexts';
+    return this.isSiblingMode()
+      ? 'nodeVersionDiff.readonlyHintSiblings'
+      : 'nodeVersionDiff.readonlyHint';
   }
 
   // -------------------------------------------------------------------------

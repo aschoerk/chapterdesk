@@ -187,6 +187,8 @@ export const DE_WORK: typeof EN_WORK = {
     resizeTitle: 'Zum Größe ändern ziehen',
     readonlyHintSiblings:
       'Links: das ausgewählte Geschwister (schreibgeschützt). Rechts: dieser Abschnitt — direkt bearbeiten, Änderung wiederherstellen oder Zeilen vom Geschwister kopieren und einfügen. Das Ergebnis wird beim Speichern zu einer neuen Version dieses Abschnitts.',
+    readonlyHintTexts:
+      'Links: die festgehaltene Version (schreibgeschützt). Rechts: der aktuelle Text (schreibgeschützt). Wortänderungen sind hervorgehoben; beide Seiten scrollen synchron.',
     readonlyHint:
       'Links: die alte Version (schreibgeschützt, zum Kopieren auswählbar). Rechts: die neue Version — direkt bearbeiten. Wortänderungen sind hervorgehoben; beide Seiten scrollen synchron. Änderung wiederherstellen oder Zeilen links kopieren und rechts einfügen. Änderungen werden erst beim Speichern zu einer neuen Version.',
   },

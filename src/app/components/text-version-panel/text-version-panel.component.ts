@@ -13,6 +13,7 @@ import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ToastService } from '../../core/toast/toast.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { TextVersionApiService } from '../../core/texts/text-version-api.service';
 import type {
   TextVersion,
@@ -31,9 +32,10 @@ export interface VersionedAttributeDef {
  * (topic system prompt, environment definition/greeting, persona description).
  *
  * Lists recorded versions (newest first) for the selected attribute and lets
- * the user COMPARE a version against the current value and RESTORE it. When a
- * version is restored, this panel emits `restored` with the now-active value
- * so the parent editor can update its form / saved entity and refresh.
+ * the user COMPARE a version against the current value (in the shared Monaco
+ * diff dialog) and RESTORE it. When a version is restored, this panel emits
+ * `restored` with the now-active value so the parent editor can update its
+ * form / saved entity and refresh.
  */
 @Component({
   selector: 'app-text-version-panel',
@@ -47,6 +49,7 @@ export class TextVersionPanelComponent {
   private readonly api = inject(TextVersionApiService);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly diff = inject(NodeVersionDiffDialogService);
 
   readonly entityType = input<TextVersionEntityType>('topic');
   readonly entityId = input<string | null>(null);
@@ -66,7 +69,6 @@ export class TextVersionPanelComponent {
   readonly loading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly busyId = signal<string | null>(null);
-  readonly compareId = signal<string | null>(null);
 
   readonly activeAttribute = computed<{ attribute: TextVersionAttribute; label: string } | null>(
     () => {
@@ -110,7 +112,6 @@ export class TextVersionPanelComponent {
 
   selectAttribute(attribute: TextVersionAttribute): void {
     this.selected.set(attribute);
-    this.compareId.set(null);
   }
 
   toggle(): void {
@@ -141,12 +142,27 @@ export class TextVersionPanelComponent {
     return this.currentValues()[attribute] ?? '';
   }
 
-  isCompare(version: TextVersion): boolean {
-    return this.compareId() === version.id;
-  }
-
-  toggleCompare(version: TextVersion): void {
-    this.compareId.set(this.isCompare(version) ? null : version.id);
+  /**
+   * Compare a recorded version with the current text in the shared Monaco
+   * diff dialog (both sides read-only). All recorded versions are offered in
+   * the dialog's dropdown, the clicked one preselected.
+   */
+  compare(version: TextVersion): void {
+    const attribute = this.activeAttribute();
+    const entries = this.versions().map((v) => ({
+      id: v.id,
+      label: `${this.i18n.t('textVersions.historical', { version: v.versionNumber })} · ${this.formatDate(v.datetime)}`,
+      text: v.oldContent,
+    }));
+    void this.diff.open({
+      title: this.i18n.t('textVersions.compareTitle', { attribute: attribute?.label ?? '' }),
+      newText: this.currentText(),
+      originalLabel: this.i18n.t('textVersions.historical', { version: version.versionNumber }),
+      modifiedLabel: this.i18n.t('textVersions.current'),
+      texts: entries,
+      initialId: version.id,
+      readOnly: true,
+    });
   }
 
   async restore(version: TextVersion): Promise<void> {
@@ -165,7 +181,6 @@ export class TextVersionPanelComponent {
         this.i18n.t('textVersions.restored', { version: version.versionNumber }),
       );
       this.restored.emit({ attribute: result.entityAttribute, value: result.value });
-      this.compareId.set(null);
       await this.load(result.entityType, result.entityId, result.entityAttribute);
     } catch {
       this.toast.error(this.i18n.t('textVersions.restoreFailed'));
@@ -185,7 +200,6 @@ export class TextVersionPanelComponent {
     try {
       await this.api.deleteTextVersion(version.id);
       this.toast.success(this.i18n.t('textVersions.deleted'));
-      if (this.isCompare(version)) this.compareId.set(null);
       this.versions.set(this.versions().filter((v) => v.id !== version.id));
     } catch {
       this.toast.error(this.i18n.t('textVersions.deleteFailed'));

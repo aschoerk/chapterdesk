@@ -184,6 +184,8 @@ export const EN_WORK = {
     resizeTitle: 'Drag to resize',
     readonlyHintSiblings:
       'Left: the selected sibling (read-only). Right: this section — edit it directly, restore a change, or copy lines from the sibling and paste them. The result becomes a new version of this section when you save.',
+    readonlyHintTexts:
+      'Left: the recorded version (read-only). Right: the current text (read-only). Word-level changes are highlighted; both sides scroll in sync.',
     readonlyHint:
       'Left: the old version (read-only, selectable for copy). Right: the new version — edit it directly. Word-level changes are highlighted; both sides scroll in sync. Restore a change, or copy lines from the left and paste them into the right. Changes only become a new version when you save.',
   },

@@ -102,6 +102,25 @@
 }
 
 /* Monaco diff editor fills the body and relayouts (automaticLayout) on resize */
+.nvd-pane-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.nvd-pane-label {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #666);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nvd-body {
   flex: 1;
   min-height: 0;

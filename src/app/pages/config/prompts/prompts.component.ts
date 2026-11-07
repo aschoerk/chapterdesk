@@ -11,6 +11,7 @@ import type {
 import type { PromptScope, PromptVersion } from '../../../models/prompt-version';
 import { ProjectService } from '../../../core/settings/project.service';
 import { TopicSelectionService } from '../../../core/settings/topic-selection.service';
+import { NodeVersionDiffDialogService } from '../../../core/dialogs/node-version-diff-dialog.service';
 
 /** English-only heading (per project decision — prompts stay in English). */
 const CATEGORY_TITLES: Record<PromptDefaultCategory, { title: string; hint: string }> = {
@@ -39,6 +40,7 @@ export class PromptsComponent {
   private readonly defaults = inject(PromptDefaultsService);
   private readonly projectService = inject(ProjectService);
   private readonly topicSelection = inject(TopicSelectionService);
+  private readonly diff = inject(NodeVersionDiffDialogService);
 
   readonly categories = PROMPT_DEFAULT_CATEGORIES;
 
@@ -120,6 +122,58 @@ export class PromptsComponent {
   /** Which scope/version currently supplies the effective text (topic-aware). */
   activeSource(id: string) {
     return this.defaults.activeSource(id, this.topicId());
+  }
+
+  /** The version that currently supplies the effective text (null = default). */
+  activeVersion(id: string): PromptVersion | null {
+    const source = this.activeSource(id);
+    return source.kind === 'default' ? null : source.version;
+  }
+
+  /**
+   * Compare the ACTIVE version with the built-in default in the shared Monaco
+   * diff dialog (read-only). No-op when the default itself is active.
+   */
+  compareWithDefault(id: string): void {
+    const def = this.defaults.def(id);
+    const active = this.activeVersion(id);
+    if (!def || !active) return;
+    void this.diff.open({
+      title: `Compare with built-in default — ${def.label}`,
+      newText: active.text,
+      originalLabel: 'Built-in default',
+      modifiedLabel: `Active (${this.sourceLabel(id)})`,
+      texts: [{ id: `default:${id}`, label: 'Built-in default', text: def.default }],
+      readOnly: true
+    });
+  }
+
+  /**
+   * Compare a stored version (or the built-in default) with the prompt text
+   * currently in effect, in the shared Monaco diff dialog (read-only).
+   */
+  compareVersion(id: string, version?: PromptVersion): void {
+    const def = this.defaults.def(id);
+    if (!def) return;
+    const texts = [
+      { id: `default:${id}`, label: 'Built-in default', text: def.default },
+      ...this.allVersions(id).map((v) => ({
+        id: v.id,
+        label: `${v.name} — ${this.versionScopeLabel(v)}`,
+        text: v.text
+      }))
+    ];
+    void this.diff.open({
+      title: `Compare prompt — ${def.label}`,
+      newText: this.effective(id),
+      originalLabel: version
+        ? `${version.name} — ${this.versionScopeLabel(version)}`
+        : 'Built-in default',
+      modifiedLabel: `Current (${this.sourceLabel(id)})`,
+      texts,
+      initialId: version?.id ?? `default:${id}`,
+      readOnly: true
+    });
   }
 
   sourceLabel(id: string): string {

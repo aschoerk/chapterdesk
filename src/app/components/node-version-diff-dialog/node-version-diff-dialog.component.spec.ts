@@ -176,6 +176,38 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
     await p;
   });
 
+  it('generic text mode compares read-only texts and closes instead of applying', async () => {
+    const p = dialog.open({
+      title: 'Compare versions — Default system prompt',
+      newText: 'current text',
+      originalLabel: 'Version 1',
+      modifiedLabel: 'Current',
+      texts: [
+        { id: 't1', label: 'Version 1', text: 'old text' },
+        { id: 't2', label: 'Version 2', text: 'older text' },
+      ],
+      initialId: 't2',
+      readOnly: true,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.readOnly()).toBe(true);
+    expect(component.selectedEntry()?.id).toBe('t2');
+    expect(component.originalModel().code).toBe('older text');
+    expect(component.options().readOnly).toBe(true);
+    expect(fixture.nativeElement.querySelector('.nvd-pane-labels')?.textContent).toContain(
+      'Version 1',
+    );
+    expect(fixture.nativeElement.querySelector('.nvd-actions .btn.primary')?.textContent).toContain(
+      'Close',
+    );
+
+    component.apply();
+    await expect(p).resolves.toBeNull();
+  });
+
   it('version mode keeps prior-version labels (not sibling previews)', async () => {
     const p = dialog.open({ newText: 'x', versions: [node({ id: 'v1', version: 5, content: 'a\nb', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' })] });
     fixture.detectChanges();

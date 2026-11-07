@@ -127,6 +127,7 @@ export const EN_PAGES = {
       'No versions recorded yet. Changing this text captures the previous content here, so you can compare and restore it later.',
     emptyPreview: '(empty)',
     compare: 'Compare',
+    compareTitle: 'Compare versions — {{attribute}}',
     restore: 'Restore',
     restoreTitle: 'Restore version?',
     restoreMessage:

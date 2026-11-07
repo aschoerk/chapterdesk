@@ -31,7 +31,7 @@
       } @else {
         <ul class="tvp-list">
           @for (version of versions(); track version.id) {
-            <li class="tvp-row" [class.compare-open]="isCompare(version)">
+            <li class="tvp-row">
               <div class="tvp-row-head">
                 <span class="tvp-version-badge">V{{ version.versionNumber }}</span>
                 <span class="tvp-date">{{ formatDate(version.datetime) }}</span>
@@ -42,8 +42,8 @@
                   }}
                 </span>
                 <div class="tvp-actions">
-                  <button type="button" class="btn small" (click)="toggleCompare(version)">
-                    {{ isCompare(version) ? t('common.close') : t('textVersions.compare') }}
+                  <button type="button" class="btn small" (click)="compare(version)">
+                    {{ t('textVersions.compare') }}
                   </button>
                   <button
                     type="button"
@@ -65,20 +65,6 @@
                 </div>
               </div>
 
-              @if (isCompare(version)) {
-                <div class="tvp-compare">
-                  <div class="tvp-compare-col">
-                    <span class="tvp-compare-label">{{ t('textVersions.current') }}</span>
-                    <pre class="tvp-text">{{ currentText() }}</pre>
-                  </div>
-                  <div class="tvp-compare-col">
-                    <span class="tvp-compare-label">{{
-                      t('textVersions.historical', { version: version.versionNumber })
-                    }}</span>
-                    <pre class="tvp-text">{{ version.oldContent }}</pre>
-                  </div>
-                </div>
-              }
             </li>
           }
         </ul>

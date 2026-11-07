@@ -4,6 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TextVersionPanelComponent } from './text-version-panel.component';
 import { TextVersionApiService } from '../../core/texts/text-version-api.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import type { TextVersion } from '../../models/text-version';
 
@@ -33,6 +34,7 @@ describe('TextVersionPanelComponent', () => {
     deleteTextVersion: ReturnType<typeof vi.fn>;
   };
   let confirm: ConfirmService;
+  let diff: NodeVersionDiffDialogService;
 
   beforeEach(async () => {
     TestBed.resetTestingModule();
@@ -53,6 +55,7 @@ describe('TextVersionPanelComponent', () => {
 
     TestBed.inject(I18nService).setLocale('en');
     confirm = TestBed.inject(ConfirmService);
+    diff = TestBed.inject(NodeVersionDiffDialogService);
 
     fixture = TestBed.createComponent(TextVersionPanelComponent);
     component = fixture.componentInstance;
@@ -115,7 +118,7 @@ describe('TextVersionPanelComponent', () => {
   });
 
   describe('compare', () => {
-    it('shows current vs historical content for the compared version', async () => {
+    it('opens the Monaco comparison with current vs historical content', async () => {
       api.getTextVersions.mockResolvedValue([
         makeVersion({ id: 'v1', oldContent: 'Old prompt', datetime: '2026-10-01T10:00:00.000Z' }),
       ]);
@@ -125,12 +128,14 @@ describe('TextVersionPanelComponent', () => {
       openPanel();
 
       (fixture.nativeElement.querySelectorAll('.tvp-actions .btn')[0] as HTMLElement).click();
-      fixture.detectChanges();
+      await flush();
 
-      const texts = fixture.nativeElement.querySelectorAll('.tvp-text');
-      expect(texts.length).toBe(2);
-      expect(texts[0].textContent).toContain('Live prompt');
-      expect(texts[1].textContent).toContain('Old prompt');
+      const state = diff.current();
+      expect(state?.readOnly).toBe(true);
+      expect(state?.newText).toBe('Live prompt');
+      expect(state?.initialId).toBe('v1');
+      expect(state?.texts?.length).toBe(1);
+      expect(state?.texts?.[0]).toMatchObject({ id: 'v1', text: 'Old prompt' });
     });
   });
 

@@ -130,6 +130,7 @@ export const DE_PAGES: typeof EN_PAGES = {
       'Noch keine Versionen. Wer dieser Text geändert wird, wird der vorherige Inhalt hier festgehalten, um ihn später zu vergleichen und wiederherzustellen.',
     emptyPreview: '(leer)',
     compare: 'Vergleichen',
+    compareTitle: 'Versionen vergleichen — {{attribute}}',
     restore: 'Wiederherstellen',
     restoreTitle: 'Version wiederherstellen?',
     restoreMessage:
