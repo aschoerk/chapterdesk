@@ -925,6 +925,32 @@ describe('Chat', () => {
     component.pacedRead.stop();
   });
 
+  it('hides direction nodes in the conversation tree while a paced read runs', async () => {
+    await openStory();
+    fixture.detectChanges();
+
+    // Idle: the direction node is part of the rendered tree.
+    expect(component.treePath().some(n => n.id === 'q1')).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-node-id="q1"]')).not.toBeNull();
+
+    void component.pacedRead.start([{ key: 'a1', text: 'Answer one' }]);
+    fixture.detectChanges();
+
+    // Reading in the Normal view: sent directions are hidden, chapters stay.
+    expect(component.pacedRead.active()).toBe(true);
+    expect(component.treePath().some(n => n.id === 'q1')).toBe(false);
+    expect(component.treePath().some(n => n.id === 'a1')).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-node-id="q1"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-node-id="a1"]')).not.toBeNull();
+
+    component.pacedRead.stop();
+    fixture.detectChanges();
+
+    // Stopping restores the direction nodes.
+    expect(component.treePath().some(n => n.id === 'q1')).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-node-id="q1"]')).not.toBeNull();
+  });
+
   it('initializes first/last chapter to 1 with empty characters the first time', async () => {
     await openElaborateStory();
 

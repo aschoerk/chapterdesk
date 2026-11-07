@@ -107,6 +107,21 @@ export class ChatComponent implements OnInit {
     return readingTimeLabel(text, this.chatService.streamSpeed(), this.chatService.streamSpeedUnit());
   });
 
+  /**
+   * The active path as RENDERED in the conversation tree. While a paced read
+   * runs in this (Normal) view, direction (user) nodes are hidden so the story
+   * reads as continuous prose — the same effect as Ctrl+D in the Book view.
+   * The terminal composer (a user leaf without children) stays mounted so a
+   * half-typed direction is never lost; stopping the read restores the rest.
+   */
+  readonly treePath = computed(() => {
+    const path = this.getActivePath();
+    if (!this.pacedRead.active()) return path;
+    return path.filter(n =>
+      n.role !== 'user' || this.chatService.getChildren(n.id).length === 0
+    );
+  });
+
   /** parentId → active child nodeId  (shared tree navigation state) */
   readonly activeChild = signal<Record<string, string>>({});
 
