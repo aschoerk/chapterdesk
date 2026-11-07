@@ -81,6 +81,8 @@ export interface Chat {
   autoExcludeDirections?: boolean;
   /** Persistent reading positions / text-selection marks + notes (any number). */
   readingMarks?: ReadingMark[];
+  /** Names already handled by the "Replace names" dialog in this chat. */
+  handledNames?: string[];
   node_number: number;
   created_at: string;
   updated_at: string;
@@ -350,6 +352,24 @@ export interface NameEntry {
   /** Legacy markers (pre-category schemas); present only for migration help. */
   prename?: string | null;
   surname?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A PERSISTED name replacement learned by the "Replace names" dialog: the form
+ * found in the text (`from`) and the name the user confirmed (`to`). Stored
+ * globally (not per chat) so the same decision can be re-applied as a proposal
+ * in any document.
+ */
+export interface NameReplacement {
+  id: string;
+  /** The name as found in the text. */
+  from: string;
+  /** The name to use instead. */
+  to: string;
+  /** Optional language scope (ISO 639-1 code); null = applies to any language. */
+  language: string | null;
   createdAt: string;
   updatedAt: string;
 }

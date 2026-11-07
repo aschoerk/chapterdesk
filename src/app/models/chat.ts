@@ -83,6 +83,12 @@ export interface Chat {
   autoExcludeDirections?: boolean;
   /** Persistent reading positions / text-selection marks with notes (any number). */
   readingMarks?: ReadingMark[];
+  /**
+   * Names already HANDLED in this chat by the "Replace names" dialog (replaced
+   * or explicitly excluded). They are hidden from the dialog until removed
+   * again from its "handled" panel.
+   */
+  handledNames?: string[];
   node_number: number;
   created_at: string;
   updated_at: string;

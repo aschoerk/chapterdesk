@@ -606,16 +606,37 @@ export class ChatTreeWriterService {
     return chat;
   }
 
-  /** Patch per-chat meta (lore text, auto-exclude-directions mode, reading marks) and refresh the local list. */
+  /** Patch per-chat meta (lore text, auto-exclude-directions mode, reading marks, handled names) and refresh the local list. */
   async patchChatMeta(
     chatId: string,
     changes: {
       lore?: string | null;
       autoExcludeDirections?: boolean;
       readingMarks?: ReadingMark[];
+      /** Names already handled by the "Replace names" dialog (replaces the list). */
+      handledNames?: string[];
     }
   ): Promise<Chat> {
-    const chat = await this.api.patchChat(chatId, changes);
+    const response = await this.api.patchChat(chatId, changes);
+    // Defensive merge: an OLDER backend (a server process that was started
+    // before these fields existed) silently drops unknown patch fields and
+    // echoes the chat without them. Keeping the requested values in the local
+    // record means the UI stays consistent for the rest of the session instead
+    // of "losing" e.g. the handled names right after they were saved.
+    const chat: Chat = { ...response };
+    if (changes.lore !== undefined) chat.lore = changes.lore;
+    if (changes.autoExcludeDirections !== undefined) {
+      chat.autoExcludeDirections = changes.autoExcludeDirections;
+    }
+    if (changes.readingMarks !== undefined) chat.readingMarks = changes.readingMarks;
+    if (changes.handledNames !== undefined) {
+      if (response.handledNames === undefined) {
+        console.warn(
+          '[chat] the backend did not persist "handledNames" — restart the API server so its schema migration adds the chats.handled_names column',
+        );
+      }
+      chat.handledNames = changes.handledNames;
+    }
     this.state.chats.update(list =>
       list.map(c => (c.id === chatId ? chat : c))
     );

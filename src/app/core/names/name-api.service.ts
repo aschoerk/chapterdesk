@@ -4,7 +4,9 @@ import { firstValueFrom } from 'rxjs';
 import { getServerConfig } from '../util/server-config';
 import type {
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   NameEntry,
+  NameReplacement,
   UpdateNameEntryRequest,
 } from '../../models/name-entry';
 
@@ -49,5 +51,24 @@ export class NameApiService {
   /** Bulk-insert structured name entries in a single server transaction. */
   importBuiltin(entries: CreateNameEntryRequest[]): Promise<NameEntry[]> {
     return firstValueFrom(this.http.post<NameEntry[]>(this.api('/names/bulk'), { entries }));
+  }
+
+  // -------------------- persisted replacements (from → to)
+
+  /** All replacements remembered in the database. */
+  getReplacements(): Promise<NameReplacement[]> {
+    return firstValueFrom(this.http.get<NameReplacement[]>(this.api('/name-replacements')));
+  }
+
+  /** Upsert a replacement — an existing entry with the same `from` is updated. */
+  saveReplacement(data: CreateNameReplacementRequest): Promise<NameReplacement> {
+    return firstValueFrom(
+      this.http.post<NameReplacement>(this.api('/name-replacements'), data),
+    );
+  }
+
+  /** Forget a persisted replacement. */
+  deleteReplacement(id: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(this.api(`/name-replacements/${id}`)));
   }
 }

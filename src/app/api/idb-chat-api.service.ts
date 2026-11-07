@@ -281,6 +281,7 @@ export class IdbChatApiService implements ChatApiPort {
         lore: data.lore !== undefined ? data.lore : row.lore,
         autoExcludeDirections: data.autoExcludeDirections !== undefined ? data.autoExcludeDirections : row.autoExcludeDirections,
         readingMarks: data.readingMarks !== undefined ? data.readingMarks : row.readingMarks,
+        handledNames: data.handledNames !== undefined ? data.handledNames : row.handledNames,
         updated_at: this.now()
       };
       await this.req(store.put(next));

@@ -18,6 +18,8 @@ import {
   findOccurrences,
   buildNameIndex,
   filterCandidates,
+  mightBeSurnameRow,
+  nameKey,
   type NameReplaceRow,
   type NameOccurrence,
   type NameFilters,
@@ -25,6 +27,9 @@ import {
   type NameTextUnit,
 } from '../../core/names/name-replace';
 import { EXCLUDED_WORD_LANGUAGE } from '../../models/name-entry';
+
+/** How the found names are ordered in the list. */
+export type NameReplaceSortMode = 'first' | 'alpha';
 
 @Component({
   selector: 'app-name-replace-dialog',
@@ -38,8 +43,45 @@ export class NameReplaceDialogComponent {
   readonly dictionary = inject(NameDictionaryService);
   readonly i18n = inject(I18nService);
 
-  /** The found name rows (find + propose + filter). */
-  readonly rows = signal<NameReplaceRow[]>([]);
+  /** All found name rows (find + propose), before sorting / filtering. */
+  private readonly allRows = signal<NameReplaceRow[]>([]);
+  /** Order of the list: by first occurrence in the text, or alphabetically. */
+  readonly sortMode = signal<NameReplaceSortMode>('first');
+  /**
+   * Show only rows that could be surnames: surname/place/brand entries, plus
+   * names without a known classification (unknown capitalized words, legacy
+   * entries). Only positively known GIVEN names are hidden.
+   */
+  readonly onlySurnames = signal(false);
+  /** Names already handled in this chat (hidden from the list). */
+  readonly handled = signal<string[]>([]);
+
+  /**
+   * The rows RENDERED in the table: handled names and (optionally) everything
+   * that is not a surname are filtered out, then the list is sorted.
+   */
+  readonly rows = computed(() => {
+    const handledKeys = new Set(this.handled().map((n) => nameKey(n)));
+    const surnamesOnly = this.onlySurnames();
+    const list = this.allRows().filter((row) => {
+      if (handledKeys.has(nameKey(row.form))) return false;
+      if (surnamesOnly && !mightBeSurnameRow(row)) return false;
+      return true;
+    });
+    return this.sortMode() === 'alpha'
+      ? [...list].sort((a, b) =>
+          a.form.localeCompare(b.form, this.i18n.localeId(), { sensitivity: 'base' }),
+        )
+      : [...list].sort((a, b) => {
+          const pa = this.firstPosByForm.get(a.form) ?? Number.MAX_SAFE_INTEGER;
+          const pb = this.firstPosByForm.get(b.form) ?? Number.MAX_SAFE_INTEGER;
+          if (pa !== pb) return pa - pb;
+          return a.form.localeCompare(b.form, this.i18n.localeId(), { sensitivity: 'base' });
+        });
+  });
+  /** Number of found rows before the handled/surname filters (empty hint). */
+  readonly foundCount = computed(() => this.allRows().length);
+
   /** Include capitalized words that are not in the dictionary (default ON). */
   readonly includeUnknown = signal(true);
   /**
@@ -57,10 +99,28 @@ export class NameReplaceDialogComponent {
   private scopedUnits: NameTextUnit[] = [];
 
   readonly approvedCount = computed(() => this.rows().filter((r) => r.approved).length);
-  /** Rows ticked "exclude forever" (pending a dictionary write on apply). */
-  readonly excludedCount = computed(() =>
-    this.rows().filter((r) => r.excluded && !r.entry).length,
+  /**
+   * Rows whose proposal came from a PERSISTED replacement (and are not
+   * excluded) — the ones "Accept proposals" approves.
+   */
+  readonly savedProposalCount = computed(
+    () => this.rows().filter((r) => r.fromSaved && !r.excluded).length,
   );
+  /** Number of replacements remembered in the database. */
+  readonly savedCount = computed(() => this.dictionary.replacements().length);
+  /** Feedback line after "Use saved replacements" (null = none). */
+  readonly savedInfo = signal<string | null>(null);
+  /**
+   * Rows ticked "exclude": unknown words are written to the dictionary as
+   * excluded words (forever), dictionary names are only marked as handled in
+   * this chat — both are persisted on apply.
+   */
+  readonly excludedCount = computed(() => this.rows().filter((r) => r.excluded).length);
+
+  /** form → position of its FIRST occurrence in the document (sort order). */
+  private firstPosByForm = new Map<string, number>();
+  /** unit key → index in the scanned unit list (document order). */
+  private unitOrder = new Map<string, number>();
 
   /** Pixel offset by which the dialog has been dragged (applied as a translate). */
   readonly dragPos = signal({ x: 0, y: 0 });
@@ -264,11 +324,22 @@ export class NameReplaceDialogComponent {
   /** Rebuild the occurrence lists for every row (queries the shared index). */
   private rebuildOccurrences(units: NameTextUnit[], rows: NameReplaceRow[]): void {
     const map = new Map<string, NameOccurrence[]>();
+    const firstPos = new Map<string, number>();
+    this.unitOrder = new Map(units.map((u, i) => [u.key, i]));
     for (const row of rows) {
-      map.set(row.form, findOccurrences(units, row.form, this.nameIndex ?? undefined));
+      const list = findOccurrences(units, row.form, this.nameIndex ?? undefined);
+      map.set(row.form, list);
+      // The list is in document order → its first entry is the earliest
+      // occurrence ("sort by earliest occurrence in the text").
+      const first = list[0];
+      firstPos.set(
+        row.form,
+        first ? (this.unitOrder.get(first.key) ?? Number.MAX_SAFE_INTEGER) * 1e9 + first.start : Number.MAX_SAFE_INTEGER,
+      );
       row.currentNth = undefined;
     }
     this.occurrencesByForm = map;
+    this.firstPosByForm = firstPos;
   }
 
   /** Number of exact-case, whole-word occurrences of this name. */
@@ -292,8 +363,13 @@ export class NameReplaceDialogComponent {
     const total = list.length;
     const clamped = ((nth % total) + total) % total;
     row.currentNth = clamped;
-    this.rows.update((rows) => [...rows]);
+    this.touchRows();
     this.dialog.current()?.navigate?.(list[clamped]);
+  }
+
+  /** Re-emit the (mutable) rows so the computed list re-renders. */
+  private touchRows(): void {
+    this.allRows.update((rows) => [...rows]);
   }
 
   /** Next occurrence of this name (exact-case, whole-word; wraps around). */
@@ -312,6 +388,8 @@ export class NameReplaceDialogComponent {
       if (!s) return;
       // "Only assistant messages" is the default scope on every open.
       this.onlyAssistant.set(true);
+      // Names already handled in this chat are hidden from the list.
+      this.handled.set([...(s.handled ?? [])]);
       if (!this.posRestored) {
         this.posRestored = true;
         // Restore the persisted drag offset, then clamp it against the REAL
@@ -343,12 +421,95 @@ export class NameReplaceDialogComponent {
       language: this.language(),
       includeUnknown: this.includeUnknown(),
     }, this.nameIndex);
-    // Show the table sorted alphabetically by name.
-    found.sort((a, b) =>
-      a.form.localeCompare(b.form, this.i18n.localeId(), { sensitivity: 'base' }),
-    );
+    // Order + filtering happen in the `rows` computed (sort mode, surname
+    // filter, already-handled names).
     this.rebuildOccurrences(this.scopedUnits, found);
-    this.rows.set(found);
+    this.allRows.set(found);
+    this.savedInfo.set(null);
+  }
+
+  /** Switch the list order between text order and alphabetical order. */
+  setSortMode(mode: string): void {
+    this.sortMode.set(mode === 'alpha' ? 'alpha' : 'first');
+  }
+
+  /** Toggle "only surnames" (rows that COULD be surnames). */
+  setOnlySurnames(checked: boolean): void {
+    this.onlySurnames.set(checked);
+  }
+
+  /**
+   * "Use saved replacements" — set the replacement remembered in the database
+   * as the PROPOSAL of every matching row. Nothing is approved yet, so the user
+   * can review and then accept them all at once
+   * ({@link acceptSavedProposals}). Rows without a saved replacement keep
+   * their previous proposal.
+   */
+  useSavedReplacements(): void {
+    const language = this.language();
+    let matched = 0;
+    this.allRows.update((list) =>
+      list.map((row) => {
+        const saved = this.dictionary.savedReplacementFor(row.form, language);
+        if (!saved || !saved.to.trim()) return row;
+        matched++;
+        return { ...row, proposed: saved.to.trim(), fromSaved: true };
+      }),
+    );
+    this.savedInfo.set(
+      matched > 0
+        ? this.i18n.t('nameReplace.savedApplied', { count: matched })
+        : this.i18n.t('nameReplace.savedNone'),
+    );
+  }
+
+  /**
+   * "Accept proposals" — approve ONLY the rows whose proposal came from a
+   * saved replacement. Every other row keeps its current approve state.
+   */
+  acceptSavedProposals(): void {
+    const visible = new Set(this.rows().map((r) => r.form));
+    this.allRows.update((list) =>
+      list.map((r) =>
+        visible.has(r.form) && r.fromSaved && !r.excluded
+          ? { ...r, approved: true }
+          : r,
+      ),
+    );
+  }
+
+  /** Forget a persisted replacement (it will not be proposed again). */
+  async forgetSaved(replacement: { id: string; from: string }): Promise<void> {
+    const key = nameKey(replacement.from);
+    await this.dictionary.deleteReplacement(replacement.id);
+    // Only the rows that used THIS replacement lose their "saved" mark.
+    this.allRows.update((list) =>
+      list.map((r) =>
+        r.fromSaved && nameKey(r.form) === key ? { ...r, fromSaved: false } : r,
+      ),
+    );
+    this.savedInfo.set(null);
+  }
+
+  /**
+   * Restore a handled name: remove it from the per-chat handled list (and
+   * persist that) so the dialog offers it again.
+   */
+  async removeHandled(name: string): Promise<void> {
+    const key = nameKey(name);
+    const next = this.handled().filter((n) => nameKey(n) !== key);
+    this.handled.set(next);
+    const s = this.dialog.current();
+    if (s?.saveHandled) {
+      try {
+        await s.saveHandled(next);
+      } catch (err: any) {
+        console.error(err);
+        alert(this.i18n.t('nameReplace.handledFailed', { error: err?.message || err }));
+        return;
+      }
+    }
+    if (s) await this.recompute(s.units);
   }
 
   onIncludeUnknownChange(): void {
@@ -371,31 +532,34 @@ export class NameReplaceDialogComponent {
   }
 
   toggleApproved(row: NameReplaceRow): void {
-  row.approved = !row.approved;
-  // Replace and exclude are mutually exclusive.
-  if (row.approved) row.excluded = false;
-  this.rows.update((list) => [...list]);
-}
+    row.approved = !row.approved;
+    // Replace and exclude are mutually exclusive.
+    if (row.approved) row.excluded = false;
+    this.touchRows();
+  }
 
-/**
- * Toggle "exclude forever" for an UNKNOWN row: greys the line immediately as
- * a visual cue, but nothing is persisted until Apply. Ticking it clears any
- * approve decision (and vice versa).
- */
-toggleExcluded(row: NameReplaceRow): void {
-  // Only unknown (non-dictionary) words can be excluded forever.
-  if (row.entry) return;
-  row.excluded = !row.excluded;
-  if (row.excluded) row.approved = false;
-  this.rows.update((list) => [...list]);
-}
+  /**
+   * Toggle "exclude": greys the line immediately as a visual cue, but nothing
+   * is persisted until Apply. On Apply the word is written to the name
+   * dictionary under `EXCLUDED_WORD_LANGUAGE` — that is permanent ("this is
+   * never a name"), for unknown words AND for names that come from the name
+   * list. Undo it in the Name lists dialog's "Excluded words" filter. Ticking
+   * it clears any approve decision (and vice versa).
+   */
+  toggleExcluded(row: NameReplaceRow): void {
+    row.excluded = !row.excluded;
+    if (row.excluded) row.approved = false;
+    this.touchRows();
+  }
 
 setProposed(row: NameReplaceRow, value: string): void {
   row.proposed = value;
   // A name set manually in the editbox counts as an explicit choice → ok.
   row.approved = true;
   row.excluded = false;
-  this.rows.update((list) => [...list]);
+  // No longer the proposal that came from the database.
+  row.fromSaved = false;
+  this.touchRows();
 }
 
 /**
@@ -406,7 +570,8 @@ selectProposed(row: NameReplaceRow, value: string): void {
   row.proposed = value;
   row.approved = true;
   row.excluded = false;
-  this.rows.update((list) => [...list]);
+  row.fromSaved = false;
+  this.touchRows();
 }
 
 /**
@@ -452,15 +617,21 @@ private nearestCandidate(candidates: string[], name: string): string | null {
   return best;
 }
 
+/** Approve every VISIBLE row (hidden/filtered-out rows are left alone). */
 approveAll(): void {
-  this.rows.update((list) =>
-    list.map((r) => (r.entry ? { ...r, approved: true, excluded: false } : r)),
+  const visible = new Set(this.rows().map((r) => r.form));
+  this.allRows.update((list) =>
+    list.map((r) =>
+      visible.has(r.form) && r.entry ? { ...r, approved: true, excluded: false } : r,
+    ),
   );
 }
 
+/** Clear the approve/exclude ticks of the VISIBLE rows. */
 clearAll(): void {
-  this.rows.update((list) =>
-    list.map((r) => ({ ...r, approved: false, excluded: false })),
+  const visible = new Set(this.rows().map((r) => r.form));
+  this.allRows.update((list) =>
+    list.map((r) => (visible.has(r.form) ? { ...r, approved: false, excluded: false } : r)),
   );
 }
 
@@ -475,33 +646,42 @@ clearAll(): void {
     if (!row.candidates.includes(row.proposed)) {
       row.proposed = row.candidates[0] ?? row.form;
     }
-    this.rows.update((list) => [...list]);
+    this.touchRows();
   }
 
   /** Reset the row's listbox to show all same-initial suggestions. */
   resetFilters(row: NameReplaceRow): void {
     row.filters = { male: true, female: true, surname: true };
     row.candidates = filterCandidates(row.allCandidates, row.filters);
-    this.rows.update((list) => [...list]);
+    this.touchRows();
   }
 
   /**
    * Apply the pending decisions and close:
    *  1. persist "exclude forever" words into the dictionary under the special
-   *     excluded language (so they never surface again), then
-   *  2. apply the approved replacements to the visible units.
+   *     excluded language — for UNKNOWN words AND for names that come from the
+   *     name list (exclusion always means "never a name again", it is NOT a
+   *     per-chat note; undo it in the Name lists dialog's "Excluded words"),
+   *  2. remember the APPROVED replacements as HANDLED in this chat (that is the
+   *     name the text carries afterwards), then
+   *  3. apply the approved replacements to the visible units,
+   *  4. PERSIST each applied replacement (from → to) in the database so it can
+   *     be re-offered as a proposal later ("Use saved replacements").
    * Excluding is deferred to here so an accidental tick can be undone simply
    * by unticking before Apply.
    */
   async replaceApproved(): Promise<void> {
     const s = this.dialog.current();
     if (!s) return;
-    const approved = this.rows().filter((r) => r.approved);
-    const exclusions = this.rows().filter((r) => r.excluded && !r.entry);
+    const rows = this.rows();
+    const approved = rows.filter((r) => r.approved);
+    const exclusions = rows.filter((r) => r.excluded);
     if (approved.length === 0 && exclusions.length === 0) return;
 
-    // First persist the confirmations, so a failed write surfaces before any
-    // text gets replaced.
+    // First persist the exclusions, so a failed write surfaces before any text
+    // gets replaced. Excluding is permanent (dictionary-level), never per chat:
+    // the entry's name is added to the "known forms → skip" set, so neither the
+    // name list nor the capital-letter detection can surface it again.
     for (const row of exclusions) {
       try {
         await this.dictionary.create({ name: row.form, language: EXCLUDED_WORD_LANGUAGE });
@@ -512,6 +692,34 @@ clearAll(): void {
       }
     }
 
+    // Remember the REPLACED names as handled in THIS chat so the dialog does
+    // not offer them again (they can be restored from the "handled" panel).
+    // IMPORTANT: after a replacement the text no longer contains the found
+    // form — it contains the PROPOSED name. So an approved row is remembered
+    // by its replacement (e.g. "Liz" → "Elizabeth" stores "Elizabeth"),
+    // otherwise the new name would show up as a fresh row the next time.
+    // Excluded rows are NOT handled names — they are excluded forever above.
+    const decided = approved
+      .map((r) => (r.proposed ?? '').trim() || r.form.trim())
+      .filter(Boolean);
+    if (decided.length > 0 && s.saveHandled) {
+      const seen = new Set(this.handled().map((n) => nameKey(n)));
+      const next = [...this.handled()];
+      for (const form of decided) {
+        const key = nameKey(form);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        next.push(form);
+      }
+      try {
+        await s.saveHandled(next);
+        this.handled.set(next);
+      } catch (err: any) {
+        console.error(err);
+        alert(this.i18n.t('nameReplace.handledFailed', { error: err?.message || err }));
+      }
+    }
+
     if (approved.length === 0) {
       this.dialog.submit([]);
       return;
@@ -519,8 +727,21 @@ clearAll(): void {
     // Replace across ALL visible units, regardless of the search scope. The
     // "only assistant messages" checkbox limits FINDING candidates; an approved
     // name must be rewritten consistently in user and assistant messages alike.
-    const updated = applyNameReplacements(s.units, this.rows());
+    const updated = applyNameReplacements(s.units, rows);
     await s.apply(updated);
+
+    // PERSIST the applied replacements (from → to) in the database, so the
+    // dialog can offer them again as proposals later ("Use saved
+    // replacements"). Changing a name leaves the original form gone, so this
+    // is the only place that knows what it became. A proposal identical to the
+    // found form is not a replacement and is skipped.
+    for (const row of approved) {
+      const from = row.form.trim();
+      const to = (row.proposed ?? '').trim();
+      if (!from || !to || nameKey(from) === nameKey(to)) continue;
+      await this.dictionary.saveReplacement({ from, to, language: this.language() });
+    }
+
     this.dialog.submit(approved);
   }
 

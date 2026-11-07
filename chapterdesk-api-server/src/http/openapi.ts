@@ -836,6 +836,30 @@ export const openApiSpec: OpenApiDocument = {
         responses: noContent,
       },
     },
+    '/api/name-replacements': {
+      get: {
+        tags: ['Names'],
+        summary: 'List the persisted name replacements (from → to) learned by the “Replace names” dialog',
+        operationId: 'getNameReplacements',
+        responses: ok({ type: 'array', items: ref('NameReplacement') }),
+      },
+      post: {
+        tags: ['Names'],
+        summary: 'Remember a replacement; an existing entry with the same `from` and language is overwritten',
+        operationId: 'saveNameReplacement',
+        requestBody: { required: true, content: json(ref('CreateNameReplacementRequest')) },
+        responses: created(ref('NameReplacement')),
+      },
+    },
+    '/api/name-replacements/{id}': {
+      delete: {
+        tags: ['Names'],
+        summary: 'Forget a persisted replacement',
+        operationId: 'deleteNameReplacement',
+        parameters: [idParam()],
+        responses: noContent,
+      },
+    },
   },
   components: {
     schemas: {
@@ -1332,6 +1356,27 @@ export const openApiSpec: OpenApiDocument = {
           language: { type: 'string', nullable: true },
           category: { type: 'string', nullable: true, enum: ['male', 'female', 'surname', 'place', 'brand'] },
           gender: { type: 'string', nullable: true, enum: ['male', 'female'] },
+        },
+      },
+      NameReplacement: {
+        type: 'object',
+        required: ['id', 'from', 'to', 'language', 'createdAt', 'updatedAt'],
+        properties: {
+          id: { type: 'string' },
+          from: { type: 'string', description: 'The name as found in the text' },
+          to: { type: 'string', description: 'The replacement to use instead' },
+          language: { type: 'string', nullable: true, description: 'Scope to an ISO language code; null = any' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      CreateNameReplacementRequest: {
+        type: 'object',
+        required: ['from', 'to'],
+        properties: {
+          from: { type: 'string' },
+          to: { type: 'string' },
+          language: { type: 'string', nullable: true },
         },
       },
     },

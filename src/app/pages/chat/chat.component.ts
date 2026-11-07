@@ -1050,6 +1050,7 @@ export class ChatComponent implements OnInit {
     }
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
+    const chat = this.chats().find((c) => c.id === chatId);
     const approved = await this.nameReplace.open({
       units,
       apply: async (updated) => {
@@ -1062,6 +1063,12 @@ export class ChatComponent implements OnInit {
       },
       navigate: (occ) => this.nameNavigate(occ),
       language: null,
+      // Names already handled in THIS chat are hidden; the dialog can add and
+      // remove them again (persisted on the chat record).
+      handled: chat?.handledNames ?? [],
+      saveHandled: async (names) => {
+        await this.chatService.patchChatMeta(chatId, { handledNames: names });
+      },
     });
     if (approved && approved.length > 0) {
       this.toast.success(this.i18n.t('nameReplace.applied', { count: approved.length }));

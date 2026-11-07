@@ -254,6 +254,8 @@ export class ChatService {
       autoExcludeDirections?: boolean;
       /** Persistent reading positions / selections + notices (replaces the list). */
       readingMarks?: ReadingMark[];
+      /** Names already handled by the "Replace names" dialog (replaces the list). */
+      handledNames?: string[];
     }
   ): Promise<Chat> {
     return this.writer.patchChatMeta(chatId, changes);

@@ -37,6 +37,8 @@ export interface PatchChatRequest {
   autoExcludeDirections?: boolean;
   /** Persistent reading marks (positions / selections + notes) — replaces the list. */
   readingMarks?: ReadingMark[];
+  /** Names already handled by the "Replace names" dialog — replaces the list. */
+  handledNames?: string[];
 }
 
 export interface BranchQuestionRequest {
@@ -158,3 +160,10 @@ export type UpdateNameEntryRequest = Partial<{
   category: 'male' | 'female' | 'surname' | 'place' | 'brand' | null;
   gender: 'male' | 'female' | null;
 }>;
+
+/** Upsert a persisted replacement (same `from` + language overwrites `to`). */
+export interface CreateNameReplacementRequest {
+  from: string;
+  to: string;
+  language?: string | null;
+}

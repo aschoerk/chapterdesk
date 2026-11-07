@@ -21,6 +21,7 @@ import { ProviderConfig, ModelEntry } from '../../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../../models/chat-parameters';
 import { ChatService } from '../../core/chat/chat.service';
 import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
+import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -949,6 +950,50 @@ describe('Chat', () => {
     // Stopping restores the direction nodes.
     expect(component.treePath().some(n => n.id === 'q1')).toBe(true);
     expect(fixture.nativeElement.querySelector('[data-node-id="q1"]')).not.toBeNull();
+  });
+
+  it('passes the per-chat handled names to the Replace-names dialog and persists them', async () => {
+    await openStory();
+    // A name was handled in this chat before.
+    await chatService.patchChatMeta('chat-1', { handledNames: ['Liz'] });
+
+    const nameReplace = TestBed.inject(NameReplaceDialogService);
+    const openSpy = vi.spyOn(nameReplace, 'open').mockResolvedValue([]);
+
+    await component.openNameReplace();
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const state = openSpy.mock.calls[0][0] as any;
+    // The already-handled name reaches the dialog.
+    expect(state.handled).toEqual(['Liz']);
+
+    // The dialog can add/remove handled names — persisted on the chat record.
+    await state.saveHandled(['Liz', 'Rivers']);
+    const chat = chatService.chats().find((c) => c.id === 'chat-1');
+    expect(chat?.handledNames).toEqual(['Liz', 'Rivers']);
+
+    // … and a RE-OPEN sees the updated list.
+    openSpy.mockClear();
+    await component.openNameReplace();
+    const reopened = openSpy.mock.calls[0][0] as any;
+    expect(reopened.handled).toEqual(['Liz', 'Rivers']);
+    vi.restoreAllMocks();
+  });
+
+  it('keeps handled names locally when the backend drops the field (stale server)', async () => {
+    await openStory();
+    // An OLDER API server silently drops patch fields it does not know.
+    const original = api.patchChat.bind(api);
+    vi.spyOn(api, 'patchChat').mockImplementation(async (id: string, data: any) => {
+      const { handledNames: _dropped, ...rest } = data ?? {};
+      return original(id, rest);
+    });
+
+    await chatService.patchChatMeta('chat-1', { handledNames: ['Liz'] });
+
+    // The local chat record still carries them, so the dialog hides the name.
+    expect(chatService.chats().find((c) => c.id === 'chat-1')?.handledNames).toEqual(['Liz']);
+    vi.restoreAllMocks();
   });
 
   it('initializes first/last chapter to 1 with empty characters the first time', async () => {

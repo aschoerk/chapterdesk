@@ -6,6 +6,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NameEntry,
+  NameReplacement,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -24,6 +25,7 @@ import type {
   BranchQuestionRequest,
   CreateModelRequest,
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -163,6 +165,17 @@ export interface ChatApiPort {
    * lists) in a single transaction instead of thousands of individual calls.
    */
   importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]>;
+
+  // Persisted name replacements (from → to) learned by the dialog.
+
+  /** All remembered replacements, in alphabetical `from` order. */
+  getNameReplacements(): Promise<NameReplacement[]>;
+  /**
+   * Upsert a replacement: an existing entry with the same `from` (case- and
+   * ß-insensitive) for the same language gets its `to` overwritten.
+   */
+  saveNameReplacement(data: CreateNameReplacementRequest): Promise<NameReplacement>;
+  deleteNameReplacement(id: string): Promise<void>;
 
   // Versioned general texts (compare / restore).
 

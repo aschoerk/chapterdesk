@@ -9,7 +9,11 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
 import { NameDictionaryService } from '../../core/names/name-dictionary.service';
 import { NameReplaceDialogComponent } from './name-replace-dialog.component';
-import { EXCLUDED_WORD_LANGUAGE, type NameEntry } from '../../models/name-entry';
+import {
+  EXCLUDED_WORD_LANGUAGE,
+  type NameEntry,
+  type NameReplacement,
+} from '../../models/name-entry';
 
 function entry(partial: Partial<NameEntry> & { name: string }): NameEntry {
   const category = partial.category ?? partial.gender ?? null;
@@ -39,7 +43,13 @@ describe('NameReplaceDialogComponent', () => {
     loading: () => boolean;
     entriesForLanguage: (language: string | null) => NameEntry[];
     create: ReturnType<typeof vi.fn>;
+    replacements: () => NameReplacement[];
+    savedReplacementFor: (form: string, language?: string | null) => NameReplacement | null;
+    saveReplacement: ReturnType<typeof vi.fn>;
+    deleteReplacement: ReturnType<typeof vi.fn>;
   };
+  /** Persisted replacements the mock dictionary knows about. */
+  let savedReplacements: NameReplacement[];
   const applyMock: ReturnType<typeof vi.fn<(...args: any[]) => Promise<void>>> = vi.fn(async () => {});
 
   beforeEach(async () => {
@@ -61,6 +71,15 @@ describe('NameReplaceDialogComponent', () => {
     });
     const lizEntry = entry({ id: 'e2', name: 'Liz', language: 'en', category: 'female' });
     applyMock.mockClear();
+    savedReplacements = [];
+    const replacement = (from: string, to: string, language: string | null = null): NameReplacement => ({
+      id: `r-${from.toLowerCase()}`,
+      from,
+      to,
+      language,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
     dictionary = {
       entries: () => [example, lizEntry],
       load: vi.fn(async () => []),
@@ -71,6 +90,24 @@ describe('NameReplaceDialogComponent', () => {
           entry({ name: data.name, language: data.language }),
         )
         .mockClear(),
+      replacements: () => savedReplacements,
+      savedReplacementFor: (form: string, language: string | null = null) => {
+        const match = savedReplacements.find((r) => r.from.toLowerCase() === form.toLowerCase());
+        if (!match) return null;
+        if (!language || !match.language) return match;
+        return match.language === language ? match : null;
+      },
+      saveReplacement: vi.fn(async (data: { from: string; to: string; language?: string | null }) => {
+        const saved = replacement(data.from, data.to, data.language ?? null);
+        savedReplacements = [
+          ...savedReplacements.filter((r) => r.from.toLowerCase() !== data.from.toLowerCase()),
+          saved,
+        ];
+        return saved;
+      }).mockClear(),
+      deleteReplacement: vi.fn(async (id: string) => {
+        savedReplacements = savedReplacements.filter((r) => r.id !== id);
+      }).mockClear(),
     };
     await TestBed.configureTestingModule({
       imports: [NameReplaceDialogComponent],
@@ -465,5 +502,411 @@ describe('NameReplaceDialogComponent', () => {
 
     dialog.cancel();
     await p;
+  });
+
+  it('sorts by first occurrence in the text by default and can switch to alphabetical', async () => {
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth. Elizabeth smiled.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // "First occurrence" is the default: Liz appears before Elizabeth.
+    expect(component.sortMode()).toBe('first');
+    expect(component.rows().map((r) => r.form)).toEqual(['Liz', 'Elizabeth']);
+
+    component.setSortMode('alpha');
+    expect(component.rows().map((r) => r.form)).toEqual(['Elizabeth', 'Liz']);
+
+    component.setSortMode('first');
+    expect(component.rows().map((r) => r.form)).toEqual(['Liz', 'Elizabeth']);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('shows only surnames when the surname filter is on', async () => {
+    const female = entry({ id: 'e1', name: 'Elizabeth', category: 'female', language: 'en' });
+    const surname = entry({ id: 'e2', name: 'Rivers', category: 'surname', language: 'en' });
+    dictionary.entriesForLanguage = () => [female, surname];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Rivers met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.rows().map((r) => r.form)).toEqual(['Rivers', 'Elizabeth']);
+
+    component.setOnlySurnames(true);
+    expect(component.onlySurnames()).toBe(true);
+    // Only the positively known GIVEN name is hidden.
+    expect(component.rows().map((r) => r.form)).toEqual(['Rivers']);
+
+    component.setOnlySurnames(false);
+    expect(component.rows().map((r) => r.form)).toEqual(['Rivers', 'Elizabeth']);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('"only surnames" keeps names with an UNKNOWN classification (they might be surnames)', async () => {
+    const female = entry({ id: 'e1', name: 'Elizabeth', category: 'female', language: 'en' });
+    const male = entry({ id: 'e2', name: 'Edward', category: 'male', language: 'en' });
+    const surname = entry({ id: 'e3', name: 'Rivers', category: 'surname', language: 'en' });
+    const place = entry({ id: 'e4', name: 'Riverton', category: 'place', language: 'en' });
+    // A legacy entry without any category/marker: the kind of name is unknown.
+    const uncategorised = entry({ id: 'e5', name: 'Rutherford', language: 'en' });
+    dictionary.entriesForLanguage = () => [female, male, surname, place, uncategorised];
+
+    const p = dialog.open({
+      units: [{
+        key: 'n1',
+        // "Darcy" has NO dictionary entry → capital-letter detection only
+        // (needs 2 occurrences, at least one NOT sentence-initial).
+        text: 'Rivers met Elizabeth, Edward, Riverton, Rutherford and Darcy. Later, Darcy left.',
+      }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.setOnlySurnames(true);
+    const forms = component.rows().map((r) => r.form);
+    // Surname candidates: classification unknown OR surname/place/brand.
+    expect(forms).toContain('Rivers');
+    expect(forms).toContain('Riverton');
+    expect(forms).toContain('Rutherford');
+    expect(forms).toContain('Darcy');
+    // Known given names are hidden.
+    expect(forms).not.toContain('Elizabeth');
+    expect(forms).not.toContain('Edward');
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('excludes a name from the name list FOREVER (dictionary write, not a handled entry)', async () => {
+    const saveHandled = vi.fn(async (_names: string[]) => {});
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+      handled: [],
+      saveHandled,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    expect(liz.entry).not.toBeNull();
+    // Name-list names can be excluded too — exclusion means "never a name again".
+    component.toggleExcluded(liz);
+    expect(liz.excluded).toBe(true);
+    expect(liz.approved).toBe(false);
+
+    await component.replaceApproved();
+    await p;
+
+    // Permanent, dictionary-level exclusion — and no per-chat handled entry.
+    expect(applyMock).not.toHaveBeenCalled();
+    expect(dictionary.create).toHaveBeenCalledWith({
+      name: 'Liz',
+      language: EXCLUDED_WORD_LANGUAGE,
+    });
+    expect(saveHandled).not.toHaveBeenCalled();
+  });
+
+  it('keeps excluded names out of the handled list even when an approval is applied too', async () => {
+    const saveHandled = vi.fn(async (_names: string[]) => {});
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+      handled: [],
+      saveHandled,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    const elizabeth = component.rows().find((r) => r.form === 'Elizabeth')!;
+
+    // Exclude one name, approve the other.
+    component.toggleExcluded(liz);
+    component.setProposed(elizabeth, 'Eliza');
+    await component.replaceApproved();
+    await p;
+
+    // The exclusion went to the dictionary, the approval to the handled list.
+    expect(dictionary.create).toHaveBeenCalledWith({
+      name: 'Liz',
+      language: EXCLUDED_WORD_LANGUAGE,
+    });
+    expect(saveHandled).toHaveBeenCalledWith(['Eliza']);
+  });
+
+  it('hides handled names and restores them from the handled panel', async () => {
+    const saveHandled = vi.fn(async (_names: string[]) => {});
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+      handled: ['Liz'],
+      saveHandled,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The already-handled name is not offered again …
+    expect(component.rows().map((r) => r.form)).toEqual(['Elizabeth']);
+    // … but it is listed in the handled panel with a restore button.
+    const chip = fixture.nativeElement.querySelector('.nr-handled-chip') as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toContain('Liz');
+
+    await component.removeHandled('Liz');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(saveHandled).toHaveBeenCalledWith([]);
+    expect(component.handled()).toEqual([]);
+    expect(component.rows().map((r) => r.form).sort()).toEqual(['Elizabeth', 'Liz']);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('remembers approved names as handled on apply — by their REPLACEMENT', async () => {
+    const saveHandled = vi.fn(async (_names: string[]) => {});
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+      handled: ['Rivers'],
+      saveHandled,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    component.setProposed(liz, 'Elizabeth');
+    await component.replaceApproved();
+    await p;
+
+    // The text now carries "Elizabeth", so THAT is the name to remember —
+    // storing "Liz" would leave the replacement to be offered again.
+    expect(saveHandled).toHaveBeenCalledWith(['Rivers', 'Elizabeth']);
+  });
+
+  it('does not offer a replaced name again on the next open', async () => {
+    const units = [{ key: 'n1', text: 'Liz met Elizabeth.' }];
+    const handled: string[] = [];
+    const saveHandled = vi.fn(async (names: string[]) => {
+      handled.splice(0, handled.length, ...names);
+    });
+
+    // 1) Approve "Liz" → "Elizabeth" and apply.
+    const p1 = dialog.open({ units, apply: applyMock, handled: [...handled], saveHandled });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    component.setProposed(liz, 'Elizabeth');
+    await component.replaceApproved();
+    await p1;
+
+    expect(handled).toEqual(['Elizabeth']);
+    // The replacement really landed in the text …
+    const updated = applyMock.mock.calls[0][0] as unknown as { key: string; text: string }[];
+    expect(updated[0].text).toBe('Elizabeth met Elizabeth.');
+
+    // 2) Re-open on the REPLACED text with the stored handled list: nothing
+    //    is offered any more (the old "Liz" is gone, "Elizabeth" is handled).
+    const p2 = dialog.open({
+      units: updated.map((u) => ({ key: u.key, text: u.text })),
+      apply: applyMock,
+      handled: [...handled],
+      saveHandled,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.rows()).toHaveLength(0);
+
+    dialog.cancel();
+    await p2;
+  });
+
+  it('uses a saved replacement as the proposal and accepts ONLY those proposals', async () => {
+    savedReplacements = [
+      {
+        id: 'r-liz',
+        from: 'Liz',
+        to: 'Eliza',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const before = component.rows().find((r) => r.form === 'Liz')!;
+    expect(before.proposed).toBe('Liz'); // no saved proposal applied yet
+
+    // The button sets the remembered replacement as the proposal …
+    component.useSavedReplacements();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    const elizabeth = component.rows().find((r) => r.form === 'Elizabeth')!;
+    expect(liz.proposed).toBe('Eliza');
+    expect(liz.fromSaved).toBe(true);
+    expect(liz.approved).toBe(false);
+    // A name without a saved replacement is untouched (the flag stays unset).
+    expect(elizabeth.fromSaved).toBeUndefined();
+    expect(elizabeth.proposed).toBe('Elizabeth');
+    expect(component.savedProposalCount()).toBe(1);
+
+    // "Accept proposals" approves ONLY the saved ones.
+    component.acceptSavedProposals();
+    fixture.detectChanges();
+
+    expect(component.rows().find((r) => r.form === 'Liz')!.approved).toBe(true);
+    expect(component.rows().find((r) => r.form === 'Elizabeth')!.approved).toBe(false);
+    expect(component.approvedCount()).toBe(1);
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('persists an applied replacement in the database (from → to)', async () => {
+    savedReplacements = [];
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const liz = component.rows().find((r) => r.form === 'Liz')!;
+    component.setProposed(liz, 'Elizabeth');
+    await component.replaceApproved();
+    await p;
+
+    expect(dictionary.saveReplacement).toHaveBeenCalledWith({
+      from: 'Liz',
+      to: 'Elizabeth',
+      language: null,
+    });
+    expect(savedReplacements.map((r) => `${r.from}→${r.to}`)).toEqual(['Liz→Elizabeth']);
+  });
+
+  it('does not persist a "keep as is" approval (proposal equals the found form)', async () => {
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Elizabeth smiled.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const elizabeth = component.rows().find((r) => r.form === 'Elizabeth')!;
+    component.toggleApproved(elizabeth);
+    await component.replaceApproved();
+    await p;
+
+    expect(dictionary.saveReplacement).not.toHaveBeenCalled();
+  });
+
+  it('forgets a saved replacement from the saved panel', async () => {
+    savedReplacements = [
+      {
+        id: 'r-liz',
+        from: 'Liz',
+        to: 'Eliza',
+        language: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const p = dialog.open({
+      units: [{ key: 'n1', text: 'Liz met Elizabeth.' }],
+      apply: applyMock,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.nr-saved-chip')).not.toBeNull();
+
+    await component.forgetSaved(savedReplacements[0]);
+    fixture.detectChanges();
+
+    expect(dictionary.deleteReplacement).toHaveBeenCalledWith('r-liz');
+    expect(savedReplacements).toEqual([]);
+    expect(fixture.nativeElement.querySelector('.nr-saved-chip')).toBeNull();
+
+    dialog.cancel();
+    await p;
+  });
+
+  it('does not offer an excluded unknown word again on the next open', async () => {
+    // A stateful dictionary: `create` appends, like the real service does.
+    const all: NameEntry[] = [];
+    dictionary.entriesForLanguage = () => all;
+    dictionary.create = vi.fn(async (data: { name: string; language: string | null }) => {
+      const created = entry({ id: `x${all.length}`, name: data.name, language: data.language });
+      all.push(created);
+      return created;
+    });
+
+    const units = [{ key: 'n1', text: 'Darcy spoke. Later, Darcy smiled.' }];
+
+    // First open: exclude the unknown word.
+    const p1 = dialog.open({ units, apply: applyMock });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const darcy = component.rows().find((r) => r.form === 'Darcy')!;
+    expect(darcy).toBeDefined();
+    component.toggleExcluded(darcy);
+    // Exclude-only Apply must be enabled and must persist the exclusion.
+    await component.replaceApproved();
+    await p1;
+
+    expect(dictionary.create).toHaveBeenCalledWith({
+      name: 'Darcy',
+      language: EXCLUDED_WORD_LANGUAGE,
+    });
+    expect(all).toHaveLength(1);
+
+    // Second open (fresh dialog state, same dictionary): the word is gone.
+    const p2 = dialog.open({ units, apply: applyMock });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.rows().find((r) => r.form === 'Darcy')).toBeUndefined();
+
+    dialog.cancel();
+    await p2;
   });
 });

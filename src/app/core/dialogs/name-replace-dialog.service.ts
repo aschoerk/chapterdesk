@@ -26,6 +26,18 @@ export interface NameReplaceDialogState {
   navigate?: (occ: NameOccurrence) => void;
   /** Language the text is written in (filters the dictionary). */
   language?: string | null;
+  /**
+   * Names ALREADY handled in this chat (replaced or explicitly excluded).
+   * They are hidden from the list; the dialog can also let the user remove
+   * them again (see {@link saveHandled}).
+   */
+  handled?: string[];
+  /**
+   * Persist the updated handled-names list (per chat — replaces the list).
+   * Called when the user applies decisions and when a handled name is
+   * restored from the "handled" panel.
+   */
+  saveHandled?: (names: string[]) => Promise<void>;
 }
 
 /**

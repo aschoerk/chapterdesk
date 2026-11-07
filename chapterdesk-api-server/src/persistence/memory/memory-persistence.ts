@@ -8,6 +8,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NameEntry,
+  NameReplacement,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -26,6 +27,7 @@ import type {
   BranchQuestionRequest,
   CreateModelRequest,
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -97,6 +99,7 @@ export class MemoryPersistence implements PersistencePort {
   private promptSelections = new Map<string, PromptSelection>();
   private textVersions = new Map<string, TextVersion>();
   private nameEntries = new Map<string, NameEntry>();
+  private nameReplacements = new Map<string, NameReplacement>();
   private topicRevisions = new Map<string, SnapshotMeta>();
   private providerRevisions = new Map<string, SnapshotMeta>();
 
@@ -410,6 +413,7 @@ export class MemoryPersistence implements PersistencePort {
       lore: null,
       autoExcludeDirections: false,
       readingMarks: [],
+      handledNames: [],
       node_number: 0,
       created_at: ts,
       updated_at: ts,
@@ -469,6 +473,9 @@ export class MemoryPersistence implements PersistencePort {
     if (data.autoExcludeDirections !== undefined) chat.autoExcludeDirections = data.autoExcludeDirections;
     if (data.readingMarks !== undefined) {
       chat.readingMarks = clone(data.readingMarks ?? []);
+    }
+    if (data.handledNames !== undefined) {
+      chat.handledNames = clone(data.handledNames ?? []);
     }
     chat.updated_at = now();
     return clone(chat);
@@ -1161,6 +1168,48 @@ export class MemoryPersistence implements PersistencePort {
       this.nameEntries.set(entry.id, entry);
     }
     return this.getNames();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persisted name replacements (learned by the "Replace names" dialog)
+  // ---------------------------------------------------------------------------
+
+  async getNameReplacements(): Promise<NameReplacement[]> {
+    return [...this.nameReplacements.values()]
+      .sort((a, b) => a.from.localeCompare(b.from))
+      .map(clone);
+  }
+  async saveNameReplacement(data: CreateNameReplacementRequest): Promise<NameReplacement> {
+    const from = (data.from ?? '').trim();
+    const to = (data.to ?? '').trim();
+    if (!from || !to) throw new Error('from and to are required');
+    const language = data.language ?? null;
+    const key = from.trim().toLowerCase().replace(/\u00df/g, 'ss');
+    const existing = [...this.nameReplacements.values()].find(
+      (r) =>
+        r.from.trim().toLowerCase().replace(/\u00df/g, 'ss') === key &&
+        (r.language ?? null) === language,
+    );
+    if (existing) {
+      const next: NameReplacement = { ...existing, to, updatedAt: now() };
+      this.nameReplacements.set(next.id, next);
+      return clone(next);
+    }
+    const ts = now();
+    const created: NameReplacement = {
+      id: randomUUID(),
+      from,
+      to,
+      language,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    this.nameReplacements.set(created.id, created);
+    return clone(created);
+  }
+  async deleteNameReplacement(id: string): Promise<void> {
+    if (!this.nameReplacements.has(id)) throw notFound('name-replacement', id);
+    this.nameReplacements.delete(id);
   }
 
   private requireChat(id: string): Chat {

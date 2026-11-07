@@ -7,6 +7,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NameEntry,
+  NameReplacement,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -25,6 +26,7 @@ import type {
   BranchQuestionRequest,
   CreateModelRequest,
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -391,6 +393,15 @@ export class SnapshotPersistence implements PersistencePort {
   }
   async importNameEntries(entries: CreateNameEntryRequest[]): Promise<NameEntry[]> {
     return this.memory.importNameEntries(entries);
+  }
+  async getNameReplacements(): Promise<NameReplacement[]> {
+    return this.memory.getNameReplacements();
+  }
+  async saveNameReplacement(data: CreateNameReplacementRequest): Promise<NameReplacement> {
+    return this.memory.saveNameReplacement(data);
+  }
+  async deleteNameReplacement(id: string): Promise<void> {
+    await this.memory.deleteNameReplacement(id);
   }
 
   async deletePromptSelection(

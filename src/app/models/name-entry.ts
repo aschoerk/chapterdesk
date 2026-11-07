@@ -63,6 +63,31 @@ export interface CreateNameEntryRequest {
   gender?: NameGender;
 }
 
+/**
+ * A PERSISTED name replacement learned by the "Replace names" dialog: the form
+ * found in the text (`from`) and the name the user confirmed (`to`). Stored in
+ * the database (not per chat), so the decision can be offered as a PROPOSAL in
+ * any document — see the dialog's "Use saved replacements" button.
+ */
+export interface NameReplacement {
+  id: string;
+  /** The name as found in the text. */
+  from: string;
+  /** The name to use instead. */
+  to: string;
+  /** Optional language scope (ISO 639-1 code); null = applies to any language. */
+  language: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Upsert a persisted replacement (same `from` + language overwrites `to`). */
+export interface CreateNameReplacementRequest {
+  from: string;
+  to: string;
+  language?: string | null;
+}
+
 export type UpdateNameEntryRequest = Partial<{
   name: string;
   language: string | null;

@@ -38,6 +38,8 @@ export interface PatchChatRequest {
   autoExcludeDirections?: boolean;
   /** Persistent reading marks (positions / selections + notes) — replaces the list. */
   readingMarks?: ReadingMark[];
+  /** Names already handled by the "Replace names" dialog — replaces the list. */
+  handledNames?: string[];
 }
 
 export interface BranchQuestionRequest {

@@ -130,6 +130,7 @@ class InMemoryChatApi implements Pick<
       lore?: string | null;
       autoExcludeDirections?: boolean;
       readingMarks?: Chat['readingMarks'];
+      handledNames?: Chat['handledNames'];
     }
   ) {
     const row = this.must(this.chats, id, 'Chat');

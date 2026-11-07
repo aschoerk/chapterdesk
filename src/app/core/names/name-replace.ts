@@ -150,6 +150,13 @@ export interface NameReplaceRow {
   candidates: string[];
   /** User-editable m/f/s filter — which kinds the listbox shows. */
   filters: NameFilters;
+  /**
+   * True when `proposed` was set from a PERSISTED replacement (the dialog's
+   * "Use saved replacements" button). Drives "accept proposals only": a
+   * proposal from the database can be accepted without approving every row.
+   * Cleared as soon as the user picks/types another proposal.
+   */
+  fromSaved?: boolean;
   /** Whether the user approved replacing this name. */
   approved: boolean;
   /**
@@ -505,7 +512,9 @@ export function proposeReplacement(
  * that starts with the same capital letter as `form` — so the "Replace with"
  * listbox offers consistent, same-initial suggestions from the name list.
  *
- * - skips excluded-word entries (never suggested),
+ * - skips excluded-word entries AND any form excluded forever (a word marked
+ *   as "not a name" is never suggested again, even when it also exists as a
+ *   regular name-list entry),
  * - honours the language filter (when given),
  * - dedupes case-insensitively,
  * - sorts alphabetically (the found form is NOT pulled to the front — the
@@ -518,6 +527,14 @@ export function sameLetterCandidates(
 ): NamedCandidate[] {
   const letter = firstLetter(form);
   if (!letter) return [];
+  // Every form the user excluded forever ("this is not a name") — collected
+  // FIRST so an excluded word cannot come back as a suggestion just because a
+  // regular name-list entry happens to share the spelling.
+  const excluded = new Set<string>();
+  for (const entry of entries) {
+    if ((entry.language ?? '').toLowerCase() !== EXCLUDED_WORD_LANGUAGE) continue;
+    for (const { form: word } of entryForms(entry)) excluded.add(foldKey(word.trim()));
+  }
   const out: NamedCandidate[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
@@ -532,6 +549,7 @@ export function sameLetterCandidates(
     for (const { form: candidate, kind } of entryForms(entry)) {
       const c = candidate.trim();
       if (!c || seen.has(foldKey(c))) continue;
+      if (excluded.has(foldKey(c))) continue;
       if (firstLetter(c) !== letter) continue;
       seen.add(foldKey(c));
       out.push(classifyCandidate(entry, c, kind));
@@ -539,6 +557,15 @@ export function sameLetterCandidates(
   }
   out.sort((a, b) => a.form.toLowerCase().localeCompare(b.form.toLowerCase()));
   return out;
+}
+
+/**
+ * Case-folded IDENTITY of a name form: trimmed, lower-cased and ß-folded to
+ * "ss". Two forms with the same key are the same name (used to hide names the
+ * user already handled in a chat, and to dedupe handled-name lists).
+ */
+export function nameKey(form: string): string {
+  return foldKey((form ?? '').trim());
 }
 
 /**
@@ -562,6 +589,33 @@ export function entryCategoryOf(
   if (kind === 'surname') return 'surname';
   if (entry.prename) return 'given'; // legacy given-name marker, gender unknown
   return null;
+}
+
+/**
+ * True when the row is a SURNAME (incl. place/brand) according to its
+ * dictionary entry — a POSITIVE surname classification. Unknown
+ * (capital-letter only) rows have no classification and are not surnames here.
+ */
+export function isSurnameRow(row: NameReplaceRow): boolean {
+  if (!row.entry) return false;
+  return entryCategoryOf(row.entry, row.kind) === 'surname';
+}
+
+/**
+ * True when the row COULD be a surname. Used by the dialog's "only surnames"
+ * filter, which is meant to narrow the list to surname candidates rather than
+ * to positively classified surnames:
+ *   - surname / place / brand entries → yes,
+ *   - rows WITHOUT a dictionary entry (capital-letter detection) → yes, the
+ *     kind of name is unknown, so it might be a surname,
+ *   - legacy / category-less entries (no category, no marker) → yes, unknown,
+ *   - anything positively known to be a GIVEN name (male, female, or a legacy
+ *     `prename` marker) → no.
+ */
+export function mightBeSurnameRow(row: NameReplaceRow): boolean {
+  if (!row.entry) return true;
+  const cat = entryCategoryOf(row.entry, row.kind);
+  return cat !== 'male' && cat !== 'female' && cat !== 'given';
 }
 
 /**

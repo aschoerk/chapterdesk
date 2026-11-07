@@ -93,6 +93,85 @@ describe('PATCH /api/chats/:id — reading marks', () => {
   });
 });
 
+describe('PATCH /api/chats/:id — handled names', () => {
+  test('persists the names the Replace-names dialog already handled', async () => {
+    const id = await createChat('Handled Names Chat');
+
+    const patched = await request(app)
+      .patch(`/api/chats/${id}`)
+      .send({ handledNames: ['Liz', 'Rivers'] });
+    expect(patched.status).toBe(200);
+    expect(patched.body.handledNames).toEqual(['Liz', 'Rivers']);
+
+    // Round-trips through the aggregate (and the sqlite JSON column).
+    const fetched = await request(app).get('/api/chats');
+    const row = fetched.body.find((c: { id: string }) => c.id === id);
+    expect(row.handledNames).toEqual(['Liz', 'Rivers']);
+
+    // Removing one again replaces the list.
+    const reduced = await request(app)
+      .patch(`/api/chats/${id}`)
+      .send({ handledNames: ['Rivers'] });
+    expect(reduced.body.handledNames).toEqual(['Rivers']);
+
+    // Other patches keep the list.
+    const retitled = await request(app).patch(`/api/chats/${id}`).send({ title: 'Renamed' });
+    expect(retitled.body.title).toBe('Renamed');
+    expect(retitled.body.handledNames).toEqual(['Rivers']);
+
+    // A fresh chat starts with an empty list.
+    const other = await createChat('Fresh Chat');
+    const list = await request(app).get('/api/chats');
+    expect(list.body.find((c: { id: string }) => c.id === other).handledNames).toEqual([]);
+  });
+});
+
+describe('Persisted name replacements', () => {
+  test('saves, lists, upserts and deletes replacements (from → to)', async () => {
+    const empty = await request(app).get('/api/name-replacements');
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual([]);
+
+    const created = await request(app)
+      .post('/api/name-replacements')
+      .send({ from: 'Liz', to: 'Elizabeth' });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ from: 'Liz', to: 'Elizabeth', language: null });
+
+    // The same name (case-insensitive) UPDATES the entry instead of adding one.
+    const updated = await request(app)
+      .post('/api/name-replacements')
+      .send({ from: 'liz', to: 'Liesel' });
+    expect(updated.status).toBe(201);
+    expect(updated.body.id).toBe(created.body.id);
+    expect(updated.body.to).toBe('Liesel');
+
+    // A language-scoped replacement is a separate row.
+    const german = await request(app)
+      .post('/api/name-replacements')
+      .send({ from: 'Liz', to: 'Liese', language: 'de' });
+    expect(german.body.id).not.toBe(created.body.id);
+
+    const list = await request(app).get('/api/name-replacements');
+    expect(list.body).toHaveLength(2);
+
+    // 400 without from/to.
+    const bad = await request(app).post('/api/name-replacements').send({ from: '  ' });
+    expect(bad.status).toBe(400);
+
+    // Round-trips through the aggregate endpoint (persisted, not in-memory only).
+    const listAgain = await request(app).get('/api/name-replacements');
+    // The upsert keeps the FIRST spelling of `from` and only overwrites `to`.
+    expect(listAgain.body.map((r: { from: string; to: string }) => `${r.from}→${r.to}`).sort())
+      .toEqual(['Liz→Liese', 'Liz→Liesel']);
+
+    const removed = await request(app).delete(`/api/name-replacements/${created.body.id}`);
+    expect(removed.status).toBe(204);
+    const after = await request(app).get('/api/name-replacements');
+    expect(after.body).toHaveLength(1);
+  });
+});
+
 describe('GET /api/chats/search-ids', () => {
   test('finds a chat by title fragment', async () => {
     const id = await createChat('Unicorn Quest');

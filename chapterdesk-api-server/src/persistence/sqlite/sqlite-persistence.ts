@@ -11,6 +11,7 @@ import type {
   CreateNodeRequest,
   ModelEntry,
   NameEntry,
+  NameReplacement,
   NodeAttachment,
   NodeUsageSummary,
   Persona,
@@ -29,6 +30,7 @@ import type {
   BranchQuestionRequest,
   CreateModelRequest,
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -76,6 +78,7 @@ function mapChat(row: Row): Chat {
     lore: (row.lore as string | null) ?? null,
     autoExcludeDirections: bool(row.auto_exclude_directions),
     readingMarks: json(row.reading_marks as string | null, [] as Chat['readingMarks']),
+    handledNames: json(row.handled_names as string | null, [] as Chat['handledNames']),
     node_number: Number(row.node_number ?? 0),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -242,6 +245,25 @@ function normalizeNameCategory(data: {
   return null;
 }
 
+/** Case-folded identity of a name form (matches the client's `nameKey`). */
+function nameFoldKey(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\u00df/g, 'ss');
+}
+
+function mapNameReplacement(row: Row): NameReplacement {
+  return {
+    id: row.id as string,
+    from: row.from_name as string,
+    to: row.to_name as string,
+    language: (row.language as string | null) ?? null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 function mapNameEntry(row: Row): NameEntry {
   const gender = row.gender as string | null | undefined;
   let category = row.category as string | null | undefined;
@@ -303,7 +325,7 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', default_model_id TEXT, chat_parameters_id TEXT, default_system_prompt TEXT DEFAULT '', icon TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS topic_projects (topic_id TEXT NOT NULL, project_id TEXT NOT NULL, PRIMARY KEY(topic_id, project_id));
       CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT NOT NULL, description TEXT DEFAULT '', avatar TEXT DEFAULT '', main_topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, reading_marks TEXT, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, reading_marks TEXT, handled_names TEXT, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
@@ -312,11 +334,13 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS prompt_selections (prompt_id TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(prompt_id, scope, topic_id));
       CREATE TABLE IF NOT EXISTS text_versions (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, entity_attribute TEXT NOT NULL, version_number INTEGER NOT NULL, datetime TEXT NOT NULL, old_content TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS name_entries (id TEXT PRIMARY KEY, language TEXT, name TEXT NOT NULL, category TEXT, gender TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS name_replacements (id TEXT PRIMARY KEY, from_name TEXT NOT NULL, to_name TEXT NOT NULL, language TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_prompt_versions_prompt ON prompt_versions(prompt_id);
       CREATE INDEX IF NOT EXISTS idx_chat_nodes_chat_id ON chat_nodes(chat_id);
       CREATE INDEX IF NOT EXISTS idx_text_versions_entity ON text_versions(entity_type, entity_id, entity_attribute);
       CREATE INDEX IF NOT EXISTS idx_name_entries_name ON name_entries(name);
       CREATE INDEX IF NOT EXISTS idx_name_entries_language ON name_entries(language);
+      CREATE INDEX IF NOT EXISTS idx_name_replacements_from ON name_replacements(from_name);
     `);
     this.addColumn('projects', 'main_topic_id', 'TEXT');
     this.addColumn('projects', 'chat_parameters_id', 'TEXT');
@@ -326,6 +350,7 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('chats', 'lore', 'TEXT');
     this.addColumn('chats', 'auto_exclude_directions', 'INTEGER DEFAULT 0');
     this.addColumn('chats', 'reading_marks', 'TEXT');
+    this.addColumn('chats', 'handled_names', 'TEXT');
     this.addColumn('chats', 'prompt_tokens', 'INTEGER');
     this.addColumn('chats', 'completion_tokens', 'INTEGER');
     this.addColumn('chats', 'cached_tokens', 'INTEGER');
@@ -697,6 +722,50 @@ export class SqlitePersistence implements PersistencePort {
     return this.getNames();
   }
 
+  // -------------------------------------------------------------------------
+  // Persisted name replacements (learned by the "Replace names" dialog)
+  // -------------------------------------------------------------------------
+
+  async getNameReplacements(): Promise<NameReplacement[]> {
+    return this.rows('SELECT * FROM name_replacements ORDER BY from_name').map(
+      mapNameReplacement,
+    );
+  }
+  async saveNameReplacement(data: CreateNameReplacementRequest): Promise<NameReplacement> {
+    const from = (data.from ?? '').trim();
+    const to = (data.to ?? '').trim();
+    if (!from || !to) throw badRequest('from and to are required');
+    const language = data.language ?? null;
+    const key = nameFoldKey(from);
+    // Upsert: the same name (case/ß-insensitive) for the same language keeps
+    // ONE row — a later decision simply overwrites the replacement.
+    const existing = this.rows('SELECT * FROM name_replacements').find(
+      (row) =>
+        nameFoldKey(row.from_name) === key &&
+        ((row.language as string | null) ?? null) === language,
+    );
+    const ts = now();
+    if (existing) {
+      this.db
+        .prepare('UPDATE name_replacements SET to_name=?, updated_at=? WHERE id=?')
+        .run(to, ts, existing.id);
+      return mapNameReplacement(this.requireRow('name-replacement', existing.id as string, 'name_replacements'));
+    }
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO name_replacements(id,from_name,to_name,language,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+      )
+      .run(id, from, to, language, ts, ts);
+    return mapNameReplacement(
+      this.requireRow('name-replacement', id, 'name_replacements'),
+    );
+  }
+  async deleteNameReplacement(id: string): Promise<void> {
+    this.requireRow('name-replacement', id, 'name_replacements');
+    this.db.prepare('DELETE FROM name_replacements WHERE id=?').run(id);
+  }
+
   async getProjects(): Promise<Project[]> {
     return this.rows('SELECT * FROM projects ORDER BY rowid').map((row) => this.project(row));
   }
@@ -820,7 +889,7 @@ export class SqlitePersistence implements PersistencePort {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          'INSERT INTO chats(id,title,project_id,chat_parameters_id,lore,auto_exclude_directions,reading_marks,node_number,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,created_at,updated_at) SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, reading_marks, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
+          'INSERT INTO chats(id,title,project_id,chat_parameters_id,lore,auto_exclude_directions,reading_marks,handled_names,node_number,prompt_tokens,completion_tokens,cached_tokens,total_tokens,total_cost,created_at,updated_at) SELECT ?, title || ?, project_id, chat_parameters_id, lore, auto_exclude_directions, reading_marks, handled_names, node_number, prompt_tokens, completion_tokens, cached_tokens, total_tokens, total_cost, ?, ? FROM chats WHERE id=?',
         )
         .run(id, ' (copy)', ts, ts, chatId);
       const insert = this.db.prepare(
@@ -864,7 +933,7 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.chat(id);
     if (data.projectId) this.requireRow('project', data.projectId, 'projects');
     this.db
-      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,reading_marks=?,updated_at=? WHERE id=?')
+      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,reading_marks=?,handled_names=?,updated_at=? WHERE id=?')
       .run(
         data.title ?? old.title,
         data.projectId !== undefined ? data.projectId : old.projectId,
@@ -874,6 +943,9 @@ export class SqlitePersistence implements PersistencePort {
         data.readingMarks !== undefined
           ? JSON.stringify(data.readingMarks)
           : JSON.stringify(old.readingMarks ?? []),
+        data.handledNames !== undefined
+          ? JSON.stringify(data.handledNames)
+          : JSON.stringify(old.handledNames ?? []),
         now(),
         id,
       );

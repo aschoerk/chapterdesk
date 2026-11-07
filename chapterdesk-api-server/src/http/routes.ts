@@ -14,6 +14,7 @@ import type {
   BranchQuestionRequest,
   CreateModelRequest,
   CreateNameEntryRequest,
+  CreateNameReplacementRequest,
   CreatePersonaRequest,
   CreateProjectRequest,
   CreatePromptVersionRequest,
@@ -841,6 +842,45 @@ export function registerChatApiRoutes(app: Express, api: PersistencePort): void 
         })
         .filter((e) => e.name.length > 0);
       res.json(await api.importNameEntries(entries));
+    }),
+  );
+
+  // Persisted name replacements (learned by the "Replace names" dialog).
+  //   GET    /api/name-replacements
+  //   POST   /api/name-replacements          (upsert by from + language)
+  //   DELETE /api/name-replacements/:id
+  app.get(
+    '/api/name-replacements',
+    wrap(async (_req, res) => {
+      res.json(await api.getNameReplacements());
+    }),
+  );
+  app.post(
+    '/api/name-replacements',
+    wrap(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.from !== 'string' || !body.from.trim()) {
+        throw badRequest('from (string) is required');
+      }
+      if (typeof body.to !== 'string' || !body.to.trim()) {
+        throw badRequest('to (string) is required');
+      }
+      const data: CreateNameReplacementRequest = {
+        from: body.from.trim(),
+        to: body.to.trim(),
+      };
+      data.language =
+        typeof body.language === 'string' && body.language.trim()
+          ? body.language.trim()
+          : null;
+      res.status(201).json(await api.saveNameReplacement(data));
+    }),
+  );
+  app.delete(
+    '/api/name-replacements/:id',
+    wrap(async (req, res) => {
+      await api.deleteNameReplacement(param(req, 'id'));
+      res.status(204).end();
     }),
   );
 

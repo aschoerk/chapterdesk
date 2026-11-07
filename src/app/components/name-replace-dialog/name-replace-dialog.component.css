@@ -113,6 +113,87 @@
   cursor: pointer;
 }
 
+/* "Handled names" panel — names remembered for this chat. */
+.nr-handled {
+  margin-bottom: 0.8rem;
+  font-size: 0.82rem;
+  color: var(--text-muted, #666);
+}
+
+.nr-handled summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text, #111);
+}
+
+.nr-handled-hint {
+  margin: 0.35rem 0 0.4rem;
+  font-size: 0.78rem;
+}
+
+.nr-handled-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-height: 6.5rem;
+  overflow: auto;
+}
+
+.nr-handled-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.5rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 999px;
+  background: var(--panel-soft, #f4f4f4);
+  color: var(--text, #111);
+  font-size: 0.78rem;
+}
+
+.nr-handled-x {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 50%;
+}
+
+.nr-handled-x:hover {
+  color: var(--danger, #c0392b);
+  background: rgba(192, 57, 43, 0.1);
+}
+
+/* Saved (persisted) replacements: button, row tag, feedback line, list chips. */
+.nr-saved-btn {
+  align-self: flex-end;
+  margin-bottom: 0.4rem;
+}
+
+.nr-saved-info {
+  margin: -0.4rem 0 0.8rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #666);
+}
+
+.nr-saved-tag {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent, #2f6fed);
+  color: var(--accent, #2f6fed);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nr-saved-chip {
+  border-color: var(--accent, #2f6fed);
+}
+
 .nr-btn {
   padding: 0.45rem 0.8rem;
   border: 1px solid var(--border, #ccc);

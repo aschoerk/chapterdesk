@@ -19,6 +19,9 @@ import {
   filterCandidates,
   classifyCandidate,
   initializeNameFilters,
+  nameKey,
+  isSurnameRow,
+  mightBeSurnameRow,
   type NameReplaceRow,
   type NamedCandidate,
 } from './name-replace';
@@ -283,6 +286,16 @@ describe('name-replace pure engine', () => {
       // L-initial forms only, alphabetically (Elizabeth starts with E).
       expect(forms).toEqual(['Liam', 'Liz', 'Lucy']);
       expect(forms).toContain('Liz');
+    });
+
+    it('never suggests a word that was excluded forever, even if it is also a name', () => {
+      const dict2 = [
+        entry({ id: 'a', name: 'Liz', category: 'female', language: 'en' }),
+        entry({ id: 'b', name: 'Lucy', category: 'female', language: 'en' }),
+        // The user marked "Liz" as "not a name" forever.
+        entry({ id: 'x', name: 'Liz', language: EXCLUDED_WORD_LANGUAGE }),
+      ];
+      expect(sameLetterCandidates(dict2, 'Lucy').map((c) => c.form)).toEqual(['Lucy']);
     });
 
     it('returns [] for an empty form', () => {
@@ -641,6 +654,60 @@ describe('name-replace pure engine', () => {
       ];
       const updated = applyNameReplacements([{ key: 'n', text: 'Liz.' }], rows);
       expect(updated[0].text).toBe('Liz.');
+    });
+  });
+
+  describe('nameKey / isSurnameRow', () => {
+    it('folds case and ß into one name identity', () => {
+      expect(nameKey('Weiß')).toBe(nameKey('WEISS'));
+      expect(nameKey('  Liz ')).toBe('liz');
+      expect(nameKey('Liz')).not.toBe(nameKey('Elizabeth'));
+    });
+
+    it('detects surname rows from the entry category (places too)', () => {
+      const row = (entryValue: NameEntry | null): NameReplaceRow => ({
+        form: 'Rivers',
+        kind: 'full',
+        entry: entryValue,
+        count: 1,
+        proposed: 'Rivers',
+        allCandidates: [],
+        candidates: [],
+        filters: { male: true, female: true, surname: true },
+        approved: false,
+        excluded: false,
+      });
+      expect(isSurnameRow(row(entry({ name: 'Rivers', category: 'surname' })))).toBe(true);
+      expect(isSurnameRow(row(entry({ name: 'Rivers', category: 'place' })))).toBe(true);
+      expect(isSurnameRow(row(entry({ name: 'Liz', category: 'female' })))).toBe(false);
+      expect(isSurnameRow(row(null))).toBe(false);
+    });
+
+    it('"might be a surname" includes unclassified names, excludes known given names', () => {
+      const row = (entryValue: NameEntry | null): NameReplaceRow => ({
+        form: 'Rivers',
+        kind: 'full',
+        entry: entryValue,
+        count: 1,
+        proposed: 'Rivers',
+        allCandidates: [],
+        candidates: [],
+        filters: { male: true, female: true, surname: true },
+        approved: false,
+        excluded: false,
+      });
+      // Positively classified surnames / places / brands.
+      expect(mightBeSurnameRow(row(entry({ name: 'Rivers', category: 'surname' })))).toBe(true);
+      expect(mightBeSurnameRow(row(entry({ name: 'Riverton', category: 'place' })))).toBe(true);
+      expect(mightBeSurnameRow(row(entry({ name: 'Rivercorp', category: 'brand' })))).toBe(true);
+      // UNKNOWN kind of name → might be a surname.
+      expect(mightBeSurnameRow(row(null))).toBe(true);
+      expect(mightBeSurnameRow(row(entry({ name: 'Rutherford' })))).toBe(true);
+      // Positively known given names are not surname candidates.
+      expect(mightBeSurnameRow(row(entry({ name: 'Liz', category: 'female' })))).toBe(false);
+      expect(mightBeSurnameRow(row(entry({ name: 'Ed', category: 'male' })))).toBe(false);
+      // Legacy prename marker (given, gender unknown).
+      expect(mightBeSurnameRow(row(entry({ name: 'Leslie', prename: 'Leslie' })))).toBe(false);
     });
   });
 });

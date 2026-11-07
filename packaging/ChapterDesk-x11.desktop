@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=ChapterDesk (X11 window placement)
+GenericName=Story Writer
+Comment=Offline-first AI-assisted story writing client — runs through XWayland so the window position is restored
+# Runs the SAME binary, but through Chromium's X11 backend (XWayland).
+# On a Wayland session the compositor alone decides where a window goes, so the
+# remembered window POSITION can only be restored under X11. The window size is
+# restored either way.
+Exec=env ELECTRON_OZONE_PLATFORM_HINT=x11 ChapterDesk %U
+TryExec=ChapterDesk
+Icon=ChapterDesk
+Terminal=false
+Categories=Office;WordProcessor;Utility;
+StartupWMClass=ChapterDesk
+StartupNotify=false

@@ -55,7 +55,42 @@
           />
           {{ i18n.t('nameReplace.onlyAssistant') }}
         </label>
+
+        <label class="nr-field nr-sort">
+          <span class="nr-label">{{ i18n.t('nameReplace.sortLabel') }}</span>
+          <select
+            [ngModel]="sortMode()"
+            (ngModelChange)="setSortMode($event)"
+            [title]="i18n.t('nameReplace.sortTitle')"
+          >
+            <option value="first">{{ i18n.t('nameReplace.sortFirst') }}</option>
+            <option value="alpha">{{ i18n.t('nameReplace.sortAlpha') }}</option>
+          </select>
+        </label>
+
+        <label class="nr-toggle" [title]="i18n.t('nameReplace.onlySurnamesTitle')">
+          <input
+            type="checkbox"
+            [checked]="onlySurnames()"
+            (change)="setOnlySurnames($any($event.target).checked)"
+          />
+          {{ i18n.t('nameReplace.onlySurnames') }}
+        </label>
+
+        <button
+          type="button"
+          class="nr-btn nr-saved-btn"
+          (click)="useSavedReplacements()"
+          [disabled]="savedCount() === 0 || rows().length === 0"
+          [title]="i18n.t('nameReplace.useSavedTitle')"
+        >
+          {{ i18n.t('nameReplace.useSaved') }} ({{ savedCount() }})
+        </button>
       </div>
+
+      @if (savedInfo(); as info) {
+        <p class="nr-saved-info">{{ info }}</p>
+      }
 
       @if (dictionary.loading()) {
         <p class="nr-loading">
@@ -65,7 +100,9 @@
       }
 
       @if (rows().length === 0 && !dictionary.loading()) {
-        <p class="nr-empty">{{ i18n.t('nameReplace.empty') }}</p>
+        <p class="nr-empty">
+          {{ foundCount() > 0 ? i18n.t('nameReplace.emptyFiltered') : i18n.t('nameReplace.empty') }}
+        </p>
       }
 
       @if (rows().length > 0) {
@@ -112,8 +149,7 @@
                       type="checkbox"
                       [checked]="row.excluded"
                       (change)="toggleExcluded(row)"
-                      [disabled]="!!row.entry"
-                      [title]="row.entry ? i18n.t('nameReplace.excludeOnlyUnknown') : i18n.t('nameReplace.excludeTitle')"
+                      [title]="i18n.t('nameReplace.excludeTitle')"
                     />
                   </td>
                   <td class="nr-col-name">
@@ -125,6 +161,11 @@
                     }
                     @if (row.excluded) {
                       <span class="nr-excl-tag">{{ i18n.t('nameReplace.excludedTag') }}</span>
+                    }
+                    @if (row.fromSaved) {
+                      <span class="nr-saved-tag" [title]="i18n.t('nameReplace.savedTagTitle')">
+                        {{ i18n.t('nameReplace.savedTag') }}
+                      </span>
                     }
                     @if (row.allCapsForm) {
                       <span class="nr-allcaps" [title]="i18n.t('nameReplace.allCapsTitle')">
@@ -200,11 +241,58 @@
         </div>
       }
 
+      @if (savedCount() > 0) {
+        <details class="nr-handled nr-saved">
+          <summary>{{ i18n.t('nameReplace.savedTitle', { count: savedCount() }) }}</summary>
+          <p class="nr-handled-hint">{{ i18n.t('nameReplace.savedHint') }}</p>
+          <div class="nr-handled-list">
+            @for (saved of dictionary.replacements(); track saved.id) {
+              <span class="nr-handled-chip nr-saved-chip">
+                {{ saved.from }} → {{ saved.to }}
+                <button
+                  type="button"
+                  class="nr-handled-x"
+                  (click)="forgetSaved(saved)"
+                  [title]="i18n.t('nameReplace.savedForgetTitle')"
+                  aria-label="{{ i18n.t('nameReplace.savedForget') }} {{ saved.from }}"
+                >✕</button>
+              </span>
+            }
+          </div>
+        </details>
+      }
+
+      @if (handled().length > 0) {
+        <details class="nr-handled">
+          <summary>{{ i18n.t('nameReplace.handledTitle', { count: handled().length }) }}</summary>
+          <p class="nr-handled-hint">{{ i18n.t('nameReplace.handledHint') }}</p>
+          <div class="nr-handled-list">
+            @for (name of handled(); track name) {
+              <span class="nr-handled-chip">
+                {{ name }}
+                <button
+                  type="button"
+                  class="nr-handled-x"
+                  (click)="removeHandled(name)"
+                  [title]="i18n.t('nameReplace.handledRemoveTitle')"
+                  aria-label="{{ i18n.t('nameReplace.handledRemove') }} {{ name }}"
+                >✕</button>
+              </span>
+            }
+          </div>
+        </details>
+      }
+
       <div class="nr-actions">
         <span class="nr-summary">
           {{ i18n.t('nameReplace.summary', { approved: approvedCount(), excluded: excludedCount(), total: rows().length }) }}
         </span>
         <span class="nr-spacer"></span>
+        <button type="button" class="nr-btn" (click)="acceptSavedProposals()"
+                [disabled]="savedProposalCount() === 0"
+                [title]="i18n.t('nameReplace.acceptProposalsTitle')">
+          {{ i18n.t('nameReplace.acceptProposals', { count: savedProposalCount() }) }}
+        </button>
         <button type="button" class="nr-btn" (click)="approveAll()"
                 [disabled]="rows().length === 0"
                 [title]="i18n.t('nameReplace.approveAllTitle')">
