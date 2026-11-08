@@ -612,9 +612,115 @@ describe('Chat', () => {
     expect(a2.modelId).toBe('alpha/model');
   });
 
-  it('adds the matching chapter-plan slice (+ n following) to the lore of each elaboration', async () => {
+  it('adds exactly "plan chapters" descriptions to the lore of each elaboration', async () => {
     await openElaborateStory();
     // A generated chapter-description list with its machine-readable record.
+    const plan = parseStrictChapterPlan(
+      '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.\n4. The Reckoning — The debt is called in.',
+      { firstChapter: 1, chapterCount: 4 },
+    )!;
+    seedApi(api, {
+      nodes: [{
+        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.\n4. The Reckoning — The debt is called in.',
+        attachments: [chapterPlanRecord(plan)],
+        createdAt: '2025-01-03T00:00:00Z',
+      }],
+    });
+    await chatService.loadNodes('chat-1');
+    await chatService.patchChatMeta('chat-1', { lore: 'Ashley is married.' });
+
+    // The plan is detected and the option defaults to ON as soon as the
+    // dialog opens (the service signal itself is untouched before that).
+    expect(component.elaboratePlanCandidates().map(c => c.node.id)).toEqual(['plan1']);
+    expect(component.elaborateUsePlan()).toBe(false);
+    component.openElaborateDialog();
+    expect(component.elaborateUsePlan()).toBe(true);
+    // "3" means THREE descriptions in total (the elaborated chapter + 2 following).
+    component.setPlanChapters(3);
+
+    orch.completion.mockClear();
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // Each elaboration got its own one-shot lore node carrying the slice.
+    const loreNodes = chatService.nodes().filter(n => n.role === 'user' && isChatLoreNode(n));
+    expect(loreNodes).toHaveLength(2);
+    expect(loreNodes[0].content).toContain('Ashley is married.');
+    // Chapter 1 → exactly chapters 1..3 (NOT 4).
+    expect(loreNodes[0].content).toContain('1. The Gate — Mara finds the key.');
+    expect(loreNodes[0].content).toContain('2. The Road — They leave before dawn.');
+    expect(loreNodes[0].content).toContain('3. The Ledger — A creditor is named.');
+    expect(loreNodes[0].content).not.toContain('The Reckoning');
+    // Chapter 2 must NOT contain chapter 1 any more, but reaches 2..4.
+    expect(loreNodes[1].content).toContain('2. The Road — They leave before dawn.');
+    expect(loreNodes[1].content).toContain('3. The Ledger — A creditor is named.');
+    expect(loreNodes[1].content).toContain('4. The Reckoning — The debt is called in.');
+    expect(loreNodes[1].content).not.toContain('The Gate');
+    // …and the story lore itself was never modified.
+    expect(chatService.chats().find(c => c.id === 'chat-1')?.lore).toBe('Ashley is married.');
+  });
+
+  it('defaults the chapter-plan lore option ON and remembers an explicit uncheck', async () => {
+    await openElaborateStory();
+    const plan = parseStrictChapterPlan(
+      '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.',
+      { firstChapter: 1, chapterCount: 2 },
+    )!;
+    seedApi(api, {
+      nodes: [{
+        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.',
+        attachments: [chapterPlanRecord(plan)],
+        createdAt: '2025-01-03T00:00:00Z',
+      }],
+    });
+    await chatService.loadNodes('chat-1');
+
+    // A usable plan exists → the dialog opens with the option ON.
+    component.openElaborateDialog();
+    expect(component.elaborateUsePlan()).toBe(true);
+
+    // An explicit uncheck is persisted and survives the next opening…
+    component.elaborateUsePlan.set(false);
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(1);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+    component.openElaborateDialog();
+    expect(component.elaborateUsePlan()).toBe(false);
+
+    // …while a legacy state without the opt-out flag defaults to ON again.
+    localStorage.setItem('chat-client.elaborate.byChatId', JSON.stringify({
+      'chat-1': { lastChapter: 1, characters: '', hints: '', prefix: '', usePlan: false }
+    }));
+    component.openElaborateDialog();
+    expect(component.elaborateUsePlan()).toBe(true);
+  });
+
+  it('clamps "plan chapters" to 1..50', async () => {
+    await openElaborateStory();
+    component.setPlanChapters(99);
+    expect(component.elaboratePlanChapters()).toBe(50);
+    component.setPlanChapters(-3);
+    expect(component.elaboratePlanChapters()).toBe(1);
+    component.setPlanChapters('abc' as unknown as number);
+    expect(component.elaboratePlanChapters()).toBe(1);
+  });
+
+  it('migrates the legacy "following chapters" value (N following → N+1 total)', async () => {
+    await openElaborateStory();
+    localStorage.setItem('chat-client.elaborate.byChatId', JSON.stringify({
+      'chat-1': { lastChapter: 1, characters: '', hints: '', prefix: '', planFollowing: 3 }
+    }));
+    component.openElaborateDialog();
+    expect(component.elaboratePlanChapters()).toBe(4);
+  });
+
+  it('renders the plan count as a TOTAL-per-send field (min 1, default 2)', async () => {
+    await openElaborateStory();
     const plan = parseStrictChapterPlan(
       '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.',
       { firstChapter: 1, chapterCount: 3 },
@@ -628,42 +734,23 @@ describe('Chat', () => {
       }],
     });
     await chatService.loadNodes('chat-1');
-    await chatService.patchChatMeta('chat-1', { lore: 'Ashley is married.' });
+    component.openElaborateDialog();
+    fixture.detectChanges();
 
-    // The plan is detected and preselected (checkbox stays off until ticked).
-    expect(component.elaboratePlanCandidates().map(c => c.node.id)).toEqual(['plan1']);
-    expect(component.elaborateUsePlan()).toBe(false);
-    component.elaborateUsePlan.set(true);
-    component.setPlanFollowing(1);
+    const input = fixture.nativeElement.querySelector(
+      '.elaborate-plan-fields input[type="number"]',
+    ) as HTMLInputElement;
+    expect(input).not.toBeNull();
+    // 1 is the minimum: the elaborated chapter alone is a valid choice.
+    expect(input.min).toBe('1');
+    // Default: the elaborated chapter + the next one.
+    expect(component.elaboratePlanChapters()).toBe(2);
 
-    orch.completion.mockClear();
-    component.elaborateFirst.set(1);
-    component.elaborateLast.set(2);
-    component.elaborateNames.set('');
-    await component.confirmElaborate();
-
-    // Each elaboration got its own one-shot lore node carrying the slice.
-    const loreNodes = chatService.nodes().filter(n => n.role === 'user' && isChatLoreNode(n));
-    expect(loreNodes).toHaveLength(2);
-    expect(loreNodes[0].content).toContain('Ashley is married.');
-    expect(loreNodes[0].content).toContain('1. The Gate — Mara finds the key.');
-    expect(loreNodes[0].content).toContain('2. The Road — They leave before dawn.');
-    // Chapter 2 must NOT contain chapter 1 any more.
-    expect(loreNodes[1].content).toContain('2. The Road — They leave before dawn.');
-    expect(loreNodes[1].content).toContain('3. The Ledger — A creditor is named.');
-    expect(loreNodes[1].content).not.toContain('The Gate');
-    // …and the story lore itself was never modified.
-    expect(chatService.chats().find(c => c.id === 'chat-1')?.lore).toBe('Ashley is married.');
-  });
-
-  it('clamps "following chapters" to 0..50', async () => {
-    await openElaborateStory();
-    component.setPlanFollowing(99);
-    expect(component.elaboratePlanFollowing()).toBe(50);
-    component.setPlanFollowing(-3);
-    expect(component.elaboratePlanFollowing()).toBe(0);
-    component.setPlanFollowing('abc' as unknown as number);
-    expect(component.elaboratePlanFollowing()).toBe(0);
+    // Typing 3 means THREE descriptions (chapter + 2 following), not four.
+    input.value = '3';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(component.elaboratePlanChapters()).toBe(3);
   });
 
   it('reports elaborate progress as current chapter → destination chapter', async () => {

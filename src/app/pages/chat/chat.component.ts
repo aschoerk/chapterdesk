@@ -728,9 +728,10 @@ export class ChatComponent implements OnInit {
   readonly elaborateModelId = this.elaborateDialog.modelId;
   readonly elaboratePreview = this.elaborateDialog.preview;
   /** Chapter-plan options: "add the descriptions to the lore" + how many
-   *  FOLLOWING chapters travel with each elaboration. */
+   *  chapter descriptions (IN TOTAL, starting at the elaborated chapter) travel
+   *  with each elaboration. */
   readonly elaborateUsePlan = this.elaborateDialog.usePlan;
-  readonly elaboratePlanFollowing = this.elaborateDialog.planFollowing;
+  readonly elaboratePlanChapters = this.elaborateDialog.planChapters;
   readonly elaboratePlanNodeId = this.elaborateDialog.planNodeId;
   readonly elaboratePlanCandidates = this.elaborateDialog.planCandidates;
   readonly elaborateActivePlan = this.elaborateDialog.activePlan;
@@ -1895,11 +1896,14 @@ export class ChatComponent implements OnInit {
     this.elaboratePrefix.set(state.prefix);
     this.elaborateHints.set(state.hints);
     this.elaborateStickLast.set(false);
-    // Chapter-plan options are remembered per chat as well. The checkbox only
-    // stays on when the chat actually has a usable plan.
+    // Chapter-plan options are remembered per chat as well. “Add the chapter
+    // descriptions to the lore” is ON by default whenever the chat actually
+    // has a usable plan — only an explicit uncheck is remembered as opt-out.
     this.elaboratePlanNodeId.set(state.planNodeId ?? null);
-    this.elaboratePlanFollowing.set(state.planFollowing ?? 1);
-    this.elaborateUsePlan.set((state.usePlan ?? false) && !!this.elaborateActivePlan());
+    this.elaboratePlanChapters.set(
+      state.planChapters ?? ChatElaborateDialogService.DEFAULT_PLAN_CHAPTERS,
+    );
+    this.elaborateUsePlan.set(!!this.elaborateActivePlan() && state.usePlanOff !== true);
 
     // initial model = the one that created the visible tree's last answer
     const model = this.resolveElaborateModel(anchor);
@@ -1911,10 +1915,9 @@ export class ChatComponent implements OnInit {
     this.elaborateDialog.close();
   }
 
-  /** Clamp the "following chapters" input (0..50) — templates cannot use Math. */
-  setPlanFollowing(value: number | string): void {
-    const n = Math.floor(Number(value));
-    this.elaboratePlanFollowing.set(Number.isFinite(n) ? Math.min(50, Math.max(0, n)) : 0);
+  /** Clamp the "plan chapters" input (1..50) — templates cannot use Math. */
+  setPlanChapters(value: number | string): void {
+    this.elaborateDialog.setPlanChapters(value);
   }
 
   /** Toggle "stick to last chapter". While checked the First/Last fields are
@@ -1964,11 +1967,12 @@ export class ChatComponent implements OnInit {
     const { model, provider } = resolved;
 
     // Chapter plan: when enabled, every elaboration send carries the matching
-    // entry plus the next N entries as a TEMPORARY lore section. The plan is
-    // the node's stored `chapter-plan.json` record (or a parsed hand-written
-    // list); nothing is written to chat.lore.
+    // entry plus the following ones (N in TOTAL, counting the elaborated
+    // chapter) as a TEMPORARY lore section. The plan is the node's stored
+    // `chapter-plan.json` record (or a parsed hand-written list); nothing is
+    // written to chat.lore.
     const plan = this.elaborateUsePlan() ? this.elaborateActivePlan() : null;
-    const planFollowing = this.elaboratePlanFollowing();
+    const planChapters = this.elaboratePlanChapters();
 
     // Remember what was used, per chat, for the next dialog opening.
     this.elaborateDialog.saveState(chatId, {
@@ -1977,7 +1981,8 @@ export class ChatComponent implements OnInit {
       hints: this.elaborateHints(),
       prefix,
       usePlan: this.elaborateUsePlan(),
-      planFollowing,
+      usePlanOff: !this.elaborateUsePlan(),
+      planChapters,
       planNodeId: this.elaboratePlanNodeId()
     });
 
@@ -2016,7 +2021,7 @@ export class ChatComponent implements OnInit {
           : [this.promptDefaults.render('structure.elaborate', { chapter: `${prefix}${chapter}`, hints }, topicId)];
         // The plan slice is per CHAPTER (not per named view): "this chapter +
         // the next N" — the same temporary lore section for every view.
-        const loreExtra = plan ? chapterPlanSlice(plan, chapter, planFollowing) : '';
+        const loreExtra = plan ? chapterPlanSlice(plan, chapter, planChapters) : '';
         for (const prompt of chapterPrompts) {
           if (this.chatService.shouldStopAfterCurrentStep()) break;
           prompts.push({ prompt, chapter, loreExtra });

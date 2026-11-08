@@ -25,13 +25,15 @@ description separated by ` — `. That keeps the list easy to read *and* reliabl
 to parse. The parsed result is additionally stored next to the node as a hidden
 `chapter-plan.json` record, so later steps never have to re-read the prose.
 
-## Step 2 — enable it in the Elaborate dialog
+## Step 2 — use it in the Elaborate dialog
 
-**Elaborate** → tick **Chapter descriptions → lore**:
+**Elaborate** → **Chapter descriptions → lore** is already on whenever the story
+has a chapter description list (uncheck it to elaborate without the plan; the
+dialog remembers an explicit uncheck per story):
 
 | Field | Meaning |
 |-------|---------|
-| **Following chapters** | How many chapters *after* the elaborated one travel with it (`0` = only that chapter). |
+| **Plan chapters** | How many chapter descriptions travel with each elaboration *in total*, counting the elaborated chapter (`1` = only that chapter). |
 | **Plan from** | Which list to use, when the story has more than one. The newest is the default. |
 
 The dialog shows the detected range (e.g. `7–16, 10`). If the list does not

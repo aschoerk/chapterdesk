@@ -145,9 +145,16 @@ describe('chapter-plan — slice', () => {
     ],
   };
 
-  it('returns the chapter plus the following ones, re-numbered absolutely', () => {
-    expect(chapterPlanSlice(plan, 7, 1)).toBe('7. The Gate — x\n8. The Road — y');
+  it('returns exactly the requested number of chapters, re-numbered absolutely', () => {
+    // The count is the TOTAL per send (1 = the elaborated chapter alone).
+    expect(chapterPlanSlice(plan, 7, 1)).toBe('7. The Gate — x');
+    expect(chapterPlanSlice(plan, 7, 2)).toBe('7. The Gate — x\n8. The Road — y');
+    expect(chapterPlanSlice(plan, 7, 3)).toBe(
+      '7. The Gate — x\n8. The Road — y\n9. The Ledger — z',
+    );
+    // Counts below 1 are clamped to 1 (never an empty slice).
     expect(chapterPlanSlice(plan, 8, 0)).toBe('8. The Road — y');
+    // Never runs past the end of the plan.
     expect(chapterPlanSlice(plan, 7, 5)).toBe(
       '7. The Gate — x\n8. The Road — y\n9. The Ledger — z',
     );

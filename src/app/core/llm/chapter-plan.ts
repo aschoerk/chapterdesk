@@ -439,21 +439,24 @@ export function chapterPlanOf(
 }
 
 /**
- * The lore slice for one chapter: its own entry plus the next `following`
- * entries (clamped to the plan). Returns '' when the plan does not cover the
- * chapter — the caller then simply behaves as if there were no plan (never
- * borrow a neighbouring chapter into canon).
+ * The lore slice for one chapter: its own entry plus enough following entries
+ * to reach `chapters` descriptions IN TOTAL (1 = only the elaborated chapter),
+ * clamped to the plan. Returns '' when the plan does not cover the chapter —
+ * the caller then simply behaves as if there were no plan (never borrow a
+ * neighbouring chapter into canon).
  */
 export function chapterPlanSlice(
   plan: ChapterPlan | null,
   chapter: number,
-  following: number,
+  chapters: number,
 ): string {
   if (!plan || plan.entries.length === 0) return '';
   const from = plan.entries.findIndex((e) => e.chapter === chapter);
   if (from < 0) return '';
-  const extra = Math.max(0, Math.floor(following || 0));
-  const to = Math.min(plan.entries.length, from + 1 + extra);
+  // TOTAL descriptions per send, so the number the user types is exactly the
+  // number of chapters that end up in the lore ("1" = the chapter alone).
+  const wanted = Math.max(1, Math.floor(chapters || 0));
+  const to = Math.min(plan.entries.length, from + wanted);
   return plan.entries
     .slice(from, to)
     .map((e) => `${e.chapter}. ${e.text}`)

@@ -434,8 +434,9 @@
                 </label>
 
                 <!-- Chapter descriptions → temporary lore.
-                     Sends the matching description (+ the following chapters)
-                     with each elaboration; nothing is written to the lore. -->
+                     Sends the matching description (+ following ones up to the
+                     chosen count) with each elaboration; nothing is written to
+                     the lore. -->
                 <div class="elaborate-plan">
                   <label class="elaborate-field elaborate-stick"
                          [title]="i18n.t('chat.elaboratePlanTitle')">
@@ -449,13 +450,13 @@
                   @if (elaboratePlanCandidates().length === 0) {
                     <p class="elaborate-plan-missing">{{ i18n.t('chat.elaboratePlanMissing') }}</p>
                   } @else if (elaborateUsePlan()) {
-                    <div class="elaborate-row">
+                    <div class="elaborate-plan-fields">
                       <label class="elaborate-field compact">
-                        <span>{{ i18n.t('chat.elaboratePlanFollowing') }}</span>
-                        <input type="number" min="0" max="50"
-                               [ngModel]="elaboratePlanFollowing()"
-                               (ngModelChange)="setPlanFollowing($event)"
-                               [title]="i18n.t('chat.elaboratePlanFollowingTitle')" />
+                        <span>{{ i18n.t('chat.elaboratePlanChapters') }}</span>
+                        <input type="number" min="1" max="50"
+                               [ngModel]="elaboratePlanChapters()"
+                               (ngModelChange)="setPlanChapters($event)"
+                               [title]="i18n.t('chat.elaboratePlanChaptersTitle')" />
                       </label>
                       @if (elaboratePlanCandidates().length > 1) {
                         <label class="elaborate-field">

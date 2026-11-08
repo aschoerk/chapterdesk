@@ -200,10 +200,10 @@ export const DE: typeof EN = {
     elaborateModelTitle: 'Modell für die Ausarbeitungen (anfangs das der letzten Antwort)',
     elaboratePlan: 'Kapitelbeschreibungen → Lore',
     elaboratePlanTitle:
-      'Mit jeder Ausarbeitung die passende Kapitelbeschreibung plus die folgenden Kapitel als vorübergehenden Lore-Abschnitt senden. Die Story-Lore wird dauerhaft nicht verändert.',
-    elaboratePlanFollowing: 'Folgende Kapitel',
-    elaboratePlanFollowingTitle:
-      'Wie viele Kapitel NACH dem ausgearbeiteten mitgeschickt werden (0 = nur dieses Kapitel)',
+      'Mit jeder Ausarbeitung die passende Kapitelbeschreibung plus die folgenden (bis zur gewählten Anzahl) als vorübergehenden Lore-Abschnitt senden. Die Story-Lore wird dauerhaft nicht verändert.',
+    elaboratePlanChapters: 'Plan-Kapitel',
+    elaboratePlanChaptersTitle:
+      'Wie viele Kapitelbeschreibungen mit jeder Ausarbeitung INSGESAMT mitgeschickt werden, beginnend beim ausgearbeiteten Kapitel (1 = nur dieses Kapitel)',
     elaboratePlanSource: 'Liste aus',
     elaboratePlanSourceTitle:
       'Welche Kapitelbeschreibungsliste verwendet wird (neueste zuerst)',

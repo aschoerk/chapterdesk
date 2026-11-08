@@ -197,10 +197,10 @@ export const EN = {
       'Model used for the elaborations (initially the one of the most recent answer)',
     elaboratePlan: 'Chapter descriptions → lore',
     elaboratePlanTitle:
-      'Send the matching chapter description plus the following chapters as a temporary lore section with every elaboration. Nothing is added to the story lore permanently.',
-    elaboratePlanFollowing: 'Following chapters',
-    elaboratePlanFollowingTitle:
-      'How many chapters AFTER the elaborated one travel with it (0 = only that chapter)',
+      'Send the matching chapter description plus the following ones (up to the chosen count) as a temporary lore section with every elaboration. Nothing is added to the story lore permanently.',
+    elaboratePlanChapters: 'Plan chapters',
+    elaboratePlanChaptersTitle:
+      'How many chapter descriptions travel with each elaboration IN TOTAL, starting at the elaborated chapter (1 = only that chapter)',
     elaboratePlanSource: 'Plan from',
     elaboratePlanSourceTitle:
       'Which chapter description list to use (newest first)',

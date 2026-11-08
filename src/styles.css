@@ -93,6 +93,10 @@ html[data-theme="dark"] {
   --bg-page: #0f1115;
   --panel: #1b1e25;
   --bg-answer: #1a2330;
+  /* Soft surface for boxes nested INSIDE a panel (dialogs' sub-sections, form
+     wells, list rows). Components read it as `var(--panel-soft, <light>Fallback)`,
+     so without a dark value they painted a near-white box with light text. */
+  --panel-soft: #23262e;
 }
 
 html[data-theme="dark"] .modal,

@@ -26,7 +26,23 @@ export interface ElaborateState {
   prefix: string;
   /** “Add the chapter descriptions to the lore” for this chat. */
   usePlan?: boolean;
-  /** How many FOLLOWING chapters of the plan travel with each elaboration. */
+  /**
+   * True when the user EXPLICITLY unchecked the chapter-plan option. The
+   * dialog defaults it to ON whenever the chat has a usable plan, so only a
+   * deliberate opt-out must be remembered (an older stored `usePlan: false`
+   * was the silent default and keeps the new default-on behaviour).
+   */
+  usePlanOff?: boolean;
+  /**
+   * How many chapter descriptions travel with each elaboration IN TOTAL,
+   * starting at the elaborated chapter (1 = only that chapter).
+   */
+  planChapters?: number;
+  /**
+   * @deprecated Legacy pre-2026-11 field: the number of FOLLOWING chapters
+   * (total = planFollowing + 1). Only read to migrate old stored state; never
+   * written any more.
+   */
   planFollowing?: number;
   /** Node id of the chosen plan (null = the newest one). */
   planNodeId?: string | null;
@@ -45,6 +61,9 @@ export interface ElaborateState {
 export class ChatElaborateDialogService {
   /** Per-chat Elaborate continuation state (localStorage). */
   private static readonly LS_ELABORATE = 'chat-client.elaborate.byChatId';
+  /** Default for `planChapters`: the elaborated chapter + the next one (this
+   *  equals the old default of "1 following chapter"). */
+  static readonly DEFAULT_PLAN_CHAPTERS = 2;
 
   private readonly chatService = inject(ChatService);
   private readonly projectService = inject(ProjectService);
@@ -65,13 +84,17 @@ export class ChatElaborateDialogService {
 
   /**
    * “Add the chapter descriptions to the lore”: while checked, every
-   * elaboration send carries the matching chapter-plan entry PLUS the next
-   * `planFollowing` entries as a TEMPORARY lore section (nothing is written to
-   * `chat.lore`).
+   * elaboration send carries the matching chapter-plan entry PLUS enough
+   * following entries to reach `planChapters` descriptions as a TEMPORARY lore
+   * section (nothing is written to `chat.lore`).
    */
   readonly usePlan = signal(false);
-  /** Number of FOLLOWING chapters of the plan that travel with each send. */
-  readonly planFollowing = signal(1);
+  /**
+   * TOTAL number of chapter descriptions per send, starting at the elaborated
+   * chapter (1 = only that chapter). The dialog field shows exactly this number
+   * — what the user types is the number of chapters added to the lore.
+   */
+  readonly planChapters = signal(ChatElaborateDialogService.DEFAULT_PLAN_CHAPTERS);
   /** Explicitly chosen plan node (null = newest plan found in the chat). */
   readonly planNodeId = signal<string | null>(null);
 
@@ -189,10 +212,8 @@ export class ChatElaborateDialogService {
           hints: typeof entry.hints === 'string' ? entry.hints : '',
           prefix: typeof entry.prefix === 'string' ? entry.prefix : '',
           usePlan: entry.usePlan === true,
-          planFollowing:
-            typeof entry.planFollowing === 'number' && Number.isFinite(entry.planFollowing)
-              ? Math.max(0, Math.floor(entry.planFollowing))
-              : 1,
+          usePlanOff: entry.usePlanOff === true,
+          planChapters: this.readPlanChapters(entry),
           planNodeId: typeof entry.planNodeId === 'string' ? entry.planNodeId : null,
         };
       }
@@ -204,10 +225,32 @@ export class ChatElaborateDialogService {
       characters: '',
       hints: '',
       prefix: '',
-      usePlan: false,
-      planFollowing: 1,
+      usePlan: true,
+      usePlanOff: false,
+      planChapters: ChatElaborateDialogService.DEFAULT_PLAN_CHAPTERS,
       planNodeId: null,
     };
+  }
+
+  /**
+   * TOTAL plan chapters per send from a stored entry: the current field, else
+   * the legacy "following" count + 1 (0/1 following = 1/2 total), else the
+   * default. Clamped to a sane 1..50.
+   */
+  private readPlanChapters(entry: Record<string, unknown>): number {
+    const total =
+      typeof entry['planChapters'] === 'number' && Number.isFinite(entry['planChapters'])
+        ? entry['planChapters']
+        : typeof entry['planFollowing'] === 'number' && Number.isFinite(entry['planFollowing'])
+          ? (entry['planFollowing'] as number) + 1
+          : ChatElaborateDialogService.DEFAULT_PLAN_CHAPTERS;
+    return Math.min(50, Math.max(1, Math.floor(total as number)));
+  }
+
+  /** Clamp the "plan chapters" input (1..50) — templates cannot use Math. */
+  setPlanChapters(value: number | string): void {
+    const n = Math.floor(Number(value));
+    this.planChapters.set(Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 1);
   }
 
   saveState(chatId: string, state: ElaborateState): void {

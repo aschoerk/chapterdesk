@@ -752,7 +752,7 @@ body.nav-resizing * {
 }
 
 .elaborate-dialog {
-  width: min(460px, 100%);
+  width: min(520px, 100%);
   max-width: 90vw;
   padding: 1.25rem 1.5rem;
   border-radius: 12px;
@@ -791,7 +791,9 @@ body.nav-resizing * {
   margin: 0 0 1rem;
   font-size: 0.85rem;
   line-height: 1.45;
-  color: var(--muted, #666);
+  /* `--muted` is not a real token (only `--text-muted` is themed) — the
+     fallback left the hint unreadable on the dark panel. */
+  color: var(--text-muted, #666);
 }
 
 .elaborate-field {
@@ -832,8 +834,9 @@ body.nav-resizing * {
   accent-color: var(--accent, #4f8cff);
 }
 
-/* The label text spans the full row, not the fixed 8.5rem label column. */
-.elaborate-stick span {
+/* The label text spans the full row, not the fixed 8.5rem label column.
+   (Two classes so it beats the later `.elaborate-field span` rule.) */
+.elaborate-field.elaborate-stick span {
   flex: 1 1 auto;
   width: auto;
   white-space: normal;
@@ -846,6 +849,34 @@ body.nav-resizing * {
   border: 1px solid var(--border, #e5e5e5);
   border-radius: 8px;
   background: var(--panel-soft, #fafafa);
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.elaborate-plan > .elaborate-stick {
+  margin-bottom: 0.25rem;
+}
+
+/* The plan options stack vertically: the source list gets a full-width row of
+   its own, so its (potentially long) option text can never widen the row past
+   the dialog edge and squeeze/overlap the neighbouring number field. */
+.elaborate-plan-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  min-width: 0;
+}
+
+.elaborate-plan-fields .elaborate-field {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+/* Keep the “plan chapters” number field readable but not full-width. */
+.elaborate-plan-fields .elaborate-field.compact input {
+  flex: 0 1 8rem;
+  min-width: 5rem;
 }
 
 .elaborate-plan-missing,
@@ -863,7 +894,9 @@ body.nav-resizing * {
 .elaborate-plan-warn {
   display: block;
   margin-top: 0.2rem;
-  color: var(--danger, #c0392b);
+  /* themed token: `--danger` was never defined, so the light fallback stayed
+     dark red on the dark panel; `--color-danger` follows the theme. */
+  color: var(--color-danger, #c0392b);
 }
 
 .elaborate-row .elaborate-field {
@@ -874,13 +907,16 @@ body.nav-resizing * {
 .elaborate-field span {
   flex: 0 0 auto;
   /* Fixed label column so every input field starts at the same x position:
-     First / Last / Characters / Model all left-align. */
+     First / Last / Characters / Model all left-align. A label longer than the
+     column WRAPS onto a second line instead of overflowing over the input. */
   width: 8.5rem;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.25;
 }
 
 .elaborate-field input,
-.elaborate-field select.elaborate-model-select {
+.elaborate-field select {
   flex: 1 1 auto;
   min-width: 0; /* let long content shrink instead of widening the field */
   width: 100%;
@@ -931,7 +967,8 @@ body.nav-resizing * {
   border: 1px dashed var(--border, #ddd);
   border-radius: 6px;
   padding: 0.5rem 0.6rem;
-  background: var(--panel, #fafafa);
+  /* soft surface: light #fafafa (as before), dark a shade above the panel */
+  background: var(--panel-soft, #fafafa);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -941,7 +978,7 @@ body.nav-resizing * {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--muted, #888);
+  color: var(--text-muted, #888);
   margin-bottom: 0.3rem;
 }
 
@@ -960,7 +997,7 @@ body.nav-resizing * {
 }
 
 .elaborate-preview-count {
-  color: var(--muted, #888);
+  color: var(--text-muted, #888);
   font-style: italic;
 }
 
