@@ -294,7 +294,7 @@ over the tree) → **top toolbar** (chat-wide actions).
 | Chapter (assistant) | **“Create image”** | `image-send` (needs marked text first) |
 | Direction (user) | **“Chapter descriptions”** | `send-chapter-descriptions` dialog |
 | Direction (user, answered) | **“Prepend”** | `send-prepend` dialog |
-| Direction (user, empty closed leaf) | **“Continue”** / **“Switch characters”** (with a **− n +** repeat counter) | auto directions |
+| Direction (user, empty closed leaf) | **“Continue”** / **“Multiple Characters”** (with a **− n +** repeat counter) | auto directions |
 | All | **“Edit”** (pencil) | opens the in-place editor |
 
 ### Editor (replaces the card content while editing)
@@ -304,7 +304,7 @@ over the tree) → **top toolbar** (chat-wide actions).
   (`rewrite-selection`), **“Show Preview” / “Hide Preview”**.
 - Buttons below the box:
   - unsent leaf: **“Send”** (`append`), **“Chapter descriptions”**, then (when empty)
-    repeat counter **− n +**, **“Continue”**, **“Switch characters”**;
+    repeat counter **− n +**, **“Continue”**, **“Multiple Characters”**;
   - existing section: **“OK”** (save a version — no LLM), **“Continuation”**
     (`send-branch`), **“Insert”** (`send-insert`).
 - Hint in the box: `Ctrl+Enter` sends/saves, `Ctrl+S` saves, `Esc` cancels.
@@ -337,7 +337,7 @@ generation through a shared **presenter queue** (`RevealQueue`):
 
 ### Right-click context menu (on any node card)
 
-**“Copy” · “Edit” · “Rewrite selection…” · “Prior versions” · “Continue” · “Switch characters”
+**“Copy” · “Edit” · “Rewrite selection…” · “Prior versions” · “Continue” · “Multiple Characters”
 · “Add heading” · “Regenerate” · “Rewrite in place” · “Illustrate” · “Create image of
 selection…” · “Prepend director” · “Chapter descriptions…” · “Exclude from model context” ·
 “Remove section” · “Delete section & following”.** Each is the same action as the footer/

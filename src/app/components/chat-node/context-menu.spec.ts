@@ -17,7 +17,7 @@ const LABELS: Record<string, string> = {
   'node.ctxIllustrate': 'Illustrate',
   'node.ctxCreateImage': 'Create image of selection…',
   'node.ctxContinue': 'Continue',
-  'node.ctxSwitchCharacters': 'Switch characters',
+  'node.ctxSwitchCharacters': 'Multiple Characters',
   'node.ctxChapterDescriptions': 'Chapter descriptions',
   'node.ctxPrepend': 'Prepend director',
   'node.ctxSetReadPosition': 'Set next read position here',
@@ -139,7 +139,7 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     }
   });
 
-  it('gives an unsent question Continue + Switch characters and no Prepend', () => {
+  it('gives an unsent question Continue + Multiple Characters and no Prepend', () => {
     const items = buildCtxMenuItems(ctx({
       node: makeNode({ role: 'user', content: '' }),
       showClosedContinue: true,
@@ -147,11 +147,11 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     }));
     const labels_ = labels(items);
     expect(labels_).toContain('Continue');
-    expect(labels_).toContain('Switch characters');
+    expect(labels_).toContain('Multiple Characters');
     expect(labels_).not.toContain('Prepend director');
   });
 
-  it('gives a sent question Prepend and no Continue / Switch characters', () => {
+  it('gives a sent question Prepend and no Continue / Multiple Characters', () => {
     const items = buildCtxMenuItems(ctx({
       node: makeNode({ role: 'user', content: 'Sent' }),
       showClosedContinue: false,
@@ -160,7 +160,7 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     const labels_ = labels(items);
     expect(labels_).toContain('Prepend director');
     expect(labels_).not.toContain('Continue');
-    expect(labels_).not.toContain('Switch characters');
+    expect(labels_).not.toContain('Multiple Characters');
   });
 
   it('marks an excluded user node with the ✓ prefix', () => {

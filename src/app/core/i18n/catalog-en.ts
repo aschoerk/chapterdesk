@@ -576,7 +576,7 @@ export const EN = {
     ctxCompareVersions: 'Compare versions…',
     ctxCompareSiblings: 'Compare siblings…',
     ctxContinue: 'Continue',
-    ctxSwitchCharacters: 'Switch characters',
+    ctxSwitchCharacters: 'Multiple Characters',
     ctxHeading: 'Add heading',
     ctxRegenerate: 'Regenerate',
     ctxRegenerateInPlace: 'Rewrite in place',

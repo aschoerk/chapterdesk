@@ -169,8 +169,8 @@ Change the story as little as possible: keep established facts, and let every ch
   {
     id: 'structure.switchCharacters',
     category: 'structure',
-    label: 'Switch characters',
-    description: 'Fills an empty draft with the "Switch characters" direction and sends it to the default model. The default text is a plain direction; edit this template to change what the button sends.',
+    label: 'Multiple Characters',
+    description: 'Fills an empty draft with the "switch characters" direction and sends it to the default model. The default text is a plain direction; edit this template to change what the button sends.',
     default: 'switch characters'
   },
 

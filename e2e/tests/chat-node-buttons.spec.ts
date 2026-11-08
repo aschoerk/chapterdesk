@@ -9,9 +9,9 @@
 //                          Create image, Edit; direction: Copy, Rewrite,
 //                          Chapter descriptions, Prepend (answered only),
 //                          Edit; empty leaf: Copy, Chapter descriptions,
-//                          Continue, Switch characters, repeat counter, Edit.
+//                          Continue, Multiple Characters, repeat counter, Edit.
 //   EDITING (`.editor-actions`): draft: Send, Chapter descriptions, Continue,
-//                          Switch characters, repeat counter, Cancel;
+//                          Multiple Characters, repeat counter, Cancel;
 //                          answered direction: OK, Continuation, Insert,
 //                          Cancel; chapter: OK, Cancel.
 //
@@ -60,7 +60,7 @@ const L = {
   send: 'Send',
   chapterDescriptions: 'Chapter descriptions',
   continue: 'Continue',
-  switchCharacters: 'Switch characters',
+  switchCharacters: 'Multiple Characters',
   ok: 'OK',
   branch: 'Continuation',
   insert: 'Insert',
@@ -131,7 +131,7 @@ test.describe('chat-node buttons (header + footer + editor)', () => {
     await freshQA(page);
 
     // Bottom action row on the answered direction: no LLM buttons, no
-    // Continue / Switch characters (it is not the terminal leaf), Prepend
+    // Continue / Multiple Characters (it is not the terminal leaf), Prepend
     // appears because the question is answered (has children).
     await expectFooterSet(nodeFor(page, QA), [
       L.copy,
@@ -230,7 +230,7 @@ test.describe('chat-node buttons (header + footer + editor)', () => {
     await expect(footerBtn(emptyChapter, L.illustrate)).toBeDisabled();
   });
 
-  test('04 empty leaf direction (composer, closed): Continue / Switch characters, no Prepend', async ({
+  test('04 empty leaf direction (composer, closed): Continue / Multiple Characters, no Prepend', async ({
     page,
   }) => {
     await freshQA(page);

@@ -6,7 +6,7 @@
 //   - assistant: Add heading, Regenerate, Rewrite in place, Illustrate,
 //     Create image of selection…,
 //   - user: Exclude from model context, Chapter descriptions…, Prepend director
-//     (and Continue / Switch characters on the terminal empty draft leaf),
+//     (and Continue / Multiple Characters on the terminal empty draft leaf),
 //   - danger tail: Remove section, Delete section & following.
 //
 // Destructive actions (remove/delete) are exercised on freshly created chats
@@ -69,7 +69,7 @@ test.describe('node right-click context menu', () => {
     }
   });
 
-  test('04 the terminal draft leaf offers continue / switch characters (and no prepend)', async ({
+  test('04 the terminal draft leaf offers continue / multiple characters (and no prepend)', async ({
     page,
   }) => {
     await openApp(page);
@@ -82,7 +82,7 @@ test.describe('node right-click context menu', () => {
     await draft.click({ button: 'right' });
     await expect(page.locator('.context-menu')).toBeVisible();
     await expect(ctxMenuItem(page, 'Continue')).toBeVisible();
-    await expect(ctxMenuItem(page, 'Switch characters')).toBeVisible();
+    await expect(ctxMenuItem(page, 'Multiple Characters')).toBeVisible();
     await expect(ctxMenuItem(page, 'Exclude from model context')).toBeVisible();
     // The terminal pending direction never gets Prepend.
     await expect(ctxMenuItem(page, 'Prepend director')).toHaveCount(0);

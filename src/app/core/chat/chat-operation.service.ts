@@ -16,7 +16,7 @@ import { Injectable, signal } from '@angular/core';
  * `ChatService` exposes the SAME signal instances and delegates the methods,
  * so all existing consumers keep working unchanged.
  */
-/** What a multi-step progress counts: batched Continue / Switch characters
+/** What a multi-step progress counts: batched Continue / Multiple Characters
  *  repetitions, or the chapters of an elaborate chain. */
 export type OperationProgressUnit = 'repetition' | 'chapter';
 
@@ -56,7 +56,7 @@ export class ChatOperationService {
    *  button in the chat toolbar, mirroring the elaborate flow. */
   readonly isIllustrating = signal(false);
 
-  /** Progress of a batched Continue / Switch characters run (unit
+  /** Progress of a batched Continue / Multiple Characters run (unit
    *  `repetition`) or of an elaborate chapter chain (unit `chapter`), or null
    *  when no such run is active. Rendered in the chat toolbar: the current
    *  repetition / chapter number plus the destination. */

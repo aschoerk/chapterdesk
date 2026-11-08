@@ -1750,7 +1750,7 @@ describe('ChatNodeComponent', () => {
       expect(component.showClosedContinue()).toBe(true);
     });
 
-    it('shows Continue, Switch characters and Chapter descriptions in the bottom action row for a closed empty question', async () => {
+    it('shows Continue, Multiple Characters and Chapter descriptions in the bottom action row for a closed empty question', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
@@ -1759,17 +1759,17 @@ describe('ChatNodeComponent', () => {
         fixture.nativeElement.querySelectorAll('.node-actions .btn-icon')
       ).map((b) => (b as HTMLElement).textContent?.trim());
       expect(labels).toContain('Continue');
-      expect(labels).toContain('Switch characters');
+      expect(labels).toContain('Multiple Characters');
       expect(labels).toContain('Chapter descriptions');
     });
 
-    it('shows Continue, Switch characters and Chapter descriptions in the editor bottom bar for an empty draft', async () => {
+    it('shows Continue, Multiple Characters and Chapter descriptions in the editor bottom bar for an empty draft', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
       await startEditing(q1);
       expect(findButton('Continue')).not.toBeNull();
-      expect(findButton('Switch characters')).not.toBeNull();
+      expect(findButton('Multiple Characters')).not.toBeNull();
       expect(findButton('Chapter descriptions')).not.toBeNull();
     });
 
@@ -4994,14 +4994,14 @@ describe('ChatNodeComponent', () => {
       expect(items.find((i) => i.label === 'Regenerate')?.disabled).toBe(false);
     });
 
-    it('gives an unsent question the Continue and Switch characters items and no Prepend', async () => {
+    it('gives an unsent question the Continue and Multiple Characters items and no Prepend', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
 
       const labels = component.ctxMenuItems().filter((i) => !i.divider).map((i) => i.label);
       expect(labels).toContain('Continue');
-      expect(labels).toContain('Switch characters');
+      expect(labels).toContain('Multiple Characters');
       expect(labels).not.toContain('Prepend director');
     });
 

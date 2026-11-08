@@ -141,7 +141,7 @@ export class ChatNodeComponent implements OnDestroy {
   readonly contentDraft = signal('');
   readonly branchModelId = signal('');
   readonly isLoading = signal(false);
-  /** How many Continue / Switch characters sends to chain in one batch. */
+  /** How many Continue / Multiple Characters sends to chain in one batch. */
   readonly repeatCount = signal(1);
   private static readonly REPEAT_MAX = 20;
   readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'switchCharacters' | 'structure' | 'prepend' | 'image' | 'chapterDescriptions' | null>(null);
@@ -723,7 +723,7 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
-   * Empty leaf question: fill the draft with the "Switch characters"
+   * Empty leaf question: fill the draft with the "switch characters"
    * template, pin the default LLM, and send. Same path as Continue.
    */
   async switchCharactersDraft(): Promise<void> {
@@ -751,7 +751,7 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
-   * Chain `count` Continue / Switch characters sends across successive empty
+   * Chain `count` Continue / Multiple Characters sends across successive empty
    * leaf questions. Each send fills the current draft leaf, streams the
    * answer, and the chat-page draft housekeeping appends the next empty leaf,
    * so the loop simply targets the newest leaf every iteration. One Stop
@@ -922,7 +922,7 @@ export class ChatNodeComponent implements OnDestroy {
       this.chatService.setActiveChild(leaf.parentId ?? null, saved.id);
     }
 
-    // Auto-generated meta directions (Continue, Switch characters) are sent
+    // Auto-generated meta directions (Continue, Multiple Characters) are sent
     // while they are the current question, but excluded from history after.
     await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
 
@@ -1606,7 +1606,7 @@ export class ChatNodeComponent implements OnDestroy {
       );
       this.activate.emit(saved.id);
 
-      // Auto-generated meta directions (Continue, Switch characters) and
+      // Auto-generated meta directions (Continue, Multiple Characters) and
       // directions in a chat with the "auto-exclude directions" mode are
       // sent while they are the current question, but excluded from history
       // afterwards (the stream builder skips excluded history nodes and

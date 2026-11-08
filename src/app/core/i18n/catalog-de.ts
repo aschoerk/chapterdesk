@@ -581,7 +581,7 @@ export const DE: typeof EN = {
     ctxCompareVersions: 'Versionen vergleichen…',
     ctxCompareSiblings: 'Geschwister vergleichen…',
     ctxContinue: 'Weiter',
-    ctxSwitchCharacters: 'Charakter wechseln',
+    ctxSwitchCharacters: 'Mehrere Charaktere',
     ctxHeading: 'Überschrift hinzufügen',
     ctxRegenerate: 'Neu erzeugen',
     ctxRegenerateInPlace: 'Vor Ort neu schreiben',
