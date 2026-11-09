@@ -1129,6 +1129,7 @@ export const openApiSpec: OpenApiDocument = {
           resolution: { type: 'string' },
           sampler: { type: 'string' },
           scheduler: { type: 'string' },
+          upscaler: { type: 'string' },
           cfg: { type: 'number' },
           steps: { type: 'number' },
           imageCount: { type: 'number' },

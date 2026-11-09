@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { ProviderConfig } from '../../../models/chat-config';
+import { ProviderConfig, SdCatalog } from '../../../models/chat-config';
 import { getServerConfig } from '../../util/server-config';
 import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../util/provider-url';
 
@@ -128,21 +128,11 @@ export class ProviderCatalogService {
     }
   }
 
-  /**
-   * Fetch every model a provider advertises, through the backend proxy.
-   *
-   * OpenRouter keeps image-generation models (e.g. `x-ai/grok-imagine-image-2.0`)
-   * in a separate catalog served at `GET {baseUrl}/images/models`; they are NOT
-   * included in `GET {baseUrl}/models` (that list only contains chat-capable
-   * models). Without this merge those image-only models would never be fetched.
-   *
-   * Envelopes: OpenRouter/OpenAI/Anthropic return `{ data: [...] }`; Google's
-   * Gemini returns `{ models: [...] }`.
-   */
-  async loadProviderCatalog(provider: ProviderConfig): Promise<any[]> {
+  /** GET a provider catalog path through the proxy and unwrap the common
+   *  envelopes. A 404 means "this provider has no such catalog" — skip it. */
+  private catalogLoader(provider: ProviderConfig): (path: string) => Promise<any[]> {
     const headers = this.providerHeaders(provider);
-
-    const load = async (path: string): Promise<any[]> => {
+    return async (path: string): Promise<any[]> => {
       try {
         const response: any = await firstValueFrom(
           this.http.get(`${this.PROXY_BASE}${path}`, { headers })
@@ -155,6 +145,59 @@ export class ProviderCatalogService {
         throw err;
       }
     };
+  }
+
+  /**
+   * Load the option catalogs an SD server advertises, so the settings dialog
+   * can offer the server's real values instead of free-text guesses. Returns
+   * empty arrays for catalogs the server does not expose.
+   */
+  async loadSdCatalog(provider: ProviderConfig): Promise<SdCatalog> {
+    const load = this.catalogLoader(provider);
+    const [models, samplers, schedulers, loras, upscalers] = await Promise.all([
+      load('/sdapi/v1/sd-models'),
+      load('/sdapi/v1/samplers'),
+      load('/sdapi/v1/schedulers'),
+      load('/sdapi/v1/loras'),
+      load('/sdapi/v1/upscalers')
+    ]);
+    return {
+      models: models.map(m => ({
+        value: m?.model_name ?? m?.title ?? m?.hash ?? '',
+        label: m?.title ?? m?.model_name ?? m?.hash ?? ''
+      })).filter(m => !!m.value),
+      samplers: samplers.map(s => ({
+        value: s?.name ?? s?.label ?? '',
+        label: s?.label ?? s?.name ?? ''
+      })).filter(s => !!s.value),
+      schedulers: schedulers.map(s => ({
+        value: s?.name ?? s?.label ?? '',
+        label: s?.label ?? s?.name ?? ''
+      })).filter(s => !!s.value),
+      loras: loras.map(l => ({
+        value: l?.name ?? l?.alias ?? '',
+        label: l?.name ?? l?.alias ?? ''
+      })).filter(l => !!l.value),
+      upscalers: upscalers.map(u => ({
+        value: u?.name ?? '',
+        label: u?.name ?? ''
+      })).filter(u => !!u.value)
+    };
+  }
+
+  /**
+   * Fetch every model a provider advertises, through the backend proxy.
+   *
+   * OpenRouter keeps image-generation models (e.g. `x-ai/grok-imagine-image-2.0`)
+   * in a separate catalog served at `GET {baseUrl}/images/models`; they are NOT
+   * included in `GET {baseUrl}/models` (that list only contains chat-capable
+   * models). Without this merge those image-only models would never be fetched.
+   *
+   * Envelopes: OpenRouter/OpenAI/Anthropic return `{ data: [...] }`; Google's
+   * Gemini returns `{ models: [...] }`.
+   */
+  async loadProviderCatalog(provider: ProviderConfig): Promise<any[]> {
+    const load = this.catalogLoader(provider);
 
     // Stable Diffusion servers expose their checkpoints at
     // `/sdapi/v1/sd-models` (A1111-compatible API), NOT at `/models`.

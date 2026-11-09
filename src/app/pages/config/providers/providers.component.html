@@ -92,31 +92,103 @@
 
         @if (newProvider.type === 'sd-server') {
           <div class="sd-settings">
-            <h4>{{ i18n.t('config.providers.sdTitle') }}</h4>
+            <div class="sd-head">
+              <h4>{{ i18n.t('config.providers.sdTitle') }}</h4>
+              <button class="btn small" type="button"
+                      [disabled]="sdCatalogLoading()"
+                      (click)="loadSdCatalog()">
+                {{ sdCatalogLoading() ? i18n.t('config.providers.sdLoading') : i18n.t('config.providers.sdLoadOptions') }}
+              </button>
+            </div>
+            <small class="sd-hint">{{ i18n.t('config.providers.sdOptionsHint') }}</small>
+            @if (sdCatalogError()) {
+              <div class="test-result fail">{{ sdCatalogError() }}</div>
+            }
+
             <label>
               {{ i18n.t('config.providers.sdModel') }}
-              <input [(ngModel)]="newProvider.sdServer!.model" />
+              <input list="sd-models" [(ngModel)]="newProvider.sdServer!.model" />
+              <datalist id="sd-models">
+                @for (m of sdCatalog()?.models ?? []; track m.value) {
+                  <option [value]="m.value">{{ m.label }}</option>
+                }
+              </datalist>
             </label>
+
             <label>
               {{ i18n.t('config.providers.sdLora') }}
-              <input [(ngModel)]="newProvider.sdServer!.lora" />
+              <input list="sd-loras" [(ngModel)]="newProvider.sdServer!.lora" />
+              <datalist id="sd-loras">
+                @for (l of sdCatalog()?.loras ?? []; track l.value) {
+                  <option [value]="l.value">{{ l.label }}</option>
+                }
+              </datalist>
             </label>
+
             <label>
               {{ i18n.t('config.providers.sdAspectRatio') }}
-              <input [(ngModel)]="newProvider.sdServer!.aspectRatio" />
+              <input list="sd-aspect-ratios" [(ngModel)]="newProvider.sdServer!.aspectRatio" />
+              <datalist id="sd-aspect-ratios">
+                <option value="1:1"></option>
+                <option value="16:9"></option>
+                <option value="9:16"></option>
+                <option value="4:3"></option>
+                <option value="3:4"></option>
+                <option value="3:2"></option>
+                <option value="2:3"></option>
+              </datalist>
             </label>
+
             <label>
               {{ i18n.t('config.providers.sdResolution') }}
-              <input [(ngModel)]="newProvider.sdServer!.resolution" />
+              <input list="sd-resolutions" [(ngModel)]="newProvider.sdServer!.resolution" />
+              <datalist id="sd-resolutions">
+                <option value="512 × 512"></option>
+                <option value="1024 × 1024"></option>
+                <option value="1344 × 768"></option>
+                <option value="768 × 1344"></option>
+              </datalist>
             </label>
+
             <label>
               {{ i18n.t('config.providers.sdSampler') }}
-              <input [(ngModel)]="newProvider.sdServer!.sampler" />
+              <select [(ngModel)]="newProvider.sdServer!.sampler">
+                @if (newProvider.sdServer!.sampler && !(sdCatalog()?.samplers ?? []).some(s => s.value === newProvider.sdServer!.sampler)) {
+                  <option [value]="newProvider.sdServer!.sampler">{{ newProvider.sdServer!.sampler }} (not listed)</option>
+                }
+                <option value="">(default)</option>
+                @for (s of sdCatalog()?.samplers ?? []; track s.value) {
+                  <option [value]="s.value">{{ s.label }}</option>
+                }
+              </select>
             </label>
+
             <label>
               {{ i18n.t('config.providers.sdScheduler') }}
-              <input [(ngModel)]="newProvider.sdServer!.scheduler" />
+              <select [(ngModel)]="newProvider.sdServer!.scheduler">
+                @if (newProvider.sdServer!.scheduler && !(sdCatalog()?.schedulers ?? []).some(s => s.value === newProvider.sdServer!.scheduler)) {
+                  <option [value]="newProvider.sdServer!.scheduler">{{ newProvider.sdServer!.scheduler }} (not listed)</option>
+                }
+                <option value="">(default)</option>
+                @for (s of sdCatalog()?.schedulers ?? []; track s.value) {
+                  <option [value]="s.value">{{ s.label }}</option>
+                }
+              </select>
             </label>
+
+            <label>
+              {{ i18n.t('config.providers.sdUpscaler') }}
+              <select [(ngModel)]="newProvider.sdServer!.upscaler">
+                @if (newProvider.sdServer!.upscaler && !(sdCatalog()?.upscalers ?? []).some(u => u.value === newProvider.sdServer!.upscaler)) {
+                  <option [value]="newProvider.sdServer!.upscaler">{{ newProvider.sdServer!.upscaler }} (not listed)</option>
+                }
+                <option value="">(none)</option>
+                @for (u of sdCatalog()?.upscalers ?? []; track u.value) {
+                  <option [value]="u.value">{{ u.label }}</option>
+                }
+              </select>
+            </label>
+
             <label>
               {{ i18n.t('config.providers.sdCfg') }}
               <input type="number" [(ngModel)]="newProvider.sdServer!.cfg" />

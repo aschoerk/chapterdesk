@@ -94,6 +94,29 @@ function defaultModalities(model: ModelEntry): string[] {
 }
 
 /**
+ * Derive image width/height for an SD server. An explicit resolution such as
+ * "1024 × 1024" wins; otherwise a common aspect ratio is used.
+ */
+function sdDimensions(sd: SdServerConfig): [number, number] {
+  const res = (sd.resolution ?? '').trim();
+  const m = /^(\d+)\s*[×xX*]\s*(\d+)$/.exec(res);
+  if (m) {
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    if (w > 0 && h > 0) return [w, h];
+  }
+  switch ((sd.aspectRatio ?? '').trim()) {
+    case '16:9': return [1024, 576];
+    case '9:16': return [576, 1024];
+    case '4:3': return [1024, 768];
+    case '3:4': return [768, 1024];
+    case '3:2': return [1024, 683];
+    case '2:3': return [683, 1024];
+    default: return [1024, 1024];
+  }
+}
+
+/**
  * LlmTransport — PURE transport: sends requests to the completion or images
  * endpoint, maintains the log (LlmLogService), and handles EVERY retry that
  * is a transport concern:
@@ -498,11 +521,9 @@ export class LlmTransportService {
    */
   private async sdTxt2Img(req: ImagesRequest): Promise<ImagesResult> {
     const sd = req.provider.sdServer ?? {};
-    const [width, height] = sd.aspectRatio === '1:1' ? [1024, 1024]
-      : sd.aspectRatio === '16:9' ? [1024, 576]
-        : sd.aspectRatio === '9:16' ? [576, 1024]
-          : [512, 512];
+    const [width, height] = sdDimensions(sd);
     const checkpoint = sd.model || req.model.modelId;
+    const count = Math.max(1, sd.imageCount ?? req.n ?? 1);
     const payload: Record<string, unknown> = {
       prompt: req.prompt,
       model: checkpoint,
@@ -512,11 +533,13 @@ export class LlmTransportService {
       height,
       cfg_scale: sd.cfg,
       steps: sd.steps,
-      batch_size: 1,
-      n_iter: sd.imageCount ?? req.n ?? 1,
+      // A1111-compatible: one pass renders `batch_size` images.
+      batch_size: count,
+      n_iter: 1,
       seed: sd.seed,
       sampler_name: sd.sampler,
       scheduler: sd.scheduler,
+      upscaler: sd.upscaler,
       ip_adapter_strength: sd.ipAdapterStrength,
       clip_skip: sd.clipSkip,
       control: sd.control,

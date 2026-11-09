@@ -19,6 +19,8 @@ export interface SdServerConfig {
   sampler?: string;
   /** Scheduler name. */
   scheduler?: string;
+  /** Upscaler name (e.g. 'None', 'Lanczos', 'Nearest'). */
+  upscaler?: string;
   /** Classifier-Free Guidance scale. */
   cfg?: number;
   /** Denoising steps. */
@@ -35,6 +37,15 @@ export interface SdServerConfig {
   control?: number;
   /** Cache model/intermediate results between runs. */
   cache?: boolean;
+}
+
+/** Option lists an SD server advertises, used to populate the settings dialog. */
+export interface SdCatalog {
+  models: { value: string; label: string }[];
+  samplers: { value: string; label: string }[];
+  schedulers: { value: string; label: string }[];
+  loras: { value: string; label: string }[];
+  upscalers: { value: string; label: string }[];
 }
 
 export interface ProviderConfig {

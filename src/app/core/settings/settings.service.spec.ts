@@ -539,4 +539,48 @@ describe('SettingsService.fetchModels', () => {
     req.flush([]);
     await expect(pending).resolves.toEqual({ ok: true, message: 'Connection successful' });
   });
+
+  it('loadSdCatalog returns models, samplers, schedulers, loras and upscalers', async () => {
+    const provider: ProviderConfig = {
+      id: 'sd-cat',
+      name: 'Local SD',
+      type: 'sd-server',
+      baseUrl: 'http://localhost:9101',
+      apiKey: '',
+      enabled: true
+    };
+
+    const pending = settings.loadSdCatalog(provider);
+
+    http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/sd-models')).flush([
+      { title: 'Qwen Image', model_name: 'qwen-image-2.1' }
+    ]);
+    http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/samplers')).flush([
+      { name: 'euler', label: 'Euler' },
+      { name: 'dpm++2m', label: 'DPM++ 2M' }
+    ]);
+    http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/schedulers')).flush([
+      { name: 'karras', label: 'Karras' }
+    ]);
+    http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/loras')).flush([
+      { name: 'detail-tweaker', alias: 'detail' }
+    ]);
+    http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/upscalers')).flush([
+      { name: 'Lanczos' },
+      { name: 'R-ESRGAN 4x+' }
+    ]);
+
+    const catalog = await pending;
+    expect(catalog.models).toEqual([{ value: 'qwen-image-2.1', label: 'Qwen Image' }]);
+    expect(catalog.samplers).toEqual([
+      { value: 'euler', label: 'Euler' },
+      { value: 'dpm++2m', label: 'DPM++ 2M' }
+    ]);
+    expect(catalog.schedulers).toEqual([{ value: 'karras', label: 'Karras' }]);
+    expect(catalog.loras).toEqual([{ value: 'detail-tweaker', label: 'detail-tweaker' }]);
+    expect(catalog.upscalers).toEqual([
+      { value: 'Lanczos', label: 'Lanczos' },
+      { value: 'R-ESRGAN 4x+', label: 'R-ESRGAN 4x+' }
+    ]);
+  });
 });

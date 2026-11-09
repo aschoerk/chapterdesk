@@ -194,6 +194,7 @@ export interface SdServerConfig {
   resolution?: string;
   sampler?: string;
   scheduler?: string;
+  upscaler?: string;
   cfg?: number;
   steps?: number;
   imageCount?: number;

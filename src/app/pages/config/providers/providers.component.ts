@@ -2,7 +2,7 @@ import { Component, inject, signal, computed, HostListener } from '@angular/core
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../../core/settings/settings.service';
-import { ProviderConfig, ModelEntry, ModelArchitecture, SdServerConfig } from '../../../models/chat-config';
+import { ProviderConfig, ModelEntry, ModelArchitecture, SdServerConfig, SdCatalog } from '../../../models/chat-config';
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { ChatParametersService } from '../../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../../components/chat-parameters-editor/chat-parameters-editor.component';
@@ -40,6 +40,10 @@ export class ProvidersComponent {
   readonly fetchingId = signal<string | null>(null);
   readonly testingDraft = signal(false);
   readonly draftTestResult = signal<{ ok: boolean; message: string } | null>(null);
+  /** Server-advertised option lists for the currently-edited SD provider. */
+  readonly sdCatalog = signal<SdCatalog | null>(null);
+  readonly sdCatalogLoading = signal(false);
+  readonly sdCatalogError = signal<string | null>(null);
 
   /** Provider kinds offered in the add/edit dialog. */
   readonly providerTypeOptions: { value: ProviderConfig['type']; labelKey: string }[] = [
@@ -70,6 +74,7 @@ export class ProvidersComponent {
       resolution: '1024 × 1024',
       sampler: 'default',
       scheduler: 'default',
+      upscaler: 'None',
       cfg: 7,
       steps: 20,
       imageCount: 1,
@@ -92,6 +97,12 @@ export class ProvidersComponent {
     }
     if (type === 'sd-server' && !this.newProvider.sdServer) {
       this.newProvider.sdServer = ProvidersComponent.defaultSdServerConfig();
+    }
+    if (type === 'sd-server') {
+      void this.loadSdCatalog();
+    } else {
+      this.sdCatalog.set(null);
+      this.sdCatalogError.set(null);
     }
   }
 
@@ -207,6 +218,8 @@ export class ProvidersComponent {
   openAddProvider() {
     this.editingProviderId.set(null);
     this.draftTestResult.set(null);
+    this.sdCatalog.set(null);
+    this.sdCatalogError.set(null);
     this.newProvider = {
       name: 'OpenRouter',
       type: 'openrouter',
@@ -221,6 +234,8 @@ export class ProvidersComponent {
   openEditProvider(provider: ProviderConfig) {
     this.editingProviderId.set(provider.id);
     this.draftTestResult.set(null);
+    this.sdCatalog.set(null);
+    this.sdCatalogError.set(null);
     this.newProvider = {
       name: provider.name,
       type: provider.type,
@@ -237,6 +252,27 @@ export class ProvidersComponent {
       this.newProvider.sdServer = ProvidersComponent.defaultSdServerConfig();
     }
     this.showAddProvider.set(true);
+    if (this.newProvider.type === 'sd-server') {
+      void this.loadSdCatalog();
+    }
+  }
+
+  /** Fetch the option catalogs from the currently-entered SD server URL. */
+  async loadSdCatalog(): Promise<void> {
+    if (!this.newProvider.baseUrl.trim()) return;
+    this.sdCatalogLoading.set(true);
+    this.sdCatalogError.set(null);
+    try {
+      const draft: ProviderConfig = {
+        id: this.editingProviderId() || 'draft',
+        ...this.newProvider
+      };
+      this.sdCatalog.set(await this.settings.loadSdCatalog(draft));
+    } catch (err: any) {
+      this.sdCatalogError.set(err?.message || String(err));
+    } finally {
+      this.sdCatalogLoading.set(false);
+    }
   }
 
   cancelProviderEdit() {

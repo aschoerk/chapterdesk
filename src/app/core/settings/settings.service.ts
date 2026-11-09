@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../models/chat-config';
+import { ProviderConfig, ModelEntry, ModelArchitecture, SdCatalog } from '../../models/chat-config';
 import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../util/provider-url';
 import { CHAT_API } from '../../api/chat-api.token';
 import {
@@ -158,6 +158,12 @@ export class SettingsService {
   /** Test that a model answers a tiny chat completion (model check). */
   testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
     return this.catalog.testModel(provider, modelId);
+  }
+
+  /** Load the option catalogs an SD server advertises (models, samplers,
+   *  schedulers, LoRAs, upscalers) so the settings dialog can offer them. */
+  loadSdCatalog(provider: ProviderConfig): Promise<SdCatalog> {
+    return this.catalog.loadSdCatalog(provider);
   }
 
   async fetchModels(provider: ProviderConfig): Promise<void> {
