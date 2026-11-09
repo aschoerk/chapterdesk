@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatNode, NodeAttachment, NodeRole } from '../../models/chat';
+import { Chat, ChatNode, NodeAttachment, NodeRole } from '../../models/chat';
 import { ChatService } from '../chat/chat.service';
 
 /**
@@ -45,6 +45,19 @@ export interface ClipboardEntry {
   action: ClipboardAction;
   sourceChatId: string | null;
   nodes: ClipboardNode[];
+}
+
+/** Options for {@link NodeClipboardService.extractSequence}. */
+export interface ExtractOptions {
+  /** Title of the new story (default: the source story's title). */
+  title?: string;
+  /**
+   * Also extract the VISIBLE SUBTREE: everything that hangs below the
+   * selection on the active path (the visible continuation), so the new story
+   * continues past the cut instead of stopping at it. Nodes in other branches
+   * are never taken along — only what is visible.
+   */
+  withVisibleSubtree?: boolean;
 }
 
 function toClipboardNode(n: ChatNode): ClipboardNode {
@@ -174,6 +187,144 @@ export class NodeClipboardService {
     for (const node of nodes) {
       await this.chatService.deleteNode(node.chatId, node.id, { keepChildren: true });
     }
+  }
+
+  /**
+   * EXTRACT: move a selected sequence into a NEW story.
+   *
+   * Unlike a plain cut (clipboard only) this creates a real new chat, copies
+   * the source story's lore to it and re-creates the selected nodes there as
+   * the story's starting chain. The original nodes are then removed from the
+   * source story.
+   *
+   * Structural guarantees in the SOURCE story:
+   *  – Only the extracted nodes are removed. Children in OTHER branches are
+   *    never deleted (they may be parents of their own subtrees).
+   *  – When the extracted sequence is not a complete subtree (i.e. some of its
+   *    nodes have children outside the extraction), those dangling branches
+   *    are re-hung under the PARENT OF THE FIRST EXTRACTED NODE, so the rest of
+   *    the story keeps a valid, unsurprising structure.
+   *
+   * With `withVisibleSubtree` the extraction also takes the visible
+   * continuation below the selection (the rest of the active path), so the new
+   * story does not end at the cut.
+   *
+   * The clipboard is deliberately left EMPTY afterwards — extract is not a
+   * clipboard operation, the content lives in the new story.
+   *
+   * Returns the new chat (null when there was nothing to extract).
+   */
+  async extractSequence(
+    nodes: ChatNode[],
+    options: ExtractOptions | string = {},
+  ): Promise<Chat | null> {
+    const opts: ExtractOptions =
+      typeof options === 'string' ? { title: options } : options;
+    if (!nodes.length) return null;
+    const sourceChatId = nodes[0].chatId;
+    const sourceChat = this.chatService.chats().find(c => c.id === sourceChatId);
+    if (!sourceChat) return null;
+
+    const extracted = opts.withVisibleSubtree
+      ? this.withVisibleContinuation(nodes)
+      : nodes;
+    if (!extracted.length) return null;
+
+    // Parent of the FIRST extracted node — the surviving anchor the dangling
+    // branches are re-hung under.
+    const anchorParentId = nodes[0].parentId ?? null;
+    const extractedIds = new Set(extracted.map(n => n.id));
+
+    // Compute the dangling branches BEFORE creating anything: `addNode`
+    // appends the new story's nodes to the shared node state, and the dangling
+    // lookup walks that state.
+    const dangling = this.danglingChildren(extracted, extractedIds);
+
+    // Snapshot in clipboard form so `createNodes` can remap the parent
+    // pointers (same replay logic as paste).
+    const entry: ClipboardEntry = {
+      format: FORMAT,
+      version: VERSION,
+      action: 'copy',
+      sourceChatId,
+      nodes: extracted.map(toClipboardNode),
+    };
+
+    const newChat = await this.chatService.createChat(
+      opts.title ?? sourceChat.title ?? 'Extracted story',
+      sourceChat.projectId ?? null,
+    );
+
+    // Copy the story lore (the never-miss world facts) to the new story.
+    const lore = sourceChat.lore;
+    if (lore) {
+      await this.chatService.patchChatMeta(newChat.id, { lore });
+    }
+
+    await this.createNodes(newChat.id, entry, null);
+
+    // Re-hang the dangling branches BEFORE deleting anything: children of the
+    // extracted set that are not part of it stay in this story. Doing this
+    // explicitly (instead of relying on the per-node keepChildren cascade)
+    // keeps the outcome independent of the deletion order.
+    if (dangling.length) {
+      await this.chatService.reparentNodes(
+        sourceChatId,
+        dangling.map(n => n.id),
+        anchorParentId,
+      );
+    }
+
+    // Remove the extracted nodes from the source story (their children are
+    // either extracted too or already re-hung above).
+    for (const node of extracted) {
+      await this.chatService.deleteNode(sourceChatId, node.id, { keepChildren: true });
+    }
+
+    return newChat;
+  }
+
+  /**
+   * The VISIBLE SUBTREE of a selection: the selected chain plus everything that
+   * hangs below it on the ACTIVE PATH (the visible continuation). Other
+   * branches are not visible and are therefore never included.
+   */
+  private withVisibleContinuation(nodes: ChatNode[]): ChatNode[] {
+    const firstId = nodes[0]?.id;
+    if (!firstId) return nodes;
+    const path = this.chatService.getActivePath();
+    const start = path.findIndex(n => n.id === firstId);
+    if (start < 0) return nodes;
+    const tail = path.slice(start);
+    // The terminal empty direction is the user's input box, never content:
+    // do not drag it into the new story.
+    const last = tail[tail.length - 1];
+    const visible =
+      last && this.chatService.isDraftQuestion(last) ? tail.slice(0, -1) : tail;
+    if (!visible.length) return nodes;
+    // Safety net: only extend when the selection really is a sub-chain of the
+    // visible continuation (it always should be for a navbar selection).
+    const selectedIds = new Set(nodes.map(n => n.id));
+    const covered = visible.filter(n => selectedIds.has(n.id)).length;
+    return covered >= nodes.length ? visible : nodes;
+  }
+
+  /**
+   * Children of the extracted set whose parent IS extracted but which are NOT
+   * extracted themselves — the dangling branches that must survive in the
+   * source story.
+   */
+  private danglingChildren(extracted: ChatNode[], extractedIds: Set<string>): ChatNode[] {
+    const out: ChatNode[] = [];
+    const seen = new Set<string>();
+    for (const node of extracted) {
+      for (const child of this.chatService.getChildren(node.id)) {
+        if (extractedIds.has(child.id) || seen.has(child.id)) continue;
+        seen.add(child.id);
+        out.push(child);
+      }
+    }
+    return out;
   }
 
   clear(): void {

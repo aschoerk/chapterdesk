@@ -563,6 +563,14 @@
                           [title]="i18n.t('node.cutSelectedTitle')">
                     {{ i18n.t('node.cutSelected') }}
                   </button>
+                  <button class="btn small" type="button" (click)="extractNavSelection()"
+                          [title]="i18n.t('node.extractSelectedTitle')">
+                    {{ i18n.t('node.extractSelected') }}
+                  </button>
+                  <button class="btn small" type="button" (click)="extractNavSelection(true)"
+                          [title]="i18n.t('node.extractSubtreeTitle')">
+                    {{ i18n.t('node.extractSubtree') }}
+                  </button>
                   <button class="btn small danger" type="button" (click)="deleteNavSelection()"
                           [title]="i18n.t('node.deleteSelectedTitle')">
                     {{ i18n.t('node.deleteSelected') }}

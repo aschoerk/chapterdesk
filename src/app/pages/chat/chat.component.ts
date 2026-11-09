@@ -274,6 +274,48 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  /**
+   * Extract the selected chain into a NEW story: the selected nodes are
+   * copied there (as the story's starting chain), the source story's lore is
+   * copied along with them and the selected nodes are removed from this
+   * story. The new story is opened afterwards.
+   *
+   * With `withVisibleSubtree` the visible continuation below the selection (the
+   * rest of the active path) travels along as well, so the new story does not
+   * end at the cut. Dangling branches — children of extracted nodes that are
+   * NOT extracted — always stay in this story and are re-hung under the parent
+   * of the first extracted node.
+   */
+  async extractNavSelection(withVisibleSubtree = false): Promise<void> {
+    const nodes = this.selectedNavNodes();
+    if (!nodes.length) return;
+    const hasPayload = nodes.some(
+      (n) => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
+    );
+    if (hasPayload) {
+      const key = withVisibleSubtree ? 'extractSubtree' : 'extractSelected';
+      const ok = await this.confirm.ask({
+        title: this.i18n.t(`node.${key}Ask`, { count: nodes.length }),
+        message: this.i18n.t(`node.${key}Msg`, { count: nodes.length }),
+        confirmLabel: this.i18n.t(`node.${key}`),
+        cancelLabel: this.i18n.t('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    try {
+      const chat = await this.clipboard.extractSequence(nodes, { withVisibleSubtree });
+      this.clearNavSelection();
+      if (chat) {
+        this.toast.success(this.i18n.t('node.extractSelectedDone'));
+        await this.chatService.selectChat(chat.id);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('node.extractFailed', { error: err?.message || err }));
+    }
+  }
+
   /** Remove the selected chain (top-first) — left-over children are
    *  reparented to the chain's topmost surviving ancestor. */
   async deleteNavSelection(): Promise<void> {

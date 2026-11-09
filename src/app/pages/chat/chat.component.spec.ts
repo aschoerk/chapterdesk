@@ -1487,6 +1487,148 @@ describe('Chat', () => {
     expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
   });
 
+  it('extract leaves the UNSELECTED children of the selected nodes in the origin', async () => {
+    // q1 → a1 → a2: only a1 is selected. a2 hangs BELOW a1 and must not be
+    // deleted together with its parent when the parent is extracted.
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story', lore: 'Ashley is married.' }],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'a1', role: 'assistant', content: 'Answer two' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'a2');
+
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    component.toggleNavSelection('a1');
+    await component.extractNavSelection();
+
+    // A new story got the extracted node AND the source story's lore…
+    const newChat = chatService.chats().find(c => c.id !== 'chat-1')!;
+    expect(newChat).toBeDefined();
+    expect(chatService.currentChatId()).toBe(newChat.id);
+    expect(chatService.chats().find(c => c.id === newChat.id)?.lore).toBe('Ashley is married.');
+    expect(chatService.nodes().some(n => n.content === 'Answer one')).toBe(true);
+    // …but NOT the child of the extracted node.
+    expect(chatService.nodes().some(n => n.content === 'Answer two')).toBe(false);
+
+    // The origin keeps the child, reparented to a1's parent (q1) — not deleted.
+    const originNodes = await api.getNodes('chat-1');
+    expect(originNodes.find(n => n.id === 'a1')).toBeUndefined();
+    const a2 = originNodes.find(n => n.id === 'a2');
+    expect(a2).toBeDefined();
+    expect(a2!.parentId).toBe('q1');
+  });
+
+  it('extract with visible subtree takes the visible continuation along', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story', lore: 'Ashley is married.' }],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' },
+        { id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Q2' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant', content: 'Answer two' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'q2');
+    chatService.setActiveChild('q2', 'a2');
+
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    // The auto-created draft leaf at the end of the visible path.
+    const draftId = chatService.getActivePath().at(-1)!.id;
+    expect(chatService.isDraftQuestion(chatService.getActivePath().at(-1)!)).toBe(true);
+
+    // Only q2 is selected — the visible continuation (a2) must come along.
+    component.toggleNavSelection('q2');
+    await component.extractNavSelection(true);
+
+    const newChat = chatService.chats().find(c => c.id !== 'chat-1')!;
+    expect(newChat).toBeDefined();
+    expect(chatService.currentChatId()).toBe(newChat.id);
+    expect(chatService.chats().find(c => c.id === newChat.id)?.lore).toBe('Ashley is married.');
+    expect(chatService.nodes().some(n => n.content === 'Q2')).toBe(true);
+    expect(chatService.nodes().some(n => n.content === 'Answer two')).toBe(true);
+
+    // The empty draft node of the origin is NOT part of the extracted subtree:
+    // exactly one empty user node exists in the destination, and it is a FRESH
+    // one created after the extraction (not the copied origin draft).
+    const destEmpty = chatService.nodes().filter(
+      n => n.role === 'user' && !n.content?.trim()
+    );
+    expect(destEmpty).toHaveLength(1);
+    expect(destEmpty[0].id).not.toBe(draftId);
+    expect(chatService.getActivePath().at(-1)?.id).toBe(destEmpty[0].id);
+
+    // The origin keeps only the part above the cut (an auto-created draft leaf
+    // may remain and is irrelevant here).
+    const originNodes = await api.getNodes('chat-1');
+    const originIds = originNodes.map(n => n.id);
+    expect(originIds).not.toContain('q2');
+    expect(originIds).not.toContain('a2');
+    expect(originIds).toContain('q1');
+    expect(originIds).toContain('a1');
+  });
+
+  it('extract with visible subtree reparents dangling branches under the parent of the first node', async () => {
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' },
+        // a sibling branch hanging off a1 — NOT part of the visible path
+        { id: 'a1b', chatId: 'chat-1', parentId: 'a1', role: 'assistant', content: 'Answer one (other branch)' },
+        { id: 'q2', chatId: 'chat-1', parentId: 'a1', role: 'user', content: 'Q2' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q2', role: 'assistant', content: 'Answer two' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'q2');
+    chatService.setActiveChild('q2', 'a2');
+
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    // Select a1 → the visible continuation is a1 → q2 → a2.
+    component.toggleNavSelection('a1');
+    await component.extractNavSelection(true);
+
+    // New story gets the whole visible chain …
+    const newChat = chatService.chats().find(c => c.id !== 'chat-1')!;
+    expect(chatService.currentChatId()).toBe(newChat.id);
+    expect(chatService.nodes().some(n => n.content === 'Answer one')).toBe(true);
+    expect(chatService.nodes().some(n => n.content === 'Q2')).toBe(true);
+    expect(chatService.nodes().some(n => n.content === 'Answer two')).toBe(true);
+    // … but NOT the dangling sibling branch.
+    expect(chatService.nodes().some(n => n.content === 'Answer one (other branch)')).toBe(false);
+
+    // The dangling branch survives in the origin, re-hung under the parent of
+    // the first extracted node (q1) instead of being deleted.
+    const originNodes = await api.getNodes('chat-1');
+    const originIds = originNodes.map(n => n.id);
+    expect(originIds).not.toContain('a1');
+    expect(originIds).not.toContain('q2');
+    expect(originIds).not.toContain('a2');
+    expect(originIds).toContain('a1b');
+    expect(originIds).toContain('q1');
+    expect(originNodes.find(n => n.id === 'a1b')!.parentId).toBe('q1');
+  });
+
   it('does not paste left of the empty terminal direction node', async () => {
     await openStory(); // path: q1 → a1 → [empty draft direction]
     const clipboard = TestBed.inject(NodeClipboardService);
