@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { ChatMessage } from '../../../models/chat';
-import { canGenerateImages, ModelEntry, type ProviderConfig } from '../../../models/chat-config';
+import { canGenerateImages, ModelEntry, type ProviderConfig, type SdServerConfig } from '../../../models/chat-config';
 import { getServerConfig } from '../../util/server-config';
 import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../util/provider-url';
 import { LlmLogService } from '../llm-log.service';
@@ -18,6 +18,8 @@ export interface ProviderRef {
   apiKey: string;
   /** Connection kind — selects the auth header scheme in `headers()`. */
   type?: ProviderConfig['type'];
+  /** Stable Diffusion server generation settings. */
+  sdServer?: SdServerConfig;
 }
 
 export interface CompletionRequest {
@@ -312,6 +314,19 @@ export class LlmTransportService {
    * fallback reports no usage block — it is logged but contributes nothing.
    */
   private async imageCallOnce(req: CompletionRequest): Promise<CompletionResult> {
+    if (req.provider.type === 'sd-server') {
+      const prompt = lastUserPromptText(req.messages);
+      const raw = await this.sdTxt2Img({
+        provider: req.provider,
+        model: req.model,
+        prompt,
+        n: req.extras?.['n'] as number | undefined,
+        signal: req.signal,
+        chat: req.chat,
+        timeoutMs: req.timeoutMs
+      });
+      return { raw: raw.raw, content: '', thinking: '', streamed: false };
+    }
     const run = (r: CompletionRequest): Promise<CompletionResult> => this.rawCompletion(r);
     try {
       return await run({ ...req, imageCapable: true });
@@ -438,6 +453,9 @@ export class LlmTransportService {
 
   /** OpenRouter-Images endpoint: `{ model, prompt, n }`. Returns raw JSON. */
   async images(req: ImagesRequest): Promise<ImagesResult> {
+    if (req.provider.type === 'sd-server') {
+      return this.sdTxt2Img(req);
+    }
     const payload = {
       model: req.model.modelId,
       prompt: req.prompt,
@@ -474,6 +492,72 @@ export class LlmTransportService {
     }
   }
 
+  /**
+   * Stable Diffusion server (A1111-compatible) text-to-image call.
+   * Sends the configured generation settings to `/sdapi/v1/txt2img`.
+   */
+  private async sdTxt2Img(req: ImagesRequest): Promise<ImagesResult> {
+    const sd = req.provider.sdServer ?? {};
+    const [width, height] = sd.aspectRatio === '1:1' ? [1024, 1024]
+      : sd.aspectRatio === '16:9' ? [1024, 576]
+        : sd.aspectRatio === '9:16' ? [576, 1024]
+          : [512, 512];
+    const checkpoint = sd.model || req.model.modelId;
+    const payload: Record<string, unknown> = {
+      prompt: req.prompt,
+      model: checkpoint,
+      aspect_ratio: sd.aspectRatio,
+      resolution: sd.resolution,
+      width,
+      height,
+      cfg_scale: sd.cfg,
+      steps: sd.steps,
+      batch_size: 1,
+      n_iter: sd.imageCount ?? req.n ?? 1,
+      seed: sd.seed,
+      sampler_name: sd.sampler,
+      scheduler: sd.scheduler,
+      ip_adapter_strength: sd.ipAdapterStrength,
+      clip_skip: sd.clipSkip,
+      control: sd.control,
+      cache: sd.cache,
+      lora: sd.lora
+    };
+    // A1111-compatible servers switch the checkpoint via `override_settings`.
+    if (checkpoint && checkpoint !== 'default') {
+      payload['override_settings'] = { sd_model_checkpoint: checkpoint };
+    }
+    const logEntry = this.llmLog.record({
+      kind: 'image',
+      modelId: req.model.modelId,
+      provider: req.provider.baseUrl,
+      chatId: req.chat?.id,
+      chatTitle: req.chat?.title,
+      nodeId: req.chat?.nodeId,
+      usecase: req.chat?.usecase,
+      endpoint: 'sdapi/v1/txt2img',
+      prompt: req.prompt,
+      body: payload,
+      extras: {}
+    });
+
+    const { controller, cleanup } = this.withAbort(req);
+    try {
+      const response = await this.ensureOk(
+        await this.postJson('/sdapi/v1/txt2img', req.provider, payload, controller),
+        logEntry,
+        controller,
+      );
+      const raw = await response.json();
+      this.llmLog.complete(logEntry, { response: raw });
+      return { raw };
+    } catch (err: unknown) {
+      this.throwTransportError(err, controller, req, logEntry);
+    } finally {
+      cleanup();
+    }
+  }
+
   private headers(provider: ProviderRef): Record<string, string> {
     const effectiveType = provider.type === 'gemini' || isGoogleGeminiUrl(provider.baseUrl)
       ? 'gemini'
@@ -490,7 +574,11 @@ export class LlmTransportService {
       case 'anthropic':
         return { ...base, 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
       default:
-        return { ...base, Authorization: `Bearer ${provider.apiKey}` };
+        // Keyless providers (e.g. a local SD server) must not get an empty
+        // `Authorization: Bearer ` header — some servers reject it.
+        return (provider.apiKey || '').trim()
+          ? { ...base, Authorization: `Bearer ${provider.apiKey}` }
+          : base;
     }
   }
 

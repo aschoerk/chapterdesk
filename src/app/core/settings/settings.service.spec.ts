@@ -488,4 +488,55 @@ describe('SettingsService.fetchModels', () => {
     req.flush({ models: [] });
     await pending;
   });
+
+  it('fetches SD-Server models from /sdapi/v1/sd-models without an Authorization header', async () => {
+    const provider = await settings.addProvider({
+      name: 'Local SD',
+      type: 'sd-server',
+      baseUrl: 'http://localhost:9101',
+      apiKey: '',
+      enabled: true
+    });
+
+    const fetchPromise = settings.fetchModels(provider);
+
+    const req = http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/sd-models'));
+    expect(req.request.method).toBe('GET');
+    expect(req.request.headers.get('Authorization')).toBeNull();
+    expect(req.request.headers.get('x-target-base')).toBe('http://localhost:9101');
+    req.flush([
+      {
+        title: 'v1-5-pruned-emaonly.safetensors [6ce0161689]',
+        model_name: 'v1-5-pruned-emaonly',
+        hash: '6ce0161689',
+        filename: 'v1-5-pruned-emaonly.safetensors'
+      }
+    ]);
+
+    await fetchPromise;
+
+    const sd = settings.models().find(m => m.modelId === 'v1-5-pruned-emaonly');
+    expect(sd).toBeTruthy();
+    expect(sd?.providerId).toBe(provider.id);
+    expect(sd?.displayName).toBe('v1-5-pruned-emaonly.safetensors [6ce0161689]');
+    expect(sd?.architecture?.output_modalities).toContain('image');
+    expect(sd?.enabled).toBe(false);
+  });
+
+  it('tests an SD-Server provider against its model list, not /models', async () => {
+    const raw: ProviderConfig = {
+      id: 'sd-test',
+      name: 'Local SD',
+      type: 'sd-server',
+      baseUrl: 'http://localhost:9101',
+      apiKey: '',
+      enabled: true
+    };
+
+    const pending = settings.testProvider(raw);
+    const req = http.expectOne(r => r.url.endsWith('/proxy/sdapi/v1/sd-models'));
+    expect(req.request.headers.get('Authorization')).toBeNull();
+    req.flush([]);
+    await expect(pending).resolves.toEqual({ ok: true, message: 'Connection successful' });
+  });
 });

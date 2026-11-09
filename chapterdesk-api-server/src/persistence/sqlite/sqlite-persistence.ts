@@ -21,6 +21,7 @@ import type {
   PromptVersion,
   ProviderConfig,
   RestoreTextVersionResult,
+  SdServerConfig,
   TextVersion,
   TextVersionAttribute,
   TextVersionEntityType,
@@ -165,7 +166,7 @@ function mapPersona(row: Row): Persona {
 }
 
 function mapProvider(row: Row): ProviderConfig {
-  return {
+  const provider: ProviderConfig = {
     id: row.id as string,
     name: row.name as string,
     type: row.type as ProviderConfig['type'],
@@ -173,6 +174,9 @@ function mapProvider(row: Row): ProviderConfig {
     apiKey: row.api_key as string,
     enabled: bool(row.enabled),
   };
+  const sdServer = json<SdServerConfig | null>(row.sd_server, null);
+  if (sdServer) provider.sdServer = sdServer;
+  return provider;
 }
 
 function mapModel(row: Row): ModelEntry {
@@ -327,7 +331,7 @@ export class SqlitePersistence implements PersistencePort {
       CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, short_name TEXT NOT NULL, description TEXT DEFAULT '', avatar TEXT DEFAULT '', main_topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT, chat_parameters_id TEXT, lore TEXT, auto_exclude_directions INTEGER DEFAULT 0, reading_marks TEXT, handled_names TEXT, node_number INTEGER DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS chat_nodes (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, parent_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, thinking TEXT, model_id TEXT, provider_id TEXT, version INTEGER NOT NULL DEFAULT 1, previous_version_id TEXT, prompt_tokens INTEGER, completion_tokens INTEGER, cached_tokens INTEGER, total_tokens INTEGER, total_cost REAL, attachments TEXT DEFAULT '[]', is_current INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, chat_parameters_id TEXT, exclude_from_context INTEGER DEFAULT 0, exclude_after_send INTEGER DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1);
+      CREATE TABLE IF NOT EXISTS providers (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, api_key TEXT NOT NULL, enabled INTEGER DEFAULT 1, sd_server TEXT);
       CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, model_id TEXT NOT NULL, provider_id TEXT NOT NULL, type TEXT NOT NULL, enabled INTEGER DEFAULT 1, catalog_json TEXT, chat_parameters_id TEXT);
       CREATE TABLE IF NOT EXISTS chat_parameters (id TEXT PRIMARY KEY, name TEXT DEFAULT '', temperature REAL, top_k INTEGER, top_m REAL, top_p REAL, stream INTEGER, thinking INTEGER, thinking_level TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS prompt_versions (id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, scope TEXT NOT NULL DEFAULT 'user', topic_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -370,6 +374,9 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('models', 'catalog_json', 'TEXT');
     this.addColumn('models', 'chat_parameters_id', 'TEXT');
     this.addColumn('chat_parameters', 'top_p', 'REAL');
+    // SD-Server provider settings are stored as JSON so they can be edited
+    // after the provider has been created.
+    this.addColumn('providers', 'sd_server', 'TEXT');
     // Name dictionary: existing databases predate the gender/category columns
     // (they were only in CREATE TABLE IF NOT EXISTS, which does NOT alter an
     // existing table — so the INSERT/UPDATE previously failed on old DBs).
@@ -1407,20 +1414,31 @@ export class SqlitePersistence implements PersistencePort {
     const id = randomUUID();
     const enabled = data.enabled === undefined ? true : data.enabled;
     this.db
-      .prepare('INSERT INTO providers(id,name,type,base_url,api_key,enabled) VALUES(?,?,?,?,?,?)')
-      .run(id, data.name, data.type, data.baseUrl, data.apiKey, enabled ? 1 : 0);
+      .prepare('INSERT INTO providers(id,name,type,base_url,api_key,enabled,sd_server) VALUES(?,?,?,?,?,?,?)')
+      .run(
+        id,
+        data.name,
+        data.type,
+        data.baseUrl,
+        data.apiKey,
+        enabled ? 1 : 0,
+        data.sdServer ? JSON.stringify(data.sdServer) : null,
+      );
     return mapProvider(this.requireRow('provider', id, 'providers'));
   }
   async updateProvider(id: string, data: UpdateProviderRequest): Promise<ProviderConfig> {
     const old = this.requireRow('provider', id, 'providers');
     this.db
-      .prepare('UPDATE providers SET name=?,type=?,base_url=?,api_key=?,enabled=? WHERE id=?')
+      .prepare('UPDATE providers SET name=?,type=?,base_url=?,api_key=?,enabled=?,sd_server=? WHERE id=?')
       .run(
         data.name ?? old.name,
         data.type ?? old.type,
         data.baseUrl ?? old.base_url,
         data.apiKey ?? old.api_key,
         data.enabled !== undefined ? (data.enabled ? 1 : 0) : old.enabled,
+        data.sdServer !== undefined
+          ? JSON.stringify(data.sdServer)
+          : old.sd_server,
         id,
       );
     return mapProvider(this.requireRow('provider', id, 'providers'));

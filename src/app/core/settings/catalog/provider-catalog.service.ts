@@ -43,15 +43,20 @@ export class ProviderCatalogService {
         // Anthropic: x-api-key + pinned API version.
         return { ...base, 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
       default:
-        return { ...base, Authorization: `Bearer ${provider.apiKey}` };
+        // Keyless providers (e.g. a local SD server) must not get an empty
+        // `Authorization: Bearer ` header — some servers reject it.
+        return provider.apiKey.trim()
+          ? { ...base, Authorization: `Bearer ${provider.apiKey}` }
+          : base;
     }
   }
 
-  /** Test that the provider's /models endpoint answers (connection check). */
+  /** Test that the provider's catalog endpoint answers (connection check). */
   async testProvider(provider: ProviderConfig): Promise<{ ok: boolean; message: string }> {
+    const path = provider.type === 'sd-server' ? '/sdapi/v1/sd-models' : '/models';
     try {
       await firstValueFrom(
-        this.http.get(`${this.PROXY_BASE}/models`, {
+        this.http.get(`${this.PROXY_BASE}${path}`, {
           headers: this.providerHeaders(provider)
         })
       );
@@ -66,6 +71,31 @@ export class ProviderCatalogService {
 
   /** Test that a model answers a tiny chat completion (model check). */
   async testModel(provider: ProviderConfig, modelId: string): Promise<{ ok: boolean; message: string }> {
+    if (provider.type === 'sd-server') {
+      // SD servers do not answer chat completions; a cheap, side-effect-free
+      // check is to verify that the model is listed by the server.
+      try {
+        const response: any = await firstValueFrom(
+          this.http.get(`${this.PROXY_BASE}/sdapi/v1/sd-models`, {
+            headers: this.providerHeaders(provider)
+          })
+        );
+        const models: any[] = Array.isArray(response) ? response : [];
+        const wanted = modelId.trim().toLowerCase();
+        const exists = models.some(m => {
+          const id = String(m?.model_name ?? m?.title ?? '').toLowerCase();
+          return id === wanted || String(m?.title ?? '').toLowerCase() === wanted;
+        });
+        return exists
+          ? { ok: true, message: `Model "${modelId}" works` }
+          : { ok: false, message: `Model "${modelId}" is not listed by the SD server` };
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: err?.error?.error?.message || err?.message || 'Test failed'
+        };
+      }
+    }
     try {
       const response: any = await firstValueFrom(
         this.http.post(
@@ -125,6 +155,22 @@ export class ProviderCatalogService {
         throw err;
       }
     };
+
+    // Stable Diffusion servers expose their checkpoints at
+    // `/sdapi/v1/sd-models` (A1111-compatible API), NOT at `/models`.
+    if (provider.type === 'sd-server') {
+      const sdModels = await load('/sdapi/v1/sd-models');
+      return sdModels.map((m: any) => ({
+        id: m?.model_name || m?.title || m?.hash || 'unknown',
+        display_name: m?.title || m?.model_name || m?.hash || 'unknown',
+        description: m?.filename || '',
+        architecture: {
+          modality: 'text->image',
+          input_modalities: ['text'],
+          output_modalities: ['image']
+        }
+      }));
+    }
 
     const chatModels = await load('/models');
     if (provider.type !== 'openrouter') {

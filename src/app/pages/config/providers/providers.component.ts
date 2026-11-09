@@ -2,7 +2,7 @@ import { Component, inject, signal, computed, HostListener } from '@angular/core
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SettingsService } from '../../../core/settings/settings.service';
-import { ProviderConfig, ModelEntry, ModelArchitecture } from '../../../models/chat-config';
+import { ProviderConfig, ModelEntry, ModelArchitecture, SdServerConfig } from '../../../models/chat-config';
 import { I18nService } from '../../../core/i18n/i18n.service';
 import { ChatParametersService } from '../../../core/chat/chat-parameters.service';
 import { ChatParametersEditorComponent } from '../../../components/chat-parameters-editor/chat-parameters-editor.component';
@@ -47,6 +47,7 @@ export class ProvidersComponent {
     { value: 'openai', labelKey: 'config.providers.typeOpenai' },
     { value: 'gemini', labelKey: 'config.providers.typeGemini' },
     { value: 'anthropic', labelKey: 'config.providers.typeAnthropic' },
+    { value: 'sd-server', labelKey: 'config.providers.typeSdServer' },
     { value: 'custom', labelKey: 'config.providers.typeCustom' }
   ];
 
@@ -56,8 +57,29 @@ export class ProvidersComponent {
     openai: 'https://api.openai.com/v1',
     gemini: 'https://generativelanguage.googleapis.com/v1beta',
     anthropic: 'https://api.anthropic.com/v1',
+    'sd-server': 'http://localhost:7860',
     custom: ''
   };
+
+  /** Default SD-Server settings matching the server's own UI defaults. */
+  private static defaultSdServerConfig(): SdServerConfig {
+    return {
+      model: 'default',
+      lora: 'None',
+      aspectRatio: '1:1',
+      resolution: '1024 × 1024',
+      sampler: 'default',
+      scheduler: 'default',
+      cfg: 7,
+      steps: 20,
+      imageCount: 1,
+      seed: 42,
+      ipAdapterStrength: 1,
+      clipSkip: -1,
+      control: 0.9,
+      cache: false
+    };
+  }
 
   /** Called when the type <select> changes: prefill the base URL unless the
    *  user already typed a custom one. */
@@ -68,6 +90,9 @@ export class ProvidersComponent {
     if (!current || defaults.includes(current)) {
       this.newProvider.baseUrl = ProvidersComponent.DEFAULT_BASE_URLS[type];
     }
+    if (type === 'sd-server' && !this.newProvider.sdServer) {
+      this.newProvider.sdServer = ProvidersComponent.defaultSdServerConfig();
+    }
   }
 
   // Form models
@@ -77,12 +102,14 @@ export class ProvidersComponent {
     baseUrl: string;
     apiKey: string;
     enabled: boolean;
+    sdServer?: SdServerConfig;
   } = {
     name: 'OpenRouter',
     type: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKey: '',
-    enabled: true
+    enabled: true,
+    sdServer: undefined
   };
 
   newPreset = {
@@ -185,7 +212,8 @@ export class ProvidersComponent {
       type: 'openrouter',
       baseUrl: 'https://openrouter.ai/api/v1',
       apiKey: '',
-      enabled: true
+      enabled: true,
+      sdServer: undefined
     };
     this.showAddProvider.set(true);
   }
@@ -198,8 +226,16 @@ export class ProvidersComponent {
       type: provider.type,
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
-      enabled: provider.enabled
+      enabled: provider.enabled,
+      sdServer: provider.sdServer
+        ? { ...ProvidersComponent.defaultSdServerConfig(), ...provider.sdServer }
+        : undefined
     };
+    // Providers saved before SD settings were persisted have no `sdServer`;
+    // seed defaults so the edit form stays usable instead of rendering empty.
+    if (this.newProvider.type === 'sd-server' && !this.newProvider.sdServer) {
+      this.newProvider.sdServer = ProvidersComponent.defaultSdServerConfig();
+    }
     this.showAddProvider.set(true);
   }
 
@@ -211,7 +247,7 @@ export class ProvidersComponent {
   }
 
   saveProvider() {
-    if (!this.newProvider.apiKey.trim()) {
+    if (this.newProvider.type !== 'sd-server' && !this.newProvider.apiKey.trim()) {
       alert(this.i18n.t('config.providers.apiKeyRequired'));
       return;
     }
@@ -240,7 +276,7 @@ export class ProvidersComponent {
 
   /** Test the currently-edited provider draft (unsaved form values) via the proxy. */
   async testDraftProvider() {
-    if (!this.newProvider.apiKey.trim()) {
+    if (this.newProvider.type !== 'sd-server' && !this.newProvider.apiKey.trim()) {
       alert(this.i18n.t('config.providers.apiKeyRequired'));
       return;
     }

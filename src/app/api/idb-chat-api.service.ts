@@ -533,7 +533,11 @@ export class IdbChatApiService implements ChatApiPort {
     return this.tx(['providers'], 'readonly', tx => this.all<ProviderConfig>(tx.objectStore('providers')));
   }
   async createProvider(data: CreateProviderRequest): Promise<ProviderConfig> {
-    const row: ProviderConfig = { id: this.id(), name: data.name, type: data.type, baseUrl: data.baseUrl, apiKey: data.apiKey, enabled: data.enabled ?? true };
+    const row: ProviderConfig = {
+      id: this.id(), name: data.name, type: data.type, baseUrl: data.baseUrl,
+      apiKey: data.apiKey, enabled: data.enabled ?? true,
+      ...(data.sdServer ? { sdServer: { ...data.sdServer } } : {})
+    };
     await this.tx(['providers'], 'readwrite', tx => this.req(tx.objectStore('providers').put(row)));
     return row;
   }
@@ -542,7 +546,14 @@ export class IdbChatApiService implements ChatApiPort {
       const store = tx.objectStore('providers');
       const row = await this.req<ProviderConfig>(store.get(id));
       if (!row) throw Object.assign(new Error('Provider not found'), { status: 404 });
-      const next = { ...row, ...data, id };
+      const next: ProviderConfig = {
+        ...row,
+        ...data,
+        id,
+        ...(data.sdServer !== undefined
+          ? { sdServer: data.sdServer ? { ...data.sdServer } : undefined }
+          : {})
+      };
       await this.req(store.put(next));
       return next;
     });

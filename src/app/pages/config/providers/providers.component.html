@@ -90,6 +90,68 @@
           <input type="password" [(ngModel)]="newProvider.apiKey" />
         </label>
 
+        @if (newProvider.type === 'sd-server') {
+          <div class="sd-settings">
+            <h4>{{ i18n.t('config.providers.sdTitle') }}</h4>
+            <label>
+              {{ i18n.t('config.providers.sdModel') }}
+              <input [(ngModel)]="newProvider.sdServer!.model" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdLora') }}
+              <input [(ngModel)]="newProvider.sdServer!.lora" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdAspectRatio') }}
+              <input [(ngModel)]="newProvider.sdServer!.aspectRatio" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdResolution') }}
+              <input [(ngModel)]="newProvider.sdServer!.resolution" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdSampler') }}
+              <input [(ngModel)]="newProvider.sdServer!.sampler" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdScheduler') }}
+              <input [(ngModel)]="newProvider.sdServer!.scheduler" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdCfg') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.cfg" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdSteps') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.steps" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdImageCount') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.imageCount" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdSeed') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.seed" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdIpAdapterStrength') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.ipAdapterStrength" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdClipSkip') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.clipSkip" />
+            </label>
+            <label>
+              {{ i18n.t('config.providers.sdControl') }}
+              <input type="number" [(ngModel)]="newProvider.sdServer!.control" />
+            </label>
+            <label class="inline-check">
+              <input type="checkbox" [(ngModel)]="newProvider.sdServer!.cache" />
+              {{ i18n.t('config.providers.sdCache') }}
+            </label>
+          </div>
+        }
+
         <label class="inline-check">
           <input type="checkbox" [(ngModel)]="newProvider.enabled" />
           {{ i18n.t('config.providers.enabled') }}

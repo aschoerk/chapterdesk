@@ -191,6 +191,14 @@ export function extractLlmImages(json: unknown): LlmImagePart[] {
 
   const root = json as Record<string, unknown>;
   scanParts(root['images']);
+  // A1111-compatible SD servers return raw base64 strings in `images`.
+  if (Array.isArray(root['images'])) {
+    for (const item of root['images']) {
+      if (typeof item === 'string' && item.length > 20 && !/^(data:|https?:\/\/)/i.test(item)) {
+        out.push({ url: `data:image/png;base64,${item}` });
+      }
+    }
+  }
 
   const data = root['data'];
   if (Array.isArray(data)) {

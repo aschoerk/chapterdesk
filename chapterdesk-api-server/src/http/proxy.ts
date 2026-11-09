@@ -82,7 +82,8 @@ function providerAuthHeaders(provider: ProviderConfig): Record<string, string> {
       // Anthropic requires x-api-key plus a pinned API version header.
       return { 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' };
     default:
-      return { Authorization: `Bearer ${provider.apiKey}` };
+      // Keyless providers (e.g. a local SD server) get no empty Bearer header.
+      return (provider.apiKey || '').trim() ? { Authorization: `Bearer ${provider.apiKey}` } : {};
   }
 }
 

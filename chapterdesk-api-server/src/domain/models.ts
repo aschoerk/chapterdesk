@@ -187,13 +187,31 @@ export interface ChatParametersDraft {
   thinkingLevel: ThinkingLevel | null;
 }
 
+export interface SdServerConfig {
+  model?: string;
+  lora?: string;
+  aspectRatio?: string;
+  resolution?: string;
+  sampler?: string;
+  scheduler?: string;
+  cfg?: number;
+  steps?: number;
+  imageCount?: number;
+  seed?: number;
+  ipAdapterStrength?: number;
+  clipSkip?: number;
+  control?: number;
+  cache?: boolean;
+}
+
 export interface ProviderConfig {
   id: string;
   name: string;
-  type: 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic';
+  type: 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic' | 'sd-server';
   baseUrl: string;
   apiKey: string;
   enabled: boolean;
+  sdServer?: SdServerConfig;
 }
 
 export interface ModelArchitecture {

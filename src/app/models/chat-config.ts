@@ -1,7 +1,41 @@
 /** Provider connection kinds. Bearer-keyed types (openrouter/openai/custom)
  *  speak OpenAI-compatible APIs; gemini and anthropic use their own auth
- *  scheme and REST shape (catalog discovery + auth are handled per type). */
-export type ProviderType = 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic';
+ *  scheme and REST shape (catalog discovery + auth are handled per type).
+ *  sd-server talks to a Stable Diffusion server (A1111-compatible) for image
+ *  generation. */
+export type ProviderType = 'openrouter' | 'openai' | 'custom' | 'gemini' | 'anthropic' | 'sd-server';
+
+/** Stable Diffusion server generation settings (A1111-compatible UI). */
+export interface SdServerConfig {
+  /** Base model / checkpoint. */
+  model?: string;
+  /** LoRA to load on top of the base model. */
+  lora?: string;
+  /** Aspect ratio (e.g. '1:1'). */
+  aspectRatio?: string;
+  /** Resolution (e.g. '1024 × 1024'). */
+  resolution?: string;
+  /** Sampler name. */
+  sampler?: string;
+  /** Scheduler name. */
+  scheduler?: string;
+  /** Classifier-Free Guidance scale. */
+  cfg?: number;
+  /** Denoising steps. */
+  steps?: number;
+  /** Number of images to generate. */
+  imageCount?: number;
+  /** Random seed (same seed + settings = reproducible result). */
+  seed?: number;
+  /** IP-Adapter strength (0 = ignore reference image). */
+  ipAdapterStrength?: number;
+  /** Text-encoder clip-skip layers (negative/1 = last layer). */
+  clipSkip?: number;
+  /** ControlNet / control conditioning strength. */
+  control?: number;
+  /** Cache model/intermediate results between runs. */
+  cache?: boolean;
+}
 
 export interface ProviderConfig {
   id: string;
@@ -10,6 +44,8 @@ export interface ProviderConfig {
   baseUrl: string;
   apiKey: string;
   enabled: boolean;
+  /** Generation settings for SD-Server providers only. */
+  sdServer?: SdServerConfig;
 }
 
 export type Modality = 'text' | 'image' | 'audio' | 'video' | 'file';
