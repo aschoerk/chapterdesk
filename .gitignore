@@ -87,3 +87,4 @@ docs/ideas/*
 data/chapterdesk.sqlite
 data/chapterdesk.sqlite-shm
 data/chapterdesk.sqlite-wal
+TODO.md

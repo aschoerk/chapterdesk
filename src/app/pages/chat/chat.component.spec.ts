@@ -621,13 +621,16 @@ describe('Chat', () => {
     )!;
     seedApi(api, {
       nodes: [{
-        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        // The plan hangs BELOW the visible answer — only plans on the active
+        // path may be offered (a plan on an abandoned branch must not be).
+        id: 'plan1', chatId: 'chat-1', parentId: 'a0', role: 'assistant',
         content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.\n4. The Reckoning — The debt is called in.',
         attachments: [chapterPlanRecord(plan)],
         createdAt: '2025-01-03T00:00:00Z',
       }],
     });
     await chatService.loadNodes('chat-1');
+    chatService.setActiveChild('a0', 'plan1');
     await chatService.patchChatMeta('chat-1', { lore: 'Ashley is married.' });
 
     // The plan is detected and the option defaults to ON as soon as the
@@ -671,13 +674,15 @@ describe('Chat', () => {
     )!;
     seedApi(api, {
       nodes: [{
-        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        // On the visible thread — plans on abandoned branches are not offered.
+        id: 'plan1', chatId: 'chat-1', parentId: 'a0', role: 'assistant',
         content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.',
         attachments: [chapterPlanRecord(plan)],
         createdAt: '2025-01-03T00:00:00Z',
       }],
     });
     await chatService.loadNodes('chat-1');
+    chatService.setActiveChild('a0', 'plan1');
 
     // A usable plan exists → the dialog opens with the option ON.
     component.openElaborateDialog();
@@ -727,13 +732,15 @@ describe('Chat', () => {
     )!;
     seedApi(api, {
       nodes: [{
-        id: 'plan1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        // On the visible thread — plans on abandoned branches are not offered.
+        id: 'plan1', chatId: 'chat-1', parentId: 'a0', role: 'assistant',
         content: '1. The Gate — Mara finds the key.\n2. The Road — They leave before dawn.\n3. The Ledger — A creditor is named.',
         attachments: [chapterPlanRecord(plan)],
         createdAt: '2025-01-03T00:00:00Z',
       }],
     });
     await chatService.loadNodes('chat-1');
+    chatService.setActiveChild('a0', 'plan1');
     component.openElaborateDialog();
     fixture.detectChanges();
 
