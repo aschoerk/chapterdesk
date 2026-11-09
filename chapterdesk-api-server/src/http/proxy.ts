@@ -1,9 +1,47 @@
-import { Readable } from 'node:stream';
+import http from 'node:http';
+import https from 'node:https';
 import { pipeline } from 'node:stream/promises';
 import type { Express, NextFunction, Request, Response } from 'express';
 import type { PersistencePort } from '../domain/chat-api.port.js';
 import type { ProviderConfig } from '../domain/models.js';
 import { badRequest, HttpError } from './http-error.js';
+
+/**
+ * How often the proxy emits an interim `102 Processing` response while it
+ * waits for a slow upstream.
+ *
+ * WHY: image servers (A1111/Forge compatible SD servers) do not send ANY
+ * response bytes until the render is finished. Without interim traffic, both
+ * the browser and any intermediary (load balancer, corporate proxy) consider
+ * the request dead after ~5 minutes and drop it — the user sees a failure
+ * even though the backend is still happily waiting.
+ *
+ * 1xx responses are protocol-level "still working" signals: browsers ignore
+ * them, they do NOT commit a final status code, and they keep the socket
+ * active. Override with `CHAPTERDESK_PROXY_KEEPALIVE_MS` (0 disables).
+ */
+function keepAliveIntervalMs(): number {
+  const raw = Number(process.env.CHAPTERDESK_PROXY_KEEPALIVE_MS ?? '');
+  return Number.isFinite(raw) && raw >= 0 ? raw : 15_000;
+}
+
+/** Start sending interim `102 Processing` responses; returns the stopper. */
+function startKeepAlive(res: Response): () => void {
+  const intervalMs = keepAliveIntervalMs();
+  if (intervalMs <= 0) return () => undefined;
+  const timer = setInterval(() => {
+    if (res.writableEnded || res.destroyed || res.headersSent) return;
+    const writeProcessing = (res as unknown as { writeProcessing?: () => void }).writeProcessing;
+    if (typeof writeProcessing !== 'function') return;
+    try {
+      writeProcessing.call(res);
+    } catch {
+      // The client may already be gone — nothing to keep alive.
+    }
+  }, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
 
 function header(req: Request, name: string): string | undefined {
   const value = req.headers[name.toLowerCase()];
@@ -37,7 +75,7 @@ const FORWARD_AUTH_HEADERS = ['authorization', 'x-goog-api-key', 'x-api-key', 'a
 /** True when a base URL points at Google's Gemini surface (AI Studio console
  *  or the real API). Used so a provider saved before the `gemini` kind existed
  *  (e.g. typed `custom`) still authenticates with `x-goog-api-key`. */
-function isGoogleGeminiUrl(baseUrl: string): boolean {
+export function isGoogleGeminiUrl(baseUrl: string): boolean {
   const raw = (baseUrl || '').trim().toLowerCase();
   if (!raw) return false;
   return raw.includes('aistudio.google.com') || raw.includes('generativelanguage.googleapis.com');
@@ -46,7 +84,7 @@ function isGoogleGeminiUrl(baseUrl: string): boolean {
 /** Rewrite a Google Gemini base URL to the real API endpoint (host-specific;
  *  any other host — e.g. a local OpenAI-compatible server typed gemini — is
  *  left untouched). */
-function normalizeGeminiBase(url: string): string {
+export function normalizeGeminiBase(url: string): string {
   const raw = (url || '').trim().replace(/\/+$/, '');
   try {
     const u = new URL(raw);
@@ -70,7 +108,7 @@ function normalizeGeminiBase(url: string): string {
  *  The kind is derived from the URL when it is clearly Google — a legacy
  *  `custom` provider pointing at AI Studio would otherwise get a Bearer header
  *  that Google ignores (→ "Method doesn't allow unregistered callers"). */
-function providerAuthHeaders(provider: ProviderConfig): Record<string, string> {
+export function providerAuthHeaders(provider: ProviderConfig): Record<string, string> {
   const kind = provider.type === 'gemini' || isGoogleGeminiUrl(provider.baseUrl)
     ? 'gemini'
     : provider.type;
@@ -87,7 +125,7 @@ function providerAuthHeaders(provider: ProviderConfig): Record<string, string> {
   }
 }
 
-async function resolveUpstream(
+export async function resolveUpstream(
   req: Request,
   store: PersistencePort
 ): Promise<{ baseUrl: string; authHeaders: Record<string, string>; providerId?: string }> {
@@ -127,8 +165,6 @@ async function resolveUpstream(
 async function handleProxy(req: Request, res: Response, store: PersistencePort): Promise<void> {
   const upstream = await resolveUpstream(req, store);
   const target = `${upstream.baseUrl}${proxySuffix(req)}`;
-  const abort = new AbortController();
-  req.on('close', () => abort.abort());
 
   const method = req.method.toUpperCase();
   const headers: Record<string, string> = {};
@@ -145,32 +181,53 @@ async function handleProxy(req: Request, res: Response, store: PersistencePort):
 
   const hasBody = method !== 'GET' && method !== 'HEAD';
   const body = hasBody ? JSON.stringify(req.body ?? {}) : undefined;
+  // `fetch` sized the body automatically; `http.request` needs it explicitly.
+  if (body !== undefined) headers['Content-Length'] = String(Buffer.byteLength(body));
 
   console.log(`→ ${method} ${proxySuffix(req)}  →  ${upstream.baseUrl}` +
     (upstream.providerId ? `  provider=${upstream.providerId}` : ''));
 
-  const response = await fetch(target, {
-    method,
-    headers,
-    body,
-    signal: abort.signal
-  });
-
-  console.log(`← Status: ${response.status}`);
-
-  res.status(response.status);
-  const contentType = response.headers.get('content-type');
-  if (contentType) res.setHeader('Content-Type', contentType);
+  // Interim 1xx heartbeats keep the client connection alive while a slow
+  // upstream (e.g. an SD render) produces no bytes at all. Not used for SSE,
+  // which continuously sends its own data.
+  const isEventStream = /text\/event-stream/i.test(req.headers['accept'] ?? '');
+  const stopKeepAlive = isEventStream ? () => undefined : startKeepAlive(res);
   res.setHeader('X-Accel-Buffering', 'no');
   res.setHeader('Cache-Control', 'no-cache');
 
-  if (!response.body) {
-    res.send(await response.text());
-    return;
-  }
+  const url = new URL(target);
+  const transport = url.protocol === 'https:' ? https : http;
 
-  const nodeStream = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
-  await pipeline(nodeStream, res);
+  // NOTE: `fetch` is deliberately NOT used here. Node's fetch (undici) applies
+  // a 300 s `headersTimeout`/`bodyTimeout` by default, which cut off long image
+  // renders with "timed out". `http.request` has no such implicit ceiling; the
+  // request lives until the upstream answers or the client disconnects.
+  await new Promise<void>((resolve, reject) => {
+    const upstreamReq = transport.request(url, { method, headers }, (upstreamRes) => {
+      stopKeepAlive();
+      console.log(`← Status: ${upstreamRes.statusCode}`);
+      res.status(upstreamRes.statusCode ?? 502);
+      const contentType = upstreamRes.headers['content-type'];
+      if (contentType) res.setHeader('Content-Type', contentType);
+      pipeline(upstreamRes, res).then(() => resolve(), (err) => reject(err));
+    });
+
+    // No socket idle timeout: a render may legitimately take many minutes.
+    upstreamReq.setTimeout(0);
+    upstreamReq.on('error', (err) => {
+      stopKeepAlive();
+      reject(err);
+    });
+    // Client went away (closed tab / aborted fetch) → stop the upstream work.
+    // `res` is used rather than `req` because the request body is already
+    // consumed by express.json(), which fires `req`'s 'close' immediately.
+    res.on('close', () => {
+      if (!upstreamReq.destroyed) upstreamReq.destroy();
+    });
+
+    if (body !== undefined) upstreamReq.write(body);
+    upstreamReq.end();
+  }).finally(stopKeepAlive);
 }
 
 export function registerProxyRoutes(app: Express, store: PersistencePort): void {

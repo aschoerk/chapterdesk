@@ -77,6 +77,14 @@ export class ChatOperationService {
 
   private operationAbort: AbortController | null = null;
 
+  /**
+   * Per-chat operation guard. A chat may run at most ONE streaming or batch
+   * operation at a time — a second batch/streaming in the same chat would
+   * mangle the message list / reveal queue. Different chats may run in
+   * parallel; their own guard is independent.
+   */
+  private readonly activeChats = new Map<string, { label: string; controller: AbortController }>();
+
   /** Begin a multi-call operation (structure generation / elaborate).
    *  Returns an AbortSignal that aborts the WHOLE remaining process when the
    *  user presses Stop — not just the current in-flight LLM call. Any
@@ -95,6 +103,57 @@ export class ChatOperationService {
     this.operationAbort = null;
     this.operationLabel.set(null);
     this.gracefulStop.set(false);
+  }
+
+  /** True when a chat already has a streaming or batch operation running. */
+  isChatBusy(chatId: string): boolean {
+    return this.activeChats.has(chatId);
+  }
+
+  /** Label of the running chat operation, or null. */
+  chatBusyLabel(chatId: string): string | null {
+    return this.activeChats.get(chatId)?.label ?? null;
+  }
+
+  /**
+   * Begin a chat-scoped operation. Returns null when the chat is already busy
+   * — a streaming answer or a batch is running — so the caller must NOT start
+   * a second overlapping operation. The returned signal aborts the whole
+   * chat-scoped operation when the user presses Stop.
+   */
+  beginChatOperation(chatId: string, label: string): AbortSignal | null {
+    if (this.activeChats.has(chatId)) return null;
+    const controller = new AbortController();
+    this.activeChats.set(chatId, { label, controller });
+    this.operationLabel.set(label);
+    this.gracefulStop.set(false);
+    this.operationAbort = controller;
+    return controller.signal;
+  }
+
+  /** Finish a chat-scoped operation. */
+  endChatOperation(chatId: string): void {
+    const entry = this.activeChats.get(chatId);
+    if (!entry) return;
+    this.activeChats.delete(chatId);
+    if (this.operationAbort === entry.controller) {
+      this.operationAbort = null;
+      this.operationLabel.set(null);
+      this.gracefulStop.set(false);
+    }
+  }
+
+  /** Stop the operation running in one chat (toolbar Stop for that chat). */
+  stopChatOperation(chatId: string): void {
+    const entry = this.activeChats.get(chatId);
+    if (!entry) return;
+    entry.controller.abort();
+    this.activeChats.delete(chatId);
+    if (this.operationAbort === entry.controller) {
+      this.operationAbort = null;
+      this.operationLabel.set(null);
+      this.gracefulStop.set(false);
+    }
   }
 
   /** True if the running multi-call operation was HARD-cancelled by the user

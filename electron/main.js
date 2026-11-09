@@ -121,6 +121,7 @@ async function startServer() {
 
   const serverDist = path.join(__dirname, '..', 'chapterdesk-api-server', 'dist', 'http', 'create-app.js');
   const factoryDist = path.join(__dirname, '..', 'chapterdesk-api-server', 'dist', 'persistence', 'factory.js');
+  const muxDist = path.join(__dirname, '..', 'chapterdesk-api-server', 'dist', 'http', 'proxy-mux.js');
 
   if (!fs.existsSync(serverDist) || !fs.existsSync(factoryDist)) {
     throw new Error(
@@ -140,6 +141,15 @@ async function startServer() {
   const server = expressApp.listen(port, '127.0.0.1', () => {
     console.log(`✅ chapterdesk-api-server running on http://localhost:${port} (${store.kind}) (started by Electron)`);
   });
+
+  // WebSocket multiplexer: all proxy traffic over ONE socket so long streams
+  // do not exhaust the browser's per-origin HTTP/1.1 connection pool.
+  if (fs.existsSync(muxDist)) {
+    const { registerProxyMux } = await import(`file://${muxDist}`);
+    registerProxyMux(server, store);
+  } else {
+    console.warn('⚠️ proxy-mux.js not found in dist — falling back to per-request HTTP');
+  }
 
   return { port, server };
 }

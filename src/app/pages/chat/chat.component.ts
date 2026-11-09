@@ -1800,10 +1800,14 @@ export class ChatComponent implements OnInit {
     }
     const { model, provider } = resolvedModel;
 
+    // The whole process (LLM call + node wiring) is cancelled by one Stop press.
+    const opSignal = this.chatService.beginChatOperation(chatId, task);
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     this.isGeneratingStructure.set(true);
     this.pendingStructure.set(task);
-    // The whole process (LLM call + node wiring) is cancelled by one Stop press.
-    const opSignal = this.chatService.beginOperation(task);
     try {
       const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
       // Any anchor node works — the `structure-title` / `structure-overview`
@@ -1828,7 +1832,7 @@ export class ChatComponent implements OnInit {
     } finally {
       this.isGeneratingStructure.set(false);
       this.pendingStructure.set(null);
-      this.chatService.endOperation();
+      this.chatService.endChatOperation(chatId);
     }
   }
 
@@ -1844,10 +1848,14 @@ export class ChatComponent implements OnInit {
     }
     const { model, provider } = resolvedModel;
 
+    // The whole multi-call process is cancelled by one Stop press.
+    const opSignal = this.chatService.beginChatOperation(chatId, 'headings');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     this.isGeneratingStructure.set(true);
     this.pendingStructure.set('headings');
-    // The whole multi-call process is cancelled by one Stop press.
-    const opSignal = this.chatService.beginOperation('headings');
     try {
       const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
       // Any anchor node works — the `structure-headings` use case walks the
@@ -1871,7 +1879,7 @@ export class ChatComponent implements OnInit {
     } finally {
       this.isGeneratingStructure.set(false);
       this.pendingStructure.set(null);
-      this.chatService.endOperation();
+      this.chatService.endChatOperation(chatId);
     }
   }
 
@@ -2028,10 +2036,14 @@ export class ChatComponent implements OnInit {
       planNodeId: this.elaboratePlanNodeId()
     });
 
+    // One Stop press cancels the whole chain (all chapters / views).
+    const opSignal = this.chatService.beginChatOperation(chatId, 'elaborate');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     this.isElaborating.set(true);
     this.chatService.elaborating = true;
-    // One Stop press cancels the whole chain (all chapters / views).
-    const opSignal = this.chatService.beginOperation('elaborate');
     const started: HeldRun[] = [];
     try {
       const topicId = this.elaborateDialog.topicId(chatId);
@@ -2092,7 +2104,7 @@ export class ChatComponent implements OnInit {
         this.chatService.updateNodes(list =>
           list.map(n => (n.id === slot.targetId ? { ...n, content, thinking } : n))
         );
-      }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
+      }, { onHeadChange: id => this.chatService.setPresentedNode(id, chatId) });
 
       let parentId: string | null = anchor.id;
       const startStep = async (
@@ -2179,7 +2191,7 @@ export class ChatComponent implements OnInit {
       this.chatService.batchProgress.set(null);
       this.isElaborating.set(false);
       this.chatService.elaborating = false;
-      this.chatService.endOperation();
+      this.chatService.endChatOperation(chatId);
     }
   }
 

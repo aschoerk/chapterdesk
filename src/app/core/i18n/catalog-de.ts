@@ -405,6 +405,7 @@ export const DE: typeof EN = {
     hintEdit: 'Strg+Enter oder Strg+S speichert eine Version · Esc bricht ab',
     thinking: 'Denkt nach…',
     waiting: 'Warten auf das Modell…',
+    busy: 'Dieser Chat läuft bereits – warten Sie auf das Ende oder drücken Sie Stopp.',
     thought: 'Gedanke',
     clickToWrite: 'Doppelklicken, um die nächste Frage zu schreiben',
     clickToEdit: 'Doppelklicken, um diesen Abschnitt zu bearbeiten',

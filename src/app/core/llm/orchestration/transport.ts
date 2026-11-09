@@ -6,12 +6,23 @@ import { normalizeProviderBaseUrl, isGoogleGeminiUrl } from '../../util/provider
 import { LlmLogService } from '../llm-log.service';
 import { normalizeChatMessages, type MessagePart, type LlmImagePart } from '../llm-message';
 import { readSseStream, type LlmChunk } from '../llm-sse';
+import {
+  MuxUnavailableError,
+  ProxyMuxClient,
+  type ProxyResponse,
+} from '../proxy-mux.client';
 
 /**
- * ONE image-generation attempt hard timeout — a provider that hangs must
- * never leave the UI stuck in "Creating…". (Same safety as the legacy path.)
+ * Hard timeouts per attempt — a provider that hangs must never leave the UI
+ * stuck in "Creating…".
+ *
+ * IMAGE renders are slow: a local SD server on CPU with 20+ steps at 1024²
+ * can legitimately take many minutes. The backend proxy keeps the connection
+ * alive with interim `102 Processing` responses while it waits, so the only
+ * remaining ceiling is this client-side cap.
  */
-const TIMEOUT_MS = 120_000_000;
+const TEXT_TIMEOUT_MS = 5 * 60_000;
+const IMAGE_TIMEOUT_MS = 30 * 60_000;
 
 export interface ProviderRef {
   baseUrl: string;
@@ -40,7 +51,7 @@ export interface CompletionRequest {
   onChunk?: (chunk: LlmChunk) => void;
   /** Chat attribution for the log. */
   chat?: { id?: string; title?: string; usecase?: string; nodeId?: string };
-  /** Per-attempt timeout in ms (default TIMEOUT_MS). */
+  /** Per-attempt timeout in ms (default TEXT_TIMEOUT_MS). */
   timeoutMs?: number;
 }
 
@@ -51,6 +62,7 @@ export interface ImagesRequest {
   n?: number;
   signal?: AbortSignal;
   chat?: { id?: string; title?: string; usecase?: string; nodeId?: string };
+  /** Per-attempt timeout in ms (default IMAGE_TIMEOUT_MS). */
   timeoutMs?: number;
 }
 
@@ -132,6 +144,8 @@ function sdDimensions(sd: SdServerConfig): [number, number] {
 @Injectable({ providedIn: 'root' })
 export class LlmTransportService {
   private readonly llmLog = inject(LlmLogService);
+  /** Shared WebSocket carrying every proxy request (see proxy-mux.client). */
+  private readonly mux = inject(ProxyMuxClient);
 
   // ------------------------------------------------------------------
   // Transport scaffolding — shared by the completion + images calls.
@@ -142,12 +156,15 @@ export class LlmTransportService {
    * abort signal. Returns the controller plus a cleanup (clear the timer,
    * detach the abort listener) that the caller MUST run in `finally`.
    */
-  private withAbort(req: { timeoutMs?: number; signal?: AbortSignal }): {
+  private withAbort(
+    req: { timeoutMs?: number; signal?: AbortSignal },
+    defaultMs: number = TEXT_TIMEOUT_MS,
+  ): {
     controller: AbortController;
     cleanup: () => void;
   } {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? defaultMs);
     const forwardAbort = (): void => controller.abort();
     if (req.signal) {
       if (req.signal.aborted) controller.abort();
@@ -160,17 +177,34 @@ export class LlmTransportService {
     return { controller, cleanup };
   }
 
-  /** POST a JSON payload to `url` under the provider's headers. */
+  /**
+   * POST a JSON payload to `url` under the provider's headers.
+   *
+   * Prefers the WebSocket multiplexer (one socket for ALL proxy traffic, so
+   * long streams never exhaust the browser's 6-connections-per-origin pool)
+   * and falls back to plain HTTP only when the socket cannot be established
+   * (older server build, or a runtime without WebSocket support).
+   */
   private async postJson(
     url: string,
     provider: ProviderRef,
     payload: Record<string, unknown>,
     controller: AbortController,
-  ): Promise<Response> {
+  ): Promise<ProxyResponse> {
+    const headers = this.headers(provider);
+    if (this.mux.enabled()) {
+      try {
+        return await this.mux.request(url, headers, payload, controller.signal);
+      } catch (err: unknown) {
+        // Only a failed CONNECTION falls back — a request that reached the
+        // server must never be silently retried over HTTP (double send).
+        if (!(err instanceof MuxUnavailableError)) throw err;
+      }
+    }
     const config = getServerConfig();
     return fetch(`${config.proxyBase}${url}`, {
       method: 'POST',
-      headers: this.headers(provider),
+      headers,
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -181,10 +215,10 @@ export class LlmTransportService {
    * error body, record it in the log, and throw it as a TransportError.
    */
   private async ensureOk(
-    response: Response,
+    response: ProxyResponse,
     logEntry: import('../llm-log.service').LlmLogEntry,
     controller: AbortController,
-  ): Promise<Response> {
+  ): Promise<ProxyResponse> {
     if (response.ok) return response;
     const text = await response.text();
     this.llmLog.complete(logEntry, { error: { status: response.status, text } });
@@ -201,13 +235,14 @@ export class LlmTransportService {
     controller: AbortController,
     req: { timeoutMs?: number; signal?: AbortSignal },
     logEntry: import('../llm-log.service').LlmLogEntry,
+    defaultMs: number = TEXT_TIMEOUT_MS,
   ): never {
     if ((err as TransportError).status !== undefined) throw err as TransportError;
     const aborting = controller.signal.aborted;
     const tErr: TransportError = {
       status: 0,
       text: aborting
-        ? (req.signal?.aborted ? 'aborted' : `timed out after ${(req.timeoutMs ?? TIMEOUT_MS) / 1000}s`)
+        ? (req.signal?.aborted ? 'aborted' : `timed out after ${(req.timeoutMs ?? defaultMs) / 1000}s`)
         : String((err as Error)?.message ?? err),
       aborted: aborting,
     };
@@ -498,7 +533,7 @@ export class LlmTransportService {
       extras: req.n && req.n > 1 ? { n: req.n } : {}
     });
 
-    const { controller, cleanup } = this.withAbort(req);
+    const { controller, cleanup } = this.withAbort(req, IMAGE_TIMEOUT_MS);
     try {
       const response = await this.ensureOk(
         await this.postJson('/images', req.provider, payload, controller),
@@ -509,7 +544,7 @@ export class LlmTransportService {
       this.llmLog.complete(logEntry, { response: raw });
       return { raw };
     } catch (err: unknown) {
-      this.throwTransportError(err, controller, req, logEntry);
+      this.throwTransportError(err, controller, req, logEntry, IMAGE_TIMEOUT_MS);
     } finally {
       cleanup();
     }
@@ -564,7 +599,7 @@ export class LlmTransportService {
       extras: {}
     });
 
-    const { controller, cleanup } = this.withAbort(req);
+    const { controller, cleanup } = this.withAbort(req, IMAGE_TIMEOUT_MS);
     try {
       const response = await this.ensureOk(
         await this.postJson('/sdapi/v1/txt2img', req.provider, payload, controller),
@@ -575,7 +610,7 @@ export class LlmTransportService {
       this.llmLog.complete(logEntry, { response: raw });
       return { raw };
     } catch (err: unknown) {
-      this.throwTransportError(err, controller, req, logEntry);
+      this.throwTransportError(err, controller, req, logEntry, IMAGE_TIMEOUT_MS);
     } finally {
       cleanup();
     }

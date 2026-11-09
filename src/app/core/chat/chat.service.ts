@@ -326,10 +326,18 @@ export class ChatService {
 
   beginOperation(label: string): AbortSignal { return this.operations.beginOperation(label); }
   endOperation(): void { this.operations.endOperation(); }
+  beginChatOperation(chatId: string, label: string): AbortSignal | null { return this.operations.beginChatOperation(chatId, label); }
+  endChatOperation(chatId: string): void { this.operations.endChatOperation(chatId); }
+  isChatBusy(chatId: string): boolean { return this.operations.isChatBusy(chatId); }
+  chatBusyLabel(chatId: string): string | null { return this.operations.chatBusyLabel(chatId); }
+  stopChatOperation(chatId: string): void { this.operations.stopChatOperation(chatId); }
   isOperationCancelled(): boolean { return this.operations.isOperationCancelled(); }
   shouldStopAfterCurrentStep(): boolean { return this.operations.shouldStopAfterCurrentStep(); }
   requestGracefulStop(): void { this.operations.requestGracefulStop(); }
-  setPresentedNode(nodeId: string | null): void { this.operations.setPresentedNode(nodeId); }
+  setPresentedNode(nodeId: string | null, chatId?: string): void {
+    if (chatId && chatId !== this.state.currentChatId()) return;
+    this.operations.setPresentedNode(nodeId);
+  }
   clearGeneration(nodeId?: string): void { this.operations.clearGeneration(nodeId); }
   startGeneration(nodeId: string): AbortSignal { return this.operations.startGeneration(nodeId); }
   stopGeneration(): void { this.operations.stopGeneration(); }

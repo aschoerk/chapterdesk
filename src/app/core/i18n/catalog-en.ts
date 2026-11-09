@@ -400,6 +400,7 @@ export const EN = {
     hintEdit: 'Ctrl+Enter or Ctrl+S saves a version · Esc cancels',
     thinking: 'Thinking…',
     waiting: 'Waiting for the model…',
+    busy: 'This chat is already running a generation — wait for it to finish or press Stop.',
     thought: 'Thought',
     clickToWrite: 'Double-click to write the next question',
     clickToEdit: 'Double-click to edit this section',

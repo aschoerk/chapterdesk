@@ -785,8 +785,14 @@ export class ChatNodeComponent implements OnDestroy {
       ? (this.promptDefaults.effective('structure.continue') || 'continue')
       : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
 
-    // One Stop press cancels the whole batch.
-    const opSignal = this.chatService.beginOperation(direction === 'continue' ? 'continue' : 'switchCharacters');
+    // One Stop press cancels the whole batch. A chat may run only ONE
+    // streaming/batch operation at a time — a second one is refused so the
+    // message list cannot be mangled by two overlapping producers.
+    const opSignal = this.chatService.beginChatOperation(chatId, direction === 'continue' ? 'continue' : 'switchCharacters');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     this.pendingAction.set(direction);
     this.isLoading.set(true);
     this.chatService.batchProgress.set({ current: 1, total: count, unit: 'repetition' });
@@ -799,7 +805,7 @@ export class ChatNodeComponent implements OnDestroy {
     // fully revealed.
     const queue = new RevealQueue(this.chatService.streamRevealPrefs(), (slot, content, thinking) => {
       this.paintAnswer(slot.targetId, content, thinking);
-    }, { onHeadChange: id => this.chatService.setPresentedNode(id) });
+    }, { onHeadChange: id => this.chatService.setPresentedNode(id, chatId) });
     try {
       let current: HeldAnswerStream | null = null;
       for (let i = 1; i <= count; i++) {
@@ -889,7 +895,7 @@ export class ChatNodeComponent implements OnDestroy {
       for (const h of started) h.abort();
       this.chatService.batchProgress.set(null);
       this.chatService.clearGeneration();
-      this.chatService.endOperation();
+      this.chatService.endChatOperation(chatId);
       this.isLoading.set(false);
       this.pendingAction.set(null);
     }
@@ -999,9 +1005,15 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   private async runSend(
+    chatId: string,
     pending: 'send' | 'branch' | 'insert' | 'continue' | 'switchCharacters',
     work: () => Promise<void>
   ): Promise<void> {
+    const opSignal = this.chatService.beginChatOperation(chatId, 'stream');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     if (pending !== 'continue' || this.pendingAction() !== 'continue') {
       this.pendingAction.set(pending);
     }
@@ -1014,6 +1026,7 @@ export class ChatNodeComponent implements OnDestroy {
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
+      this.chatService.endChatOperation(chatId);
     }
   }
 
@@ -1460,6 +1473,11 @@ export class ChatNodeComponent implements OnDestroy {
     const isStoryboard =
       usecase === 'planned-enblock' || usecase === 'planned-scenes' || usecase === 'storyboard-direct';
 
+    const opSignal = this.chatService.beginChatOperation(chatId, 'illustrate');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return;
+    }
     this.isLoading.set(true);
     this.pendingAction.set('image');
     this.imageProgress.set(null);
@@ -1504,7 +1522,7 @@ export class ChatNodeComponent implements OnDestroy {
         // One Stop press cancels the whole illustrate use case: the returned
         // signal propagates into the orchestration runner so in-flight LLM
         // calls abort and no further scenes are rendered.
-        applySignal = this.chatService.beginOperation('illustrate');
+        applySignal = opSignal;
         this.chatService.isIllustrating.set(true);
       }
       const build = { chat, node: chapter, usecase, vars };
@@ -1573,8 +1591,8 @@ export class ChatNodeComponent implements OnDestroy {
       this.imageProgress.set(null);
       if (isStoryboard) {
         this.chatService.isIllustrating.set(false);
-        this.chatService.endOperation();
       }
+      this.chatService.endChatOperation(chatId);
     }
   }
 
@@ -1595,7 +1613,7 @@ export class ChatNodeComponent implements OnDestroy {
     const { node, content, attachments, chatId, model, provider } = target;
 
     const pending = this.pendingAction();
-    await this.runSend(pending === 'continue' || pending === 'switchCharacters' ? pending : 'send', async () => {
+    await this.runSend(chatId, pending === 'continue' || pending === 'switchCharacters' ? pending : 'send', async () => {
       const saved = await this.chatService.persistQuestion(
         chatId,
         node.id,
@@ -1675,7 +1693,7 @@ export class ChatNodeComponent implements OnDestroy {
     this.chatService.setActiveChild(question.id, answerNode.id);
     const signal = this.chatService.startGeneration(answerNode.id);
     // Single (raw) stream path — presented = the node being revealed.
-    this.chatService.setPresentedNode(answerNode.id);
+    this.chatService.setPresentedNode(answerNode.id, chatId);
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
 
     const usecase = opts.usecase ?? 'append';
@@ -1778,7 +1796,7 @@ export class ChatNodeComponent implements OnDestroy {
       reveal.flush();
       reveal.destroy();
       this.chatService.clearGeneration(answerNode.id);
-      if (this.chatService.presentedNodeId() === answerNode.id) this.chatService.setPresentedNode(null);
+      if (this.chatService.presentedNodeId() === answerNode.id) this.chatService.setPresentedNode(null, chatId);
       // One-shot excluded nodes (e.g. the chat-lore node created with
       // `excludeAfterSend`) were just sent as part of this request: flip them
       // to permanently excluded so they document but never re-ship.
@@ -1898,6 +1916,11 @@ export class ChatNodeComponent implements OnDestroy {
     if (!chatId) return false;
     const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
 
+    const opSignal = this.chatService.beginChatOperation(chatId, 'stream');
+    if (!opSignal) {
+      this.toast.error(this.i18n.t('node.busy'));
+      return false;
+    }
     this.isLoading.set(true);
     this.pendingAction.set(pending);
     try {
@@ -1908,7 +1931,7 @@ export class ChatNodeComponent implements OnDestroy {
         vars: {}
       };
       builder?.(build);
-      const slots = await this.flowRunner.run(build as never);
+      const slots = await this.flowRunner.run(build as never, { signal: opSignal });
       const flow = slots.flow?.value;
       if (flow?.activateId) this.activate.emit(flow.activateId);
       return true;
@@ -1919,6 +1942,7 @@ export class ChatNodeComponent implements OnDestroy {
     } finally {
       this.isLoading.set(false);
       this.pendingAction.set(null);
+      this.chatService.endChatOperation(chatId);
     }
   }
 

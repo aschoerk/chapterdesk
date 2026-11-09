@@ -213,7 +213,7 @@ export async function streamAnswerNode(
   const signal = chatService.startGeneration(answerNode.id);
   // The single (raw) stream path presents this node directly — follow-streaming
   // and the thinking spinner key off the PRESENTED node, not the generation id.
-  chatService.setPresentedNode(answerNode.id);
+  chatService.setPresentedNode(answerNode.id, chatId);
 
   let accContent = '';
   let accThinking = '';
@@ -301,7 +301,7 @@ export async function streamAnswerNode(
     reveal.flush();
     reveal.destroy();
     chatService.clearGeneration(answerNode.id);
-    if (chatService.presentedNodeId() === answerNode.id) chatService.setPresentedNode(null);
+    if (chatService.presentedNodeId() === answerNode.id) chatService.setPresentedNode(null, chatId);
     // One-shot excluded nodes (e.g. the chat-lore node created with
     // `excludeAfterSend`) have now been sent as part of this request: flip
     // them to permanently excluded so they are documented but never re-shipped.
