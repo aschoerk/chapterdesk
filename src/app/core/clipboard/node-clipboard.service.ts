@@ -194,16 +194,23 @@ export class NodeClipboardService {
    *
    * Unlike a plain cut (clipboard only) this creates a real new chat, copies
    * the source story's lore to it and re-creates the selected nodes there as
-   * the story's starting chain. The original nodes are then removed from the
-   * source story.
+   * the story's starting chain. The source story keeps everything that is not
+   * EXCLUSIVELY part of the extraction (see below).
    *
-   * Structural guarantees in the SOURCE story:
-   *  – Only the extracted nodes are removed. Children in OTHER branches are
-   *    never deleted (they may be parents of their own subtrees).
-   *  – When the extracted sequence is not a complete subtree (i.e. some of its
-   *    nodes have children outside the extraction), those dangling branches
-   *    are re-hung under the PARENT OF THE FIRST EXTRACTED NODE, so the rest of
-   *    the story keeps a valid, unsurprising structure.
+   * Which nodes are actually MOVED (cut) and which are only COPIED:
+   *  – A node may only be removed from the source story when its ENTIRE
+   *    subtree travelled along — i.e. no descendant is left behind.
+   *  – A node that transitively is a parent of a node which is NOT extracted
+   *    must stay: removing it would orphan that branch. Such a node is COPIED
+   *    into the new story and left untouched in the source story (the same
+   *    applies to all of its extracted ancestors).
+   *
+   * Example (visible A → B → C → D, invisible C → E), extracting B with its
+   * visible subtree: the new story gets B → C → D, the source keeps
+   * A → B → C → E — B and C were copied, only D was cut.
+   *
+   * Empty draft placeholders (the terminal input box) never count as a branch
+   * that stays behind.
    *
    * With `withVisibleSubtree` the extraction also takes the visible
    * continuation below the selection (the rest of the active path), so the new
@@ -230,15 +237,12 @@ export class NodeClipboardService {
       : nodes;
     if (!extracted.length) return null;
 
-    // Parent of the FIRST extracted node — the surviving anchor the dangling
-    // branches are re-hung under.
-    const anchorParentId = nodes[0].parentId ?? null;
     const extractedIds = new Set(extracted.map(n => n.id));
 
-    // Compute the dangling branches BEFORE creating anything: `addNode`
-    // appends the new story's nodes to the shared node state, and the dangling
-    // lookup walks that state.
-    const dangling = this.danglingChildren(extracted, extractedIds);
+    // Which extracted nodes may actually be CUT (deepest first). Computed
+    // BEFORE anything is created: the shared node state later also holds the
+    // new story's nodes.
+    const cut = this.cuttableNodes(sourceChatId, extractedIds);
 
     // Snapshot in clipboard form so `createNodes` can remap the parent
     // pointers (same replay logic as paste).
@@ -263,25 +267,83 @@ export class NodeClipboardService {
 
     await this.createNodes(newChat.id, entry, null);
 
-    // Re-hang the dangling branches BEFORE deleting anything: children of the
-    // extracted set that are not part of it stay in this story. Doing this
-    // explicitly (instead of relying on the per-node keepChildren cascade)
-    // keeps the outcome independent of the deletion order.
-    if (dangling.length) {
-      await this.chatService.reparentNodes(
-        sourceChatId,
-        dangling.map(n => n.id),
-        anchorParentId,
-      );
-    }
-
-    // Remove the extracted nodes from the source story (their children are
-    // either extracted too or already re-hung above).
-    for (const node of extracted) {
+    // Remove ONLY the nodes whose whole subtree moved. Every other extracted
+    // node has a branch that stays behind, so it was copied and keeps its
+    // place in the source story.
+    for (const node of cut) {
       await this.chatService.deleteNode(sourceChatId, node.id, { keepChildren: true });
     }
 
     return newChat;
+  }
+
+  /**
+   * The extracted nodes that may really be REMOVED from the source story, in
+   * deletion order (deepest first, so `keepChildren` never has to re-hang a
+   * node that is about to be deleted as well).
+   *
+   * A node qualifies only when EVERY node below it is part of the extraction.
+   * A node with a branch that stays behind (a descendant outside the
+   * extraction) is kept — it is copied into the new story instead of moving.
+   * Empty draft placeholders do not keep a branch alive.
+   */
+  private cuttableNodes(sourceChatId: string, extractedIds: Set<string>): ChatNode[] {
+    const source = this.chatService.nodes().filter(n => n.chatId === sourceChatId);
+    const byId = new Map(source.map(n => [n.id, n]));
+    const childrenOf = new Map<string | null, ChatNode[]>();
+    for (const n of source) {
+      const key = n.parentId ?? null;
+      const list = childrenOf.get(key);
+      if (list) list.push(n);
+      else childrenOf.set(key, [n]);
+    }
+
+    /** True when a DRAFT placeholder with no content of its own hangs below. */
+    const isPlaceholder = (n: ChatNode): boolean =>
+      this.chatService.isDraftQuestion(n) && (childrenOf.get(n.id) ?? []).length === 0;
+
+    const memo = new Map<string, boolean>();
+    /** True when the subtree of `id` contains a node that is NOT extracted. */
+    const hasOutsideDescendant = (id: string): boolean => {
+      const cached = memo.get(id);
+      if (cached !== undefined) return cached;
+      memo.set(id, false); // cycle guard — a corrupted tree must not hang
+      let outside = false;
+      for (const child of childrenOf.get(id) ?? []) {
+        if (!extractedIds.has(child.id)) {
+          if (!isPlaceholder(child)) {
+            outside = true;
+            break;
+          }
+          continue;
+        }
+        if (hasOutsideDescendant(child.id)) {
+          outside = true;
+          break;
+        }
+      }
+      memo.set(id, outside);
+      return outside;
+    };
+
+    const depthOf = (id: string): number => {
+      let depth = 0;
+      let cur = byId.get(id)?.parentId ?? null;
+      const seen = new Set<string>([id]);
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        depth++;
+        cur = byId.get(cur)?.parentId ?? null;
+      }
+      return depth;
+    };
+
+    return [...extractedIds]
+      .filter(id => !hasOutsideDescendant(id))
+      .map(id => byId.get(id))
+      .filter((n): n is ChatNode => !!n)
+      // Deepest first: children leave before their parents.
+      .sort((a, b) => depthOf(b.id) - depthOf(a.id));
   }
 
   /**
@@ -307,24 +369,6 @@ export class NodeClipboardService {
     const selectedIds = new Set(nodes.map(n => n.id));
     const covered = visible.filter(n => selectedIds.has(n.id)).length;
     return covered >= nodes.length ? visible : nodes;
-  }
-
-  /**
-   * Children of the extracted set whose parent IS extracted but which are NOT
-   * extracted themselves — the dangling branches that must survive in the
-   * source story.
-   */
-  private danglingChildren(extracted: ChatNode[], extractedIds: Set<string>): ChatNode[] {
-    const out: ChatNode[] = [];
-    const seen = new Set<string>();
-    for (const node of extracted) {
-      for (const child of this.chatService.getChildren(node.id)) {
-        if (extractedIds.has(child.id) || seen.has(child.id)) continue;
-        seen.add(child.id);
-        out.push(child);
-      }
-    }
-    return out;
   }
 
   clear(): void {

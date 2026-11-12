@@ -578,5 +578,37 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
       chat.beginOperation('continue');
       expect(chat.gracefulStop()).toBe(false);
     });
+
+    it('chat-scoped Stop aborts THAT chat only and keeps it cancelled until its run ends', () => {
+      const a = chat.beginChatOperation('chat-a', 'continue')!;
+      const b = chat.beginChatOperation('chat-b', 'elaborate')!;
+      expect(a.aborted).toBe(false);
+      expect(b.aborted).toBe(false);
+
+      chat.stopGeneration('chat-a');
+
+      // The batch of chat-a saw ITS OWN signal abort …
+      expect(a.aborted).toBe(true);
+      // … while the other chat keeps running.
+      expect(b.aborted).toBe(false);
+      // The run is still alive (draining / cleaning up), so the chat stays
+      // busy until its own endChatOperation() runs.
+      expect(chat.isChatBusy('chat-a')).toBe(true);
+      expect(chat.isChatBusy('chat-b')).toBe(true);
+
+      chat.endChatOperation('chat-a');
+      expect(chat.isChatBusy('chat-a')).toBe(false);
+      expect(b.aborted).toBe(false); // the other chat's operation is untouched
+    });
+
+    it('a Stop of the single running chat operation satisfies the between-step guard', () => {
+      const signal = chat.beginChatOperation('chat-a', 'continue')!;
+      chat.stopGeneration('chat-a');
+
+      expect(signal.aborted).toBe(true);
+      expect(chat.isOperationCancelled()).toBe(true);
+      expect(chat.shouldStopAfterCurrentStep()).toBe(true);
+      expect(chat.gracefulStop()).toBe(false);
+    });
   });
 });

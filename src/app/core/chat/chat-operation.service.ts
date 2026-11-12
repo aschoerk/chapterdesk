@@ -228,11 +228,27 @@ export class ChatOperationService {
     return controller.signal;
   }
 
-  /** User-facing STOP: cancels ALL active answer generations AND any running
-   *  multi-call operation (headings / elaborate / title / summary). */
-  stopGeneration(): void {
+  /** User-facing STOP: cancels ALL active answer generations AND the running
+   *  multi-call operation (headings / elaborate / title / summary / batch).
+   *  With a `chatId` (the toolbar / node Stop belongs to ONE chat) only THAT
+   *  chat's operation is aborted — so pressing Stop can never leave that
+   *  chat's batch running because the global slot was taken by another
+   *  chat's operation — and other chats keep streaming. The chat entry is
+   *  deliberately KEPT: `isOperationCancelled()` / `shouldStopAfterCurrentStep()`
+   *  must keep reporting the cancellation until the run's own
+   *  `endChatOperation()` executes. */
+  stopGeneration(chatId?: string): void {
     this.clearGeneration();
+    if (chatId) {
+      const entry = this.activeChats.get(chatId);
+      if (entry) {
+        entry.controller.abort();
+        return;
+      }
+      // No chat-scoped run: fall through to the legacy single-slot operation.
+    }
     this.operationAbort?.abort();
+    for (const entry of this.activeChats.values()) entry.controller.abort();
   }
 
   isGenerating(nodeId: string): boolean {

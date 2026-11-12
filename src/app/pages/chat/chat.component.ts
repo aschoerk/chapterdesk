@@ -277,14 +277,17 @@ export class ChatComponent implements OnInit {
   /**
    * Extract the selected chain into a NEW story: the selected nodes are
    * copied there (as the story's starting chain), the source story's lore is
-   * copied along with them and the selected nodes are removed from this
-   * story. The new story is opened afterwards.
+   * copied along with them. The new story is opened afterwards.
    *
    * With `withVisibleSubtree` the visible continuation below the selection (the
    * rest of the active path) travels along as well, so the new story does not
-   * end at the cut. Dangling branches — children of extracted nodes that are
-   * NOT extracted — always stay in this story and are re-hung under the parent
-   * of the first extracted node.
+   * end at the cut.
+   *
+   * Only nodes whose whole subtree moved are removed from this story. A node
+   * that transitively is a parent of a node which is NOT extracted stays here
+   * (removing it would orphan that branch) — it is COPIED instead. Example:
+   * visible A → B → C → D with an invisible C → E; extracting B with its
+   * subtree yields B → C → D in the new story and keeps A → B → C → E here.
    */
   async extractNavSelection(withVisibleSubtree = false): Promise<void> {
     const nodes = this.selectedNavNodes();
@@ -1764,9 +1767,9 @@ export class ChatComponent implements OnInit {
   }
 
   /** Abort the current generation AND any running multi-call operation
-   *  (headings / elaborate / title / summary). */
+   *  (headings / elaborate / title / summary) of THIS chat. */
   stopGeneration(): void {
-    this.chatService.stopGeneration();
+    this.chatService.stopGeneration(this.currentChatId() ?? undefined);
   }
 
   /** Finish the current stream / step, then stop anything that would follow
@@ -2045,6 +2048,13 @@ export class ChatComponent implements OnInit {
     this.isElaborating.set(true);
     this.chatService.elaborating = true;
     const started: HeldRun[] = [];
+    // Hard Stop (aborted operation signal) ends the chain IMMEDIATELY; a
+    // graceful "Finish & stop" (requestGracefulStop) also ends it, but only
+    // AFTER the current chapter has streamed to completion and been saved.
+    // The signal is forwarded into every held chapter stream, so a chapter
+    // whose preparation was still running when Stop was pressed never issues
+    // its LLM request.
+    const stopped = () => opSignal.aborted || this.chatService.shouldStopAfterCurrentStep();
     try {
       const topicId = this.elaborateDialog.topicId(chatId);
 
@@ -2058,7 +2068,7 @@ export class ChatComponent implements OnInit {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
         // ends the chain, but only AFTER the current chapter's answer has
         // streamed to completion and been saved.
-        if (this.chatService.shouldStopAfterCurrentStep()) break;
+        if (stopped()) break;
         // No names → one generic elaboration per chapter.
         // With names → one elaboration per name, in first person; only the very
         // first view is "first" — the template renders the non-repetition
@@ -2077,7 +2087,7 @@ export class ChatComponent implements OnInit {
         // the next N" — the same temporary lore section for every view.
         const loreExtra = plan ? chapterPlanSlice(plan, chapter, planChapters) : '';
         for (const prompt of chapterPrompts) {
-          if (this.chatService.shouldStopAfterCurrentStep()) break;
+          if (stopped()) break;
           prompts.push({ prompt, chapter, loreExtra });
         }
       }
@@ -2154,7 +2164,7 @@ export class ChatComponent implements OnInit {
         await current.finalize(opSignal);
         parentId = current.answerNodeId ?? parentId;
         // Graceful / hard stop: drain the current tail, then stop the chain.
-        if (this.chatService.shouldStopAfterCurrentStep()) {
+        if (stopped()) {
           await current.drain(opSignal);
           current = null;
           break;
@@ -2166,11 +2176,29 @@ export class ChatComponent implements OnInit {
           prompts[i].loreExtra,
           current,
         );
+        // A Stop / "Finish & stop" that landed while this chapter was being
+        // prepared (question/lore creation) ends the chain with the PREVIOUS
+        // chapter: `next` never became the current one, so it is dropped
+        // together with the nodes it just created.
+        if (stopped()) {
+          await next.discard();
+          await current.drain(opSignal);
+          current = null;
+          break;
+        }
         // Keep pacing the current tail; once it fully reveals, the queue
         // advances to `next` and the reveal flows seamlessly into it. The
         // chapter counter advances only THEN — it follows the chapter being
         // WRITTEN on screen, not the one merely prefetched in the background.
         await current.drain(opSignal);
+        // A "Finish & stop" pressed while the tail was still revealing also
+        // ends the chain with the CURRENT chapter — the prefetched chapter
+        // never reached the screen.
+        if (this.chatService.gracefulStop()) {
+          await next.discard();
+          current = null;
+          break;
+        }
         this.chatService.batchProgress.set({ current: prompts[i].chapter, total: last, unit: 'chapter' });
         current = next;
       }

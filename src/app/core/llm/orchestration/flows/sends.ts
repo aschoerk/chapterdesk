@@ -15,6 +15,7 @@ import {
   streamAnswerNode
 } from './text-send';
 import { startHeldAnswerStream, type HeldAnswerStreamDeps } from '../../held-answer-stream';
+import { isChatLoreNode } from '../../../chat/chat-lore.service';
 import {
   CHAPTER_PLAN_FORMAT_CONTRACT,
   chapterPlanRecord,
@@ -238,7 +239,8 @@ const sendElaborate: FlowController = async env => {
 
   // Reuse an empty user leaf draft under the anchor if one exists, else
   // create a fresh question (mirrors the legacy elaborate dialog).
-  const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
+  const { node: question } =
+    await getOrCreateElaborateQuestion(env, chatId, parentId, content);
 
   // Current chat-lore: materialize a lore node in front of the elaborate
   // direction. `loreExtra` is the TEMPORARY chapter-plan slice for THIS
@@ -279,7 +281,8 @@ export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
 
   // Reuse an empty user leaf draft under the anchor if one exists, else
   // create a fresh question (mirrors the legacy elaborate dialog).
-  const question = await getOrCreateElaborateQuestion(env, chatId, parentId, content);
+  const { node: question, created: questionCreated } =
+    await getOrCreateElaborateQuestion(env, chatId, parentId, content);
 
   // Current chat-lore: materialize a lore node in front of the elaborate
   // direction. `loreExtra` is the TEMPORARY chapter-plan slice for THIS
@@ -353,10 +356,20 @@ export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
       return { id: versioned.id, content: chapterContent };
     },
     markSentOnceExcluded: () => env.chatService.markSentOnceExcluded(chatId, question.id),
-    retargetLog: (entry: LlmLogEntry, nodeId: string) => env.llmLog.retargetNode(entry, nodeId)
+    retargetLog: (entry: LlmLogEntry, nodeId: string) => env.llmLog.retargetNode(entry, nodeId),
+    discardAnswer: async ({ placeholderId }) => {
+      env.chatService.clearGeneration(placeholderId);
+      await env.chatService.deleteNode(chatId, placeholderId);
+    }
   };
 
-  const stream = await startHeldAnswerStream(deps, { queue: env.queue });
+  const stream = await startHeldAnswerStream(deps, {
+    queue: env.queue,
+    // A hard Stop aborts the OPERATION signal — forward it so a chapter whose
+    // preparation (question/lore creation) was still running when Stop was
+    // pressed never issues its LLM call.
+    signal: env.signal
+  });
   return {
     questionNodeId: question.id,
     placeholderNodeId: stream.placeholderNodeId,
@@ -375,8 +388,56 @@ export async function startSendElaborateHeld(env: FlowEnv): Promise<HeldRun> {
       }, flowEmpty(slots));
     },
     drain: (signal?: AbortSignal) => stream.drain(signal),
-    abort: () => stream.abort()
+    abort: () => stream.abort(),
+    discard: async () => {
+      // Roll the chapter back: its answer placeholder, the question it created
+      // (or the composer leaf it filled) and the pending chat-lore node
+      // materialized in front of it were never sent.
+      await stream.discard();
+      await rollbackElaborateStep(env, chatId, question, questionCreated);
+    }
   };
+}
+
+/**
+ * Undo a chapter step that never became the CURRENT one (it was prefetched in
+ * the background and a Stop / "Finish & stop" ended the chain before it was
+ * presented): delete the question it created and the pending chat-lore node
+ * materialized in front of it, or empty a REUSED composer leaf again.
+ */
+async function rollbackElaborateStep(
+  env: FlowEnv,
+  chatId: string,
+  question: ChatNode,
+  created: boolean
+): Promise<void> {
+  const chatService = env.chatService;
+  const node = chatService.nodes().find(n => n.id === question.id);
+  if (!node) return;
+  const parent = node.parentId
+    ? chatService.nodes().find(n => n.id === node.parentId) ?? null
+    : null;
+  // The lore node was materialized for THIS send and never reached the model.
+  const pendingLore = parent && isChatLoreNode(parent) && parent.excludeAfterSend
+    ? parent
+    : null;
+
+  if (!created) {
+    // A reused empty composer leaf: clear the direction again and move it back
+    // in front of the (now discarded) lore node.
+    await chatService.patchNode(chatId, question.id, {
+      content: '',
+      excludeFromContext: false,
+      ...(pendingLore ? { parentId: pendingLore.parentId ?? null } : {})
+    });
+  } else {
+    await chatService.deleteNode(chatId, question.id);
+    await chatService.purgeBranch(chatId, question.id);
+  }
+  if (pendingLore) {
+    await chatService.deleteNode(chatId, pendingLore.id);
+    await chatService.purgeBranch(chatId, pendingLore.id);
+  }
 }
 
 /** Reuse an empty user leaf under `parentId` if one exists, else create one. */
@@ -385,7 +446,7 @@ async function getOrCreateElaborateQuestion(
   chatId: string,
   parentId: string | null,
   content: string
-): Promise<ChatNode> {
+): Promise<{ node: ChatNode; created: boolean }> {
   const chatService = env.chatService;
   const children = chatService.getChildren(parentId);
   const draft = children.find(n =>
@@ -402,7 +463,7 @@ async function getOrCreateElaborateQuestion(
     // The elaborate prompt is an auto-generated meta-direction: it must have
     // been sent (it is/was the current question), but is excluded as history.
     await chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
-    return saved;
+    return { node: saved, created: false };
   }
   const created = await chatService.addNode(chatId, {
     parentId,
@@ -413,7 +474,7 @@ async function getOrCreateElaborateQuestion(
     excludeFromContext: true
   });
   chatService.setActiveChild(parentId, created.id);
-  return created;
+  return { node: created, created: true };
 }
 
 // ---------------------------------------------------------------------------

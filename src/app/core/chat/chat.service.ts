@@ -340,7 +340,7 @@ export class ChatService {
   }
   clearGeneration(nodeId?: string): void { this.operations.clearGeneration(nodeId); }
   startGeneration(nodeId: string): AbortSignal { return this.operations.startGeneration(nodeId); }
-  stopGeneration(): void { this.operations.stopGeneration(); }
+  stopGeneration(chatId?: string): void { this.operations.stopGeneration(chatId); }
   isGenerating(nodeId: string): boolean { return this.operations.isGenerating(nodeId); }
 
   // ------------------------------------------------------------- selection

@@ -49,4 +49,9 @@ export interface HeldRun {
   drain(signal?: AbortSignal): Promise<void>;
   /** Abort/error cleanup: flush + destroy the reveal pump. */
   abort(): void;
+  /** The step never became the CURRENT one (a Stop / "Finish & stop" ended the
+   *  chain while it was still being prepared, or while the previous chapter's
+   *  tail was revealing): abort the request, stop the reveal without painting
+   *  and undo the nodes it created — as if it had never been started. */
+  discard(): Promise<void>;
 }

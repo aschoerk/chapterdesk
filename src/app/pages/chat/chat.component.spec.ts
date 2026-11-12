@@ -1487,9 +1487,10 @@ describe('Chat', () => {
     expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
   });
 
-  it('extract leaves the UNSELECTED children of the selected nodes in the origin', async () => {
-    // q1 → a1 → a2: only a1 is selected. a2 hangs BELOW a1 and must not be
-    // deleted together with its parent when the parent is extracted.
+  it('extract COPIES a selected node whose child stays behind', async () => {
+    // q1 → a1 → a2: only a1 is selected. a2 hangs BELOW a1 and is NOT
+    // extracted, so a1 must not be removed — it is COPIED into the new story
+    // and stays in the origin (removing it would orphan a2).
     seedApi(api, {
       chats: [{ id: 'chat-1', title: 'Story', lore: 'Ashley is married.' }],
       nodes: [
@@ -1510,7 +1511,7 @@ describe('Chat', () => {
     component.toggleNavSelection('a1');
     await component.extractNavSelection();
 
-    // A new story got the extracted node AND the source story's lore…
+    // A new story got a COPY of the extracted node AND the source story's lore…
     const newChat = chatService.chats().find(c => c.id !== 'chat-1')!;
     expect(newChat).toBeDefined();
     expect(chatService.currentChatId()).toBe(newChat.id);
@@ -1519,12 +1520,14 @@ describe('Chat', () => {
     // …but NOT the child of the extracted node.
     expect(chatService.nodes().some(n => n.content === 'Answer two')).toBe(false);
 
-    // The origin keeps the child, reparented to a1's parent (q1) — not deleted.
+    // The origin keeps BOTH nodes, unchanged: a1 is still there with a2 below.
     const originNodes = await api.getNodes('chat-1');
-    expect(originNodes.find(n => n.id === 'a1')).toBeUndefined();
+    const a1 = originNodes.find(n => n.id === 'a1');
+    expect(a1).toBeDefined();
+    expect(a1!.parentId).toBe('q1');
     const a2 = originNodes.find(n => n.id === 'a2');
     expect(a2).toBeDefined();
-    expect(a2!.parentId).toBe('q1');
+    expect(a2!.parentId).toBe('a1');
   });
 
   it('extract with visible subtree takes the visible continuation along', async () => {
@@ -1582,7 +1585,7 @@ describe('Chat', () => {
     expect(originIds).toContain('a1');
   });
 
-  it('extract with visible subtree reparents dangling branches under the parent of the first node', async () => {
+  it('extract with visible subtree keeps a node whose branch stays behind', async () => {
     seedApi(api, {
       chats: [{ id: 'chat-1', title: 'Story' }],
       nodes: [
@@ -1617,16 +1620,65 @@ describe('Chat', () => {
     // … but NOT the dangling sibling branch.
     expect(chatService.nodes().some(n => n.content === 'Answer one (other branch)')).toBe(false);
 
-    // The dangling branch survives in the origin, re-hung under the parent of
-    // the first extracted node (q1) instead of being deleted.
+    // a1 has a branch (a1b) that stays behind → a1 is COPIED, not cut. q2/a2
+    // are complete subtrees, so they are really removed.
     const originNodes = await api.getNodes('chat-1');
     const originIds = originNodes.map(n => n.id);
-    expect(originIds).not.toContain('a1');
+    expect(originIds).toContain('q1');
+    expect(originIds).toContain('a1');
+    expect(originIds).toContain('a1b');
+    expect(originNodes.find(n => n.id === 'a1')!.parentId).toBe('q1');
+    expect(originNodes.find(n => n.id === 'a1b')!.parentId).toBe('a1');
     expect(originIds).not.toContain('q2');
     expect(originIds).not.toContain('a2');
-    expect(originIds).toContain('a1b');
-    expect(originIds).toContain('q1');
-    expect(originNodes.find(n => n.id === 'a1b')!.parentId).toBe('q1');
+  });
+
+  it('extract copies parent nodes whose invisible branch stays behind (A→B→C→D with C→E)', async () => {
+    // Visible path: A → B → C → D. Invisible branch: C → E.
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'nA', chatId: 'chat-1', parentId: null, role: 'user', content: 'A' },
+        { id: 'nB', chatId: 'chat-1', parentId: 'nA', role: 'assistant', content: 'B' },
+        { id: 'nC', chatId: 'chat-1', parentId: 'nB', role: 'user', content: 'C' },
+        { id: 'nD', chatId: 'chat-1', parentId: 'nC', role: 'assistant', content: 'D' },
+        // invisible continuation hanging off C
+        { id: 'nE', chatId: 'chat-1', parentId: 'nC', role: 'user', content: 'E' }
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'nA');
+    chatService.setActiveChild('nA', 'nB');
+    chatService.setActiveChild('nB', 'nC');
+    chatService.setActiveChild('nC', 'nD');
+
+    const confirm = TestBed.inject(ConfirmService);
+    vi.spyOn(confirm, 'ask').mockResolvedValue(true);
+
+    // Select B and extract it together with its visible subtree (B → C → D).
+    component.toggleNavSelection('nB');
+    await component.extractNavSelection(true);
+
+    // New story: the chain B → C → D.
+    const newChat = chatService.chats().find(c => c.id !== 'chat-1')!;
+    expect(chatService.currentChatId()).toBe(newChat.id);
+    const dest = chatService.nodes();
+    const b = dest.find(n => n.content === 'B')!;
+    const c = dest.find(n => n.content === 'C')!;
+    const d = dest.find(n => n.content === 'D')!;
+    expect(b).toBeDefined();
+    expect(c.parentId).toBe(b.id);
+    expect(d.parentId).toBe(c.id);
+    expect(dest.some(n => n.content === 'E')).toBe(false);
+
+    // Origin: A → B → C → E (B and C were COPIED, only D was cut).
+    const originNodes = await api.getNodes('chat-1');
+    const byId = new Map(originNodes.map(n => [n.id, n]));
+    expect(byId.get('nB')?.parentId).toBe('nA');
+    expect(byId.get('nC')?.parentId).toBe('nB');
+    expect(byId.get('nE')?.parentId).toBe('nC');
+    expect(byId.has('nD')).toBe(false);
   });
 
   it('does not paste left of the empty terminal direction node', async () => {
@@ -2320,5 +2372,36 @@ describe('Chat · elaborate with real streaming', () => {
     const userChildrenOfA1 = chatService.getChildren(q2.parentId ?? null)
       .filter(n => n.role === 'user');
     expect(userChildrenOfA1.map(n => n.id)).toEqual([q2.id]);
+  });
+
+  it('a "Finish & stop" pressed while the next chapter is prefetched drops that chapter', async () => {
+    // The chain prefetches chapter 2 in the background while chapter 1's tail
+    // reveals. "Finish & stop" must end the chain with chapter ONE — the
+    // prefetched chapter is rolled back (it never reached the screen), not
+    // finalized as an extra chapter.
+    let calls = 0;
+    fetchMock.mockImplementation(() => {
+      calls++;
+      if (calls === 2) chatService.requestGracefulStop();
+      return Promise.resolve(sseResponse('Elaborated chapter'));
+    });
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+
+    await component.confirmElaborate();
+
+    // Chapter 2's question + placeholder answer are gone again.
+    const questions = chatService.nodes()
+      .filter(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter'));
+    expect(questions.map(q => q.content?.split('\n')[0])).toEqual(['elaborate on chapter 1']);
+    // Exactly ONE elaborated chapter was kept, and the chain state is clean.
+    const chapters = chatService.nodes()
+      .filter(n => n.role === 'assistant' && n.content === 'Elaborated chapter' && n.isCurrent);
+    expect(chapters).toHaveLength(1);
+    expect(chatService.batchProgress()).toBeNull();
+    expect(component.isElaborating()).toBe(false);
+    expect(chatService.isChatBusy('chat-1')).toBe(false);
   });
 });

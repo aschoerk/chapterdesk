@@ -808,11 +808,17 @@ export class ChatNodeComponent implements OnDestroy {
     }, { onHeadChange: id => this.chatService.setPresentedNode(id, chatId) });
     try {
       let current: HeldAnswerStream | null = null;
+      // A hard Stop (aborted operation signal — see ChatOperationService
+      // .stopGeneration) ends the batch IMMEDIATELY: every between-step check
+      // sees it, and the signal is forwarded into each held stream so a step
+      // that is still being prepared cannot issue a fresh request afterwards.
+      const stopped = () =>
+        opSignal.aborted || this.chatService.shouldStopAfterCurrentStep();
       for (let i = 1; i <= count; i++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop"
         // (requestGracefulStop) also ends the batch, but only AFTER the
         // current stream has finished and been saved.
-        if (this.chatService.shouldStopAfterCurrentStep()) break;
+        if (stopped()) break;
 
         // The previous iteration's LLM has stopped — finalize it NOW (data
         // model complete), so THIS iteration's context is correct even though
@@ -854,6 +860,11 @@ export class ChatNodeComponent implements OnDestroy {
         }
         if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
 
+        // The draft housekeeping above is async — a Stop / a "Finish & stop"
+        // pressed while it ran must NOT start another repetition: the CURRENT
+        // one is already complete, so the batch ends here.
+        if (stopped()) break;
+
         // Publish the repetition that is actually about to generate. Doing it
         // HERE (not at the top of the loop) keeps "Repetition X of Y" in sync
         // with the live send: the top-of-loop slot still belongs to the
@@ -868,15 +879,34 @@ export class ChatNodeComponent implements OnDestroy {
         // iteration's context is never truncated by the reveal clamp.
         const held = await this.sendDirectionOnce(chatId, leaf, content, model, provider, {
           queue,
+          signal: opSignal,
           historyOverrides: current && current.answerNodeId
             ? { [current.answerNodeId]: current.finalContent() }
             : undefined
         });
         started.push(held);
+        // A Stop / "Finish & stop" that landed while this repetition was being
+        // prepared (question persist / placeholder creation) ends the batch
+        // with the PREVIOUS repetition: this one never became the current
+        // node, so it is dropped together with the nodes it just created.
+        if (stopped()) {
+          await this.discardPrefetchedStep(chatId, leaf, held);
+          if (current) await current.drain(opSignal);
+          current = null;
+          break;
+        }
         if (current) {
           // Keep pacing the previous tail — `held` streams in the background;
           // once the tail fully reveals, the queue advances to `held`.
           await current.drain(opSignal);
+          // A "Finish & stop" pressed while the tail was still revealing also
+          // ends the batch with the CURRENT repetition: the step that was
+          // prefetched in the background never reached the screen.
+          if (this.chatService.gracefulStop()) {
+            await this.discardPrefetchedStep(chatId, leaf, held);
+            current = null;
+            break;
+          }
         }
         current = held;
       }
@@ -902,6 +932,27 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
+   * Drop a prefetched batch step that never became the CURRENT repetition
+   * (a Stop / "Finish & stop" ended the batch while it was being prepared, or
+   * while the previous answer's tail was still revealing): abort its request,
+   * stop its reveal without painting and undo the nodes it created — as if the
+   * repetition had never been started.
+   */
+  private async discardPrefetchedStep(
+    chatId: string,
+    leaf: ChatNode,
+    held: HeldAnswerStream
+  ): Promise<void> {
+    await held.discard();
+    // The step filled the composer leaf with the auto direction — empty it
+    // again so the user's composer is exactly where it was before the press.
+    await this.chatService.patchNode(chatId, leaf.id, {
+      content: '',
+      excludeFromContext: false
+    });
+  }
+
+  /**
    * Persist ONE direction onto a specific leaf question and start its stream.
    * Returns a HELD answer-stream handle (the caller drives finalize/drain), so
    * batched Continue / Switch-characters sends can pipeline: iteration N+1
@@ -913,7 +964,12 @@ export class ChatNodeComponent implements OnDestroy {
     content: string,
     model: ModelEntry,
     provider: { baseUrl: string; apiKey: string },
-    opts: { queue?: RevealQueue; historyOverrides?: Record<string, string> } = {}
+    opts: {
+      queue?: RevealQueue;
+      historyOverrides?: Record<string, string>;
+      /** Chat operation signal — a hard Stop also aborts this send. */
+      signal?: AbortSignal;
+    } = {}
   ): Promise<HeldAnswerStream> {
     // Only the FIRST iteration targets this component's own node, where the
     // parent's (activate) binding is valid. Foreign leaves (iterations 2+)
@@ -941,6 +997,7 @@ export class ChatNodeComponent implements OnDestroy {
 
     return this.startHeldAppendStream(chatId, saved, content, model, provider, {
       queue: opts.queue,
+      signal: opts.signal,
       emitActivate: isOwn,
       historyOverrides: opts.historyOverrides
     });
@@ -1819,7 +1876,13 @@ export class ChatNodeComponent implements OnDestroy {
     content: string,
     model: ModelEntry,
     provider: { baseUrl: string; apiKey: string },
-    opts: { queue?: RevealQueue; emitActivate?: boolean; historyOverrides?: Record<string, string> } = {}
+    opts: {
+      queue?: RevealQueue;
+      emitActivate?: boolean;
+      historyOverrides?: Record<string, string>;
+      /** Chat operation signal — ties a hard Stop to this stream's request. */
+      signal?: AbortSignal;
+    } = {}
   ): Promise<HeldAnswerStream> {
     // Close the inline editor NOW (commit the session), mirroring the Send
     // path timing.
@@ -1886,10 +1949,20 @@ export class ChatNodeComponent implements OnDestroy {
       },
       markSentOnceExcluded: () => this.chatService.markSentOnceExcluded(chatId, question.id),
       retargetLog: (entry: import('../../core/llm/llm-log.service').LlmLogEntry, nodeId: string) =>
-        this.llmLog.retargetNode(entry, nodeId)
+        this.llmLog.retargetNode(entry, nodeId),
+      discardAnswer: async ({ placeholderId }) => {
+        this.chatService.clearGeneration(placeholderId);
+        await this.chatService.deleteNode(chatId, placeholderId);
+      }
     };
 
-    return startHeldAnswerStream(deps, { queue: opts.queue });
+    return startHeldAnswerStream(deps, {
+      queue: opts.queue,
+      // A hard Stop aborts the chat operation signal — forward it so a send
+      // whose preparation was still running when Stop was pressed never
+      // issues its LLM request.
+      signal: opts.signal
+    });
   }
 
   /** Paint streamed text incrementally onto the in-flux assistant node. */
@@ -3504,7 +3577,9 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   stopGeneration(): void {
-    this.chatService.stopGeneration();
+    // Chat-scoped: Stop ends every piece of processing of THIS chat (the live
+    // stream, other active streams and the running batch/operation).
+    this.chatService.stopGeneration(this.chatService.currentChatId() ?? undefined);
   }
 
   /** Finish the current answer stream, then stop (results are preserved). */

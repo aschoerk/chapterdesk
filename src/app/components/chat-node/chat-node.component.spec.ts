@@ -2057,13 +2057,29 @@ describe('ChatNodeComponent', () => {
       await openChat([q1]);
       createFixture(q1);
 
+      // Press the REAL "Finish & stop" while the FIRST repetition streams: the
+      // current answer must be finished and saved, nothing after it may start.
+      const gates: Array<() => void> = [];
+      runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+        opts?.onChunk?.({ content: 'Generated' });
+        await new Promise<void>(resolve => gates.push(resolve));
+        return { text: { status: 'ok', value: 'Generated' } };
+      });
+      const flush = async () => {
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+      };
+
       component.repeatCount.set(3);
-      // A graceful stop is requested while the first send is in flight: the
-      // first between-step check proceeds, every later one breaks the loop.
-      const stopSpy = vi.spyOn(chatService, 'shouldStopAfterCurrentStep')
-        .mockReturnValueOnce(false)
-        .mockReturnValue(true);
-      await component.continueDraft();
+      const batch = component.continueDraft();
+      await flush();
+      expect(gates).toHaveLength(1); // repetition 1 is streaming
+
+      chatService.requestGracefulStop();
+      gates.shift()!(); // the stream finishes normally — its result is kept
+      await flush();
+      await batch;
       fixture.detectChanges();
 
       // Exactly ONE "continue" send ran to completion — and its streamed
@@ -2079,7 +2095,75 @@ describe('ChatNodeComponent', () => {
       // The batch cleared its progress state as usual.
       expect(chatService.batchProgress()).toBeNull();
       expect(component.isLoading()).toBe(false);
-      expect(stopSpy).toHaveBeenCalled();
+    });
+
+    it('a "Finish & stop" pressed while the tail is still revealing drops the prefetched repetition', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      // Pacing on: the first answer's tail keeps revealing after its LLM
+      // stopped — exactly the window in which the NEXT repetition is already
+      // prefetching in the background.
+      const viewPrefs = TestBed.inject(ChatViewPrefsService);
+      viewPrefs.setStreamSpeed(5);
+      viewPrefs.setFollowStreaming(true);
+
+      const rafQueue: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        rafQueue.push(cb);
+        return rafQueue.length;
+      });
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const calls: Array<{ resolve: (v: unknown) => void }> = [];
+      runner.run.mockImplementation((_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+        opts?.onChunk?.({ content: 'Chapter' });
+        return new Promise(resolve => calls.push({ resolve }));
+      });
+
+      component.repeatCount.set(3);
+      const batch = component.continueDraft();
+      await new Promise(r => setTimeout(r, 0));
+      expect(calls).toHaveLength(1);
+
+      // First repetition's LLM stops; its tail is still revealing → the second
+      // repetition is prefetched in the background.
+      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one' } });
+      await new Promise(r => setTimeout(r, 0));
+      expect(calls).toHaveLength(2);
+
+      // The user presses "Finish & stop" NOW (repetition 1 is what they see).
+      chatService.requestGracefulStop();
+      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two' } });
+      await new Promise(r => setTimeout(r, 0));
+
+      // Drive the reveal frames: repetition 1's tail drains, and the prefetched
+      // repetition 2 must NOT take over the screen.
+      let ts = 1000;
+      for (let f = 0; f < 200 && rafQueue.length; f++) {
+        const pending = rafQueue.splice(0);
+        for (const cb of pending) cb(ts);
+        ts += 100;
+        await new Promise(r => setTimeout(r, 0));
+      }
+      await batch;
+      vi.unstubAllGlobals();
+
+      // Only the CURRENT repetition exists in the story — the prefetched one
+      // was dropped together with the nodes it created.
+      const continues = chatService.nodes().filter(
+        (n) => n.role === 'user' && n.content === 'continue'
+      );
+      expect(continues).toHaveLength(1);
+      const assistants = chatService.nodes().filter(n => n.role === 'assistant' && n.isCurrent);
+      expect(assistants.map(n => `${n.id}|${n.content}`)).toHaveLength(1);
+      expect(assistants[0].content).toBe('Chapter one');
+      // The composer leaf is empty again (the dropped send left no direction).
+      const leaf = chatService.nodes().find(n => n.role === 'user' && n.id !== q1.id);
+      expect(leaf?.content ?? '').toBe('');
+      expect(chatService.batchProgress()).toBeNull();
+      expect(component.isLoading()).toBe(false);
     });
 
     it('the closed continue button triggers continueDraft without opening the editor', async () => {
@@ -2092,6 +2176,45 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       expect(component.isEditing()).toBe(false);
+    });
+
+    it('a hard Stop ends the whole batch immediately — no further repetition starts', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      // Gate the LLM run so we can press Stop WHILE repetition 1 streams.
+      const gates: Array<() => void> = [];
+      runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+        opts?.onChunk?.({ content: 'Generated' });
+        await new Promise<void>(resolve => gates.push(resolve));
+        return { text: { status: 'ok', value: 'Generated' } };
+      });
+      const flush = async () => {
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        for (let i = 0; i < 40; i++) await Promise.resolve();
+      };
+
+      component.repeatCount.set(3);
+      const batch = component.continueDraft();
+      await flush();
+      expect(gates).toHaveLength(1);
+
+      // Real Stop (not a mocked guard): aborts the chat operation signal.
+      chatService.stopGeneration('chat-1');
+      gates.shift()!(); // let the aborted first stream settle
+      await flush();
+      await batch;
+
+      // Exactly ONE repetition ran — the second one must never be started.
+      const continues = chatService.nodes().filter(
+        (n) => n.role === 'user' && n.content === 'continue'
+      );
+      expect(continues).toHaveLength(1);
+      expect(chatService.batchProgress()).toBeNull();
+      expect(component.isLoading()).toBe(false);
+      expect(chatService.isChatBusy('chat-1')).toBe(false);
     });
 
     it('prefetches the NEXT chapter in the background while the current tail is still revealing', async () => {

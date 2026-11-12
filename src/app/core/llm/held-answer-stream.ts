@@ -60,6 +60,14 @@ export interface HeldAnswerStream {
   drain(signal?: AbortSignal): Promise<void>;
   /** Abort/error cleanup: flush + destroy the pump. */
   abort(): void;
+  /**
+   * The step never became the CURRENT one (a Stop / "Finish & stop" ended
+   * the run while it was still being prepared, or while the previous node's
+   * tail was revealing): abort its request, stop its reveal WITHOUT painting
+   * and undo the nodes it created — as if that step had never been started.
+   * Idempotent; a no-op once the answer was finalized.
+   */
+  discard(): Promise<void>;
 }
 
 /** Site-specific operations a held stream needs (flow env vs chat-node). */
@@ -101,6 +109,35 @@ export interface HeldAnswerStreamDeps {
   markSentOnceExcluded(): Promise<void>;
   /** Re-point a log entry's nodeId to the versioned answer. */
   retargetLog(entry: LlmLogEntry, nodeId: string): void;
+  /** Undo the placeholder answer node of a DISCARDED step (see
+   *  {@link HeldAnswerStream.discard}). The caller undoes its own question /
+   *  lore nodes. */
+  discardAnswer?(opts: { placeholderId: string }): Promise<void>;
+}
+
+/**
+ * Combine abort signals into one (the first abort wins). Used to tie the
+ * per-stream controller (`startGeneration`) and the step's own DISCARD
+ * controller to the CHAT operation signal, so a Stop also kills a stream that
+ * is started right after the abort (the batch loops check the guard between
+ * steps — a step that was already in its preparation awaits would otherwise
+ * issue a FRESH request with a fresh controller and run to completion).
+ * Falls back to a manual bridge when `AbortSignal.any` is unavailable.
+ */
+export function combineAbortSignals(
+  ...signals: Array<AbortSignal | undefined>
+): AbortSignal {
+  const list = signals.filter((s): s is AbortSignal => !!s);
+  if (list.length === 0) return new AbortController().signal;
+  if (list.length === 1) return list[0];
+  const anyFn = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (typeof anyFn === 'function') return anyFn.call(AbortSignal, list);
+  const already = list.find(s => s.aborted);
+  if (already) return already;
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  for (const s of list) s.addEventListener('abort', onAbort, { once: true });
+  return controller.signal;
 }
 
 /** Start a two-phase streamed answer (see {@link HeldAnswerStream}). */
@@ -109,6 +146,13 @@ export async function startHeldAnswerStream(
   opts: {
     hold?: boolean;
     queue?: RevealQueue;
+    /**
+     * The CHAT OPERATION signal (hard Stop). It aborts the LLM call of THIS
+     * stream in addition to the per-stream controller, so a Stop that lands
+     * while the step is still being prepared (placeholder/question creation)
+     * never lets the request run on afterwards.
+     */
+    signal?: AbortSignal;
     /** Fired when the PRESENTED head of this (or the shared) queue changes —
      *  the private single-item queue path uses this; a caller-supplied shared
      *  queue already has its own onHeadChange wired at creation. */
@@ -136,6 +180,13 @@ export async function startHeldAnswerStream(
   });
 
   const streamSignal = deps.startGeneration(placeholderNodeId);
+  // The step's OWN abort controller: `discard()` uses it to kill a request
+  // whose result must never reach the story.
+  const discardAbort = new AbortController();
+  // Tie the per-stream controller and the discard controller to the chat
+  // operation signal: a hard Stop must kill this request even when it was
+  // started right after the abort.
+  const runSignal = combineAbortSignals(streamSignal, opts.signal, discardAbort.signal);
 
   let accContent = '';
   let accThinking = '';
@@ -145,6 +196,7 @@ export async function startHeldAnswerStream(
   let slotsValue: EvalSlots | null = null;
   let finalized = false;
   let drained = false;
+  let discarded = false;
 
   let resolveDone!: (slots: EvalSlots) => void;
   let rejectDone!: (err: unknown) => void;
@@ -157,7 +209,7 @@ export async function startHeldAnswerStream(
   // the head reveals live at pace clamped to what has arrived).
   deps.runCompletion({
     nodeId: placeholderNodeId,
-    signal: streamSignal,
+    signal: runSignal,
     onChunk: chunk => {
       if (chunk.content) accContent += chunk.content;
       if (chunk.thinking) accThinking += chunk.thinking;
@@ -184,6 +236,7 @@ export async function startHeldAnswerStream(
     finalContent: () => finalContentValue,
     async finalize(signal?: AbortSignal): Promise<string> {
       if (finalized) return finalizedId!;
+      if (discarded) return placeholderNodeId;
       const slots = await streamDone;
       slotsValue = slots;
       const finalContent = slots.text?.value ?? accContent;
@@ -215,7 +268,7 @@ export async function startHeldAnswerStream(
       return result.id;
     },
     async drain(signal?: AbortSignal): Promise<void> {
-      if (drained) return;
+      if (drained || discarded) return;
       const slots = slotsValue;
       // Reveal the PERSISTED text (post-finalize) — for an image-only answer
       // that is the direction text, not the (empty) evaluator text.
@@ -227,6 +280,16 @@ export async function startHeldAnswerStream(
     abort(): void {
       slot.flush();
       slot.destroy();
+    },
+    async discard(): Promise<void> {
+      if (discarded || finalized) return;
+      discarded = true;
+      // Kill the request FIRST (its result must not be persisted), then stop
+      // the reveal without painting — the step never reached the screen.
+      discardAbort.abort();
+      slot.destroy();
+      await streamDone.catch(() => undefined);
+      await deps.discardAnswer?.({ placeholderId: placeholderNodeId });
     }
   };
 }

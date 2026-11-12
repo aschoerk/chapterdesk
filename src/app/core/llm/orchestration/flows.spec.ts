@@ -684,6 +684,73 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     await run.drain();
   });
 
+  it('send-elaborate (HELD): discard drops the prefetched chapter and its nodes', async () => {
+    // The chain prefetches chapter N+1 in the background. If a Stop / "Finish &
+    // stop" ends the chain before that chapter is presented, it must be rolled
+    // back — no question, no placeholder answer, no leftover in the tree.
+    fetchMock.mockResolvedValueOnce(sseResponse(['Unwanted ', 'chapter.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Chapters' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', modelId: 'alpha/model' }),
+      // A non-empty direction under the anchor: the elaborate step must CREATE
+      // its own question (no composer leaf is reused).
+      makeNode({ id: 'q2', parentId: 'a1', role: 'user', content: 'Next direction', isCurrent: true })
+    ]);
+    const anchor = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const run = await runner.runHeld({
+      chat: api.chats[0],
+      node: anchor,
+      usecase: 'send-elaborate',
+      vars: { content: 'elaborate on chapter 2', modelId: 'beta/model', providerId: 'prov-1' }
+    });
+    const questionId = run.questionNodeId;
+    const placeholderId = run.placeholderNodeId;
+    expect(chatService.nodes().some(n => n.id === questionId)).toBe(true);
+    expect(chatService.nodes().some(n => n.id === placeholderId)).toBe(true);
+
+    await run.discard();
+    await run.streamDone.catch(() => undefined);
+
+    // Nothing of the discarded chapter is left — not even in the trash.
+    expect(chatService.nodes().some(n => n.id === questionId)).toBe(false);
+    expect(chatService.nodes().some(n => n.id === placeholderId)).toBe(false);
+    expect(chatService.nodes().some(n => n.content?.includes('elaborate on chapter 2'))).toBe(false);
+    expect(await api.getDeletedNodes(CHAT_ID)).toEqual([]);
+    // The anchor and its answer are untouched and still on the active path.
+    expect(chatService.nodes().some(n => n.id === 'a1')).toBe(true);
+    expect(chatService.getActivePath().some(n => n.id === 'a1')).toBe(true);
+  });
+
+  it('send-elaborate (HELD): discard empties a REUSED composer leaf again', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Unwanted ', 'chapter.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Chapters' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true, modelId: 'alpha/model' }),
+      makeNode({ id: 'draft', parentId: 'a1', role: 'user', content: '', isCurrent: true })
+    ]);
+    const anchor = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const run = await runner.runHeld({
+      chat: api.chats[0],
+      node: anchor,
+      usecase: 'send-elaborate',
+      vars: { content: 'elaborate on chapter 2' }
+    });
+    expect(run.questionNodeId).toBe('draft'); // the empty composer was reused
+
+    await run.discard();
+    await run.streamDone.catch(() => undefined);
+
+    const draft = chatService.nodes().find(n => n.id === 'draft')!;
+    expect(draft.content).toBe('');
+    expect(draft.parentId).toBe('a1');
+    expect(draft.excludeFromContext).toBe(false);
+    expect(chatService.nodes().some(n => n.id === run.placeholderNodeId)).toBe(false);
+  });
+
   it('send-chapter-descriptions: branches a sibling question with the request and streams the list (previous chat content as history)', async () => {
     fetchMock.mockResolvedValueOnce(sseResponse(['1. ', 'One — start.\n2. Two — continue.']));
     const chatService = await openChat([

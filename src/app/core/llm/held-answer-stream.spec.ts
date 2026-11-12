@@ -166,4 +166,40 @@ describe('HeldAnswerStream — background continuation', () => {
     await stream.drain();
     expect(finalized).toHaveLength(1);
   });
+
+  it('a hard Stop aborts the completion through the chat operation signal', async () => {
+    // The per-stream controller (startGeneration) is only registered AFTER the
+    // step's preparation awaits. A Stop pressed in that window must still kill
+    // the request — the operation signal is combined into the run signal.
+    const op = new AbortController();
+    let seen: AbortSignal | null = null;
+    const { deps } = makeDeps({
+      runCompletion: async ({ signal }) => {
+        seen = signal;
+        return { text: { status: 'ok', value: '' } };
+      }
+    });
+
+    await startHeldAnswerStream(deps, { hold: true, signal: op.signal });
+    expect(seen).not.toBeNull();
+    expect(seen!.aborted).toBe(false);
+
+    op.abort();
+    expect(seen!.aborted).toBe(true);
+  });
+
+  it('an already-aborted operation signal aborts the completion immediately', async () => {
+    const op = new AbortController();
+    op.abort();
+    let seen: AbortSignal | null = null;
+    const { deps } = makeDeps({
+      runCompletion: async ({ signal }) => {
+        seen = signal;
+        return { text: { status: 'ok', value: '' } };
+      }
+    });
+
+    await startHeldAnswerStream(deps, { hold: true, signal: op.signal });
+    expect(seen!.aborted).toBe(true);
+  });
 });
