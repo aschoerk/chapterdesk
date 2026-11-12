@@ -1,0 +1,241 @@
+@startuml specs-component-map
+!theme plain
+
+' ===========================================================================
+' ChapterDesk / Chapterly — component map for the spec documentation.
+'
+' Purpose: one anchor diagram that a document about the specs can refer to.
+'   * every node has a STABLE ALIAS (e.g. SVC_CHAT, ORCH_RUNNER) that the
+'     text can use instead of repeating folder names;
+'   * the third label line names the spec file whose assertions describe
+'     that component (`(x.spec)`). Components covered only indirectly carry
+'     "via <spec>" so the document can say why there is no own spec;
+'   * arrows are the dependency direction used when picking a sequence
+'     diagram: presentation → domain → LLM → data access → runtime.
+'
+' Render: plantuml docs/specs/component-map.puml   (SVG/PNG next to it)
+' ===========================================================================
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontSize 12
+skinparam defaultFontName SansSerif
+skinparam packageTitleAlignment left
+skinparam ArrowColor #555555
+skinparam ArrowFontSize 11
+skinparam NodePadding 12
+hide stereotype
+
+' Left-to-right keeps the dependency direction readable (presentation →
+' domain → LLM → data access → runtime) and gives a ~1:1 aspect ratio that
+' still embeds in a page. Without it the same graph renders ~7800x2100.
+left to right direction
+
+title ChapterDesk — component map for the spec documents
+
+package "Bootstrap & routing" as BOOT {
+  component "AppShell\napp.ts · app.html\n(app.spec)" as APP
+  component "Routes\napp.routes.ts\n(no spec — asserted via page specs)" as ROUTES
+}
+
+package "Pages — routed views" as PAGES {
+  component "ChatPage\npages/chat\n(chat.component.spec)" as PAGE_CHAT
+  component "ReaderPage\npages/chat-reader\n(chat-reader.component.spec)" as PAGE_READER
+  component "Config pages\nshell · appearance · providers · tasks · prompts\n(5 specs)" as PAGE_CONFIG
+  component "LlmLogsPage\npages/logs\n(llm-logs.component.spec)" as PAGE_LOGS
+  component "PersonasPage\n(personas.component.spec)" as PAGE_PERSONAS
+  component "ProjectsPage\n(projects.component.spec)" as PAGE_PROJECTS
+  component "TopicsPage\n(topics.component.spec)" as PAGE_TOPICS
+  component "ImportPage\n(import.component.spec)" as PAGE_IMPORT
+}
+
+package "UI components — chat tree & editor" as UI_CHAT {
+  component "ChatNodeComponent\nthe bubble (edit · read · reveal · ctx menu)\n(chat-node.component.spec)" as CMP_NODE
+  component "chat-node pure parts\ncontext-menu · attachments · editor-scroll\n(3 specs)" as CMP_NODE_PARTS
+  component "TextVersionPanel\n+ NodeVersionDiff\n(2 specs)" as CMP_VERSIONS
+  component "SearchReplaceComponent\n(search-replace.component.spec)" as CMP_SEARCH
+  component "ChatTitle / ChatParameters editors\n(2 specs)" as CMP_EDITORS
+  component "SideBar · ShortcutHelp · ToastHost\nPacedReadIndicator\n(3 specs, rest via page specs)" as CMP_CHROME
+}
+
+package "UI components — dialogs" as UI_DIALOGS {
+  component "Text dialogs\nrewrite · prepend · resend · mark-note\nname-replace · chapter-descriptions\n(6 specs)" as DLG_TEXT
+  component "Image dialogs\nillustrate · create-image · image-picker · lightbox\n(4 specs)" as DLG_IMAGE
+  component "SetupWizard · ConfirmDialog · NameList\n(2 specs, others via page specs)" as DLG_SYS
+  component "Dialog state services\ncore/dialogs/*\n(6 specs)" as SVC_DIALOGS
+}
+
+package "Domain — chat" as DOM_CHAT {
+  component "ChatService\nFACADE · public surface (323 lines)\n(via chat.component.spec + flows.spec)" as SVC_CHAT
+  component "Chat-tree services\nstate · reader · writer\n(via chat-editing.spec + flows.spec)" as SVC_TREE
+  component "ChatLoreService\nlore node before each direction\n(via flows.spec)" as SVC_LORE
+  component "ChatOperationService\ngeneration lifecycle\n(via flows.spec)" as SVC_OP
+  component "NodeEditSession + chat-editing\n(chat-editing.spec, node-edit-session.spec)" as SVC_EDIT
+  component "ChatUsageService\n(chat-usage.service.spec)" as SVC_USAGE
+  component "ChatImagesService\n(chat-images.service.spec)" as SVC_IMAGES
+  component "ReadingMarksService\n(reading-marks.service.spec)" as SVC_MARKS
+  component "ChatNavSelectionService\n(chat-nav-selection.service.spec)" as SVC_NAVSEL
+  component "ChatViewPrefsService + LayoutPrefs\n(chat-view-prefs.spec)" as SVC_VIEWPREFS
+  component "ChatElaborateDialogService\n(via chat.component.spec)" as SVC_ELABDLG
+  component "ChatParametersService\n(via chat-parameters-editor.spec)" as SVC_PARAMS
+}
+
+package "Domain — clipboard" as DOM_CLIP {
+  component "NodeClipboardService\ncopy/cut sequences\n(via flows.spec)" as CLIP_NODE
+  component "StoryClipboardService\n(story-clipboard.service.spec)" as CLIP_STORY
+  component "AttachmentClipboardService\n(attachment-clipboard.service.spec)" as CLIP_ATT
+}
+
+package "Domain — settings & config" as DOM_SET {
+  component "SettingsService\n(settings.service.spec)" as SET_MAIN
+  component "GenerationSettingsService\n(generation-settings.service.spec)" as SET_GEN
+  component "SortPreferencesService\n(sort-preferences.service.spec)" as SET_SORT
+  component "ProjectService · TopicSelection\nTheme · LastModel\n(via page specs)" as SET_OTHER
+  component "EnvironmentService\nstorage profile (sqlite-all / indexeddb-all / …)\n(via idb + composite wiring)" as SET_ENV
+}
+
+package "Domain — prompts & names" as DOM_PROMPT {
+  component "PromptDefaultsService\n(prompt-defaults.service.spec)" as PR_DEFAULTS
+  component "PromptApi · ModelPricing\n(via prompt-defaults + providers specs)" as PR_API
+  component "NameReplace · builtin names\n(name-replace.spec, builtin-names.spec, repro-name.spec)" as NAMES
+}
+
+package "Domain — import / export" as DOM_IO {
+  component "DocxExport\n(docx-export.spec)" as IO_DOCX_OUT
+  component "DocxImport\n(docx-import.spec)" as IO_DOCX_IN
+  component "EpubImport\n(epub-import.spec)" as IO_EPUB
+  component "BundleService\nstory bundle export/import\n(via demo-data + import specs)" as IO_BUNDLE
+  component "TextVersionApi\n(via text-version-panel.spec)" as IO_TEXTS
+}
+
+package "Domain — cross-cutting" as DOM_X {
+  component "SearchReplaceService + search-utils\n(2 specs)" as SEARCH_SVC
+  component "I18nService\n(i18n.service.spec)" as I18N
+  component "ToastService\n(toast.service.spec)" as TOAST
+  component "DemoDataService\n(demo-data.service.spec)" as DEMO
+  component "util/\nhelpers · mark-fragment · download\n(3 specs)" as UTIL
+  component "util/\ndom-metrics · version · provider-url\nelectron · server-config · image-ref\n(via component specs)" as UTIL_RUNTIME
+}
+
+package "LLM — orchestration" as ORCH {
+  component "LlmOrchestratorService\nshared primitives over transport\n(orchestration.spec)" as ORCH_CORE
+  component "LlmUseCaseRunner + flows/\nsends · structure · text-send · runner · env\n(flows.spec, append.spec)" as ORCH_RUNNER
+  component "usecases/\nappend · storyboard · renders · render-pipeline\n(orchestration.spec)" as ORCH_USECASES
+  component "context/\nprompt + history builders\n(flows.spec — request builder)" as ORCH_CONTEXT
+  component "LlmTransportService\ncompletion + images, retries\n(orchestration.spec — transport fallbacks)" as ORCH_TRANSPORT
+  component "LlmPostprocessorService\ncompute + apply chat changes\n(orchestration.spec)" as ORCH_POST
+  component "slots · evaluators\npure, never throw\n(orchestration.spec — evaluators)" as ORCH_PURE
+}
+
+package "LLM — leaf helpers" as LEAF {
+  component "llm-message\nmessage · mime · image parts\n(llm-message.spec)" as LEAF_MSG
+  component "llm-sse\n(llm-sse.spec)" as LEAF_SSE
+  component "llm-context\n(llm-context.spec)" as LEAF_CTX
+  component "stream-reveal · reveal-queue\nheld-answer-stream\n(3 specs)" as LEAF_REVEAL
+  component "paced-read · reading-time\n(2 specs)" as LEAF_PACE
+  component "chapter-plan\n(chapter-plan.spec)" as LEAF_PLAN
+  component "usage\n(usage.spec)" as LEAF_USAGE
+  component "LlmLogService · LlmLogResend\n(2 specs)" as LEAF_LOG
+  component "mock-llm\n(fake provider for specs + e2e)" as MOCK
+}
+
+package "Data access" as DATA {
+  component "ChatApiPort + CHAT_API token\nthe single storage seam\n(interface: chat-api.port.ts)" as PORT
+  component "CompositeChatApiService\nroutes per EnvironmentService profile" as COMPOSITE
+  component "IdbChatApiService\nbrowser store\n(idb-chat-api.service.spec)" as IDB
+  component "ChatApiService\nREST client · no local state\n(chat-api.service.spec)" as HTTP
+  component "proxy-mux.client\nstreaming proxy plumbing" as PXMUX
+  component "models/\nChat · ChatNode · Provider/Model · ChatParameters" as MODELS
+}
+
+package "Runtime" as RUNTIME {
+  component "chapterdesk-api-server\nExpress routes + sqlite-persistence\n(server tests/ + e2e)" as SERVER
+  component "Electron shell\nmain · preload · window-state\n(e2e/manual window placement)" as ELECTRON
+  component "openrouter-proxy\nchat-server-js\n(jest tests)" as PROXY
+}
+
+package "Test doubles (test-helpers/)" as DOUBLES {
+  component "factories.ts\nin-memory-chat-api.ts\nfake-prompt-api.ts" as HELPERS
+}
+
+cloud "External" as EXT {
+  [LLM / image providers\n(OpenAI-compatible + OpenRouter)] as PROVIDER
+  [IndexedDB] as IDB_EXT
+  [SQLite file] as SQLITE
+}
+
+' --------------------------------------------------------------------------
+' Dependencies (the direction the spec documents follow)
+' --------------------------------------------------------------------------
+APP --> ROUTES
+ROUTES --> PAGES
+
+PAGES --> UI_CHAT
+PAGES --> UI_DIALOGS
+PAGES --> DOM_CHAT
+PAGES --> DOM_SET
+PAGE_CHAT --> ORCH_RUNNER
+
+UI_CHAT --> DOM_CHAT
+UI_CHAT --> LEAF_REVEAL
+UI_CHAT --> CLIP_ATT
+UI_DIALOGS --> SVC_DIALOGS
+UI_DIALOGS --> DOM_CHAT
+DLG_IMAGE --> ORCH_USECASES
+
+DOM_CHAT --> PORT
+DOM_CHAT --> DOM_SET
+DOM_CHAT --> ORCH_CORE
+DOM_CHAT --> LEAF_PLAN
+SVC_CHAT --> SVC_TREE
+SVC_TREE --> SVC_LORE
+
+ORCH_RUNNER --> ORCH_USECASES
+ORCH_RUNNER --> ORCH_CONTEXT
+ORCH_RUNNER --> ORCH_TRANSPORT
+ORCH_RUNNER --> ORCH_POST
+ORCH_CORE --> ORCH_PURE
+ORCH_CORE --> ORCH_TRANSPORT
+ORCH_USECASES --> LEAF
+ORCH_TRANSPORT --> LEAF_MSG
+ORCH_TRANSPORT --> LEAF_SSE
+ORCH_TRANSPORT --> LEAF_LOG
+ORCH_POST --> SVC_CHAT
+ORCH_RUNNER --> SVC_CHAT
+ORCH_CONTEXT --> DOM_SET
+ORCH_CONTEXT --> PR_DEFAULTS
+
+DOM_IO --> PORT
+DOM_IO --> IO_BUNDLE
+DOM_IO --> UTIL
+DEMO --> IO_BUNDLE
+SEARCH_SVC --> SVC_CHAT
+
+PORT <|.. COMPOSITE
+COMPOSITE --> IDB
+COMPOSITE --> HTTP
+COMPOSITE --> SET_ENV
+HTTP --> PXMUX
+HTTP --> SERVER
+IDB --> IDB_EXT
+PXMUX --> PROXY
+SERVER --> SQLITE
+SERVER --> PROVIDER
+ELECTRON --> SERVER
+ORCH_TRANSPORT --> PROVIDER
+
+HELPERS ..> PORT
+HELPERS ..> PR_API
+HELPERS ..> MOCK
+
+legend right
+  |= Line |= Meaning |
+  | solid arrow | compile-time dependency / call |
+  | dashed arrow ..|> | implements a port |
+  | dotted arrow ..> | used only by tests |
+  | (x.spec) | spec file whose assertions describe this component |
+  | via x.spec | no own spec — assertions live in the named spec |
+  | .puml alias | stable anchor the document text may cite |
+endlegend
+
+@enduml

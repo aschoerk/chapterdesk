@@ -1,0 +1,112 @@
+@startuml seq-send-branch
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 190
+skinparam shadowing false
+title A sending flow — send-branch\n(spec: flows.spec.ts · group "structural flows")
+' Aliases match docs/specs/component-map.puml:
+'   PAGE_CHAT · ORCH_RUNNER · ORCH_CONTEXT · ORCH_TRANSPORT · SVC_CHAT
+'   SVC_LORE · PORT · LEAF_REVEAL
+
+actor User
+participant "PAGE_CHAT\nChatComponent" as PAGE
+participant "ORCH_RUNNER\nLlmFlowRunner" as RUN
+participant "flows/sends\nsendBranch()" as SEND
+participant "SVC_CHAT\nChatService" as SVC
+participant "SVC_LORE\nensureLoreNodeBefore()" as LORE
+participant "ORCH_CONTEXT\ncontext factory" as CTX
+participant "ORCH_TRANSPORT\nLlmOrchestratorService" as TR
+participant "LEAF_REVEAL\nStreamReveal" as REV
+participant "PORT\nChatApiPort" as API
+participant "provider\nSSE stream" as NET
+
+== 1. Resolve the write model, then branch ==
+User -> PAGE : types a direction, hits send
+PAGE -> RUN : run({chat, node, usecase:'send-branch',\n vars:{content}})
+RUN -> RUN : resolveWriteModel(node, vars.modelId, vars.providerId)
+note right of RUN
+  flows.spec "isFlowUsecase recognizes the structural kinds"
+  send-branch must stay a FLOW usecase (append / render-node must not).
+end note
+alt no enabled writing model
+  RUN --> PAGE : { error: 'No writing model is enabled.' }
+else model resolved
+  RUN -> SEND : sendBranch(env)
+end
+
+== 2. Create the question node ==
+SEND -> SVC : branchQuestion() | addNode()\n(user node → sibling, answer node → child)
+note right of SEND
+  flows.spec asserts the new question is a REAL sibling:
+  id ≠ q1, parentId null (root), content = vars.content.
+end note
+SVC -> API : branchUser / createNode
+API --> SVC : persisted node
+SEND -> SVC : setActiveChild(parent, newQuestion.id)
+note right of SEND
+  switching the active path BEFORE the stream is what makes the
+  answer paint live (send-insert documents the same reason).
+end note
+
+== 3. Lore node in front of the direction ==
+SEND -> LORE : ensureLoreNodeBefore(chatId, questionId)
+LORE -> SVC : materialize / re-arm ONE lore node as parent
+note right of LORE
+  see seq-lore-once for the full lifecycle
+  (excludeAfterSend → sent once → deactivated).
+end note
+
+== 4. Build the request ==
+SEND -> CTX : prepareTextSend(env, chatId, question, {content, attachments})
+CTX -> CTX : chat history + lore + chapter-plan slice\n+ attachments / interpretation
+CTX --> SEND : messages[]
+SEND -> SVC : persistInterpretation() (only when images were described)
+note right of SEND
+  flows.spec: interpretation runs ONLY when the description is
+  not yet stored in the node text.
+end note
+
+== 5. Placeholder + stream ==
+SEND -> SVC : addNode(role:assistant, content:'')
+SVC -> API : createNode
+SEND -> SVC : setActiveChild(question, answer)\nstartGeneration(answer.id)
+SEND -> TR : completion({messages, stream, imageCapable}, {onChunk})
+TR -> NET : POST /proxy (SSE)
+loop each chunk
+  NET --> TR : delta.content / delta.thinking / images[]
+  TR --> SEND : onChunk(chunk)
+  SEND -> SEND : accContent += chunk
+  SEND -> REV : update(accContent, accThinking)
+  REV -> SVC : updateNodes() — paint only the revealed prefix
+end
+
+== 6. Finish the reveal, then finalize ==
+TR --> SEND : slots {text, thinking, images, usage}
+SEND -> REV : finish(accContent, accThinking)
+note right of REV
+  the whole buffer is shown before the node is versioned,
+  so the bubble grows instead of jumping.
+end note
+SEND -> SEND : imageOnlyAnswerContent()\n(a picture without text ⇒ chapter = direction text)
+alt content / thinking / images present
+  SEND -> SVC : editAssistant(answer.id, content, attachments, thinking, usage)
+  SVC -> API : editAssistant → NEW version row, old row retired
+  API --> SVC : versioned node (new id)
+  SEND -> SVC : setActiveChild(question, versioned.id)
+  note right of SEND
+    flows.spec: answerNodeId is the VERSIONED id, the answer's
+    parentId is the new question, slots.flow.activateId is set,
+    slots.text.value is the full text.
+    An IMAGE-ONLY answer is finalized too (never left empty).
+  end note
+  SEND -> SVC : reparentNodes(adoptNodeIds) — only send-insert
+else nothing arrived
+  SEND -> SEND : flowEmpty(slots) = true (bubble stays a placeholder)
+end
+SEND --> RUN : slots + flow{questionNodeId, answerNodeId, activateId}
+RUN --> PAGE : slots
+PAGE -> PAGE : render via ChatService signals (nodes(), activeChildMap)
+
+@enduml

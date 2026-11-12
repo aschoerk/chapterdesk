@@ -1,0 +1,82 @@
+@startuml seq-structure-headings
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam wrapWidth 190
+skinparam shadowing false
+title Structure headings — one completion per unheaded chapter\n(spec: flows.spec.ts · "structure generation + language check flows")
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "PAGE_CHAT\nChatComponent" as PAGE
+participant "ORCH_RUNNER\nLlmFlowRunner" as RUN
+participant "flows/structure\nstructureHeadings()" as ST
+participant "SVC_TREE\nreader · writer" as TREE
+participant "ORCH_TRANSPORT\ntextCompletion()" as TR
+participant "PORT\nChatApiPort" as API
+
+== 1. Which chapters are in scope? ==
+User -> PAGE : "Add chapter headings"
+PAGE -> RUN : run({node, usecase:'structure-headings'})
+RUN -> ST : structureHeadings(env)
+ST -> TREE : getActivePath().filter(role === 'assistant' && content)
+note right of ST
+  scope = the ACTIVE PATH only. Off-path branches never get a
+  heading — that is the difference to structure-title, which
+  reads every assistant node of the chat.
+  (chat.component.spec: "generates a heading for each assistant
+  node on the active path".)
+end note
+ST -> ST : previous = []   (chapters already headed, in order)
+
+== 2. One completion per chapter, in story order ==
+loop each assistant node on the path
+  alt two stop conditions
+    ST -> ST : env.signal.aborted?  → break (hard Stop)
+    ST -> ST : shouldStopAfterCurrentStep()? → break\n("Finish & stop")
+    note right of ST
+      graceful stop is checked BEFORE the request, so the chapter
+      being generated is still fetched and PERSISTED.
+    end note
+  end
+  alt the chapter already hangs under a structural node
+    ST -> ST : previous.push({node, heading})\ncontinue  (no completion!)
+    note right of ST
+      flows.spec "skips chapters that already have a heading but
+      keeps them in context": exactly ONE completion for 2 chapters.
+    end note
+  else unheaded chapter
+    ST -> ST : blocks = previous chapters WITH their headings\n + current chapter "(to be created)"
+    ST -> TR : complete(instruction + blocks + 'Return only the heading text.')
+    TR -> API : /proxy completion (non-streaming)
+    TR --> ST : slots.text
+    ST -> ST : headingContent = text.trim()\nempty ⇒ error slot, run ends
+    == 3. Wrap the chapter under the new heading ==
+    ST -> TREE : addStructureNode(chatId, assistant.parentId, headingContent)
+    TREE -> API : createNode(role:'structural')
+    ST -> TREE : reparentNodes([assistant.id], heading.id)
+    ST -> TREE : setActiveChild(parent, heading)\nsetActiveChild(heading, assistant)
+    note right of TREE
+      net effect asserted by flows.spec:
+      heading.parentId = q1, a1.parentId = heading.id,
+      getActiveChild(q1) = heading, getActiveChild(heading) = a1.
+      structure-heading (singular) instead PATCHES an existing
+      structural parent rather than adding a second one.
+    end note
+    ST -> ST : previous.push({node, heading})\ncreatedIds.push(heading.id)
+  end
+end
+
+== 4. Result ==
+ST --> RUN : flow{structureNodeId: last, structureNodeIds: createdIds}
+RUN --> PAGE : slots
+note right of PAGE
+  flows.spec: 2 chapters without headings ⇒ 2 fetches, 2 structural
+  nodes, structureNodeIds.length === 2.
+  chat.component.spec: "provides previous chapters incl. their
+  headings as context for the last one" — the second request body
+  contains Answer one, "First Heading" and Answer two.
+end note
+
+@enduml

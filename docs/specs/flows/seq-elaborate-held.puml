@@ -1,0 +1,80 @@
+@startuml seq-elaborate-held
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam wrapWidth 190
+skinparam shadowing false
+title Elaborate with a prefetched ("held") chapter\n(spec: flows.spec.ts · "send-elaborate (HELD)" · chat.component.spec.ts)
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "PAGE_CHAT\nChatComponent\n(elaborate dialog)" as PAGE
+participant "SVC_ELABDLG\nChatElaborateDialogService" as DLG
+participant "ORCH_RUNNER\nLlmFlowRunner.runHeld()" as RUN
+participant "flows/sends\nstartSendElaborateHeld()" as HELD
+participant "SVC_CHAT / SVC_TREE\naddNode · drafts" as SVC
+participant "LEAF_REVEAL\nRevealQueue" as Q
+participant "ORCH_TRANSPORT" as TR
+participant "PORT\nChatApiPort" as API
+
+== 1. Read the dialog state (per chat, persisted) ==
+User -> PAGE : Ctrl+E → elaborate dialog
+PAGE -> DLG : loadState(chatId)
+DLG --> PAGE : first · last · characters · hints · prefix · stickLast · model
+note right of DLG
+  chat.component.spec: state is stored PER CHAT, reopens at
+  "previous last + 1", clamps "plan chapters" to 1..50 and
+  migrates the legacy "following chapters" value.
+end note
+
+== 2. Sequential chapters: runHeld, not run ==
+loop chapter = first .. last
+  PAGE -> PAGE : build vars {content, modelId, providerId}\n+ chapter-plan slice (plan chapters N)
+  PAGE -> RUN : runHeld({chat, node: anchor, usecase:'send-elaborate', vars},\n {queue})
+  RUN -> HELD : startSendElaborateHeld(env)
+  HELD -> SVC : reuse an empty composer leaf under the anchor,\nelse create the question node
+  note right of HELD
+    flows.spec "reuses an existing empty user leaf draft":
+    question.id === 'draft' when the composer was empty.
+    vars.modelId WINS over the node's own model.
+  end note
+  HELD -> SVC : addNode(role:assistant, content:'') — placeholder
+  HELD -> TR : start the stream NOW (do not wait for the reveal)
+  TR --> HELD : raw text arrives in the background
+  HELD --> PAGE : HeldRun {questionNodeId, placeholderNodeId,\n answerNodeId: null, streamDone, finalize, drain, discard}
+  note right of PAGE
+    answerNodeId is NULL here: the chapter is fetched but not yet
+    presented — that is what makes the prefetch invisible.
+  end note
+
+  == 3. Present, then persist ==
+  PAGE -> PAGE : user paces / reads the previous chapter
+  PAGE -> RUN : await run.streamDone
+  PAGE -> RUN : run.finalize()
+  RUN -> SVC : editAssistant(placeholder, full text, …) → versioned node
+  SVC -> API : editAssistant → new version row
+  RUN --> PAGE : answerNodeId = versioned id\nflow{questionNodeId, activateId}
+  PAGE -> Q : enqueue the revealed content
+  PAGE -> RUN : run.drain()
+  note right of Q
+    LEAF_REVEAL (reveal-queue.spec) guarantees in-order reveal;
+    drain completes instantly when no rAF pump is attached.
+  end note
+end
+
+== 4. Stop in the middle of the chain ==
+alt hard Stop or "Finish & stop" before the chapter is presented
+  PAGE -> RUN : run.discard()
+  RUN -> SVC : delete question + placeholder\n(no trash entry, no leftover)
+  note right of RUN
+    flows.spec "discard drops the prefetched chapter and its nodes":
+    getDeletedNodes() === [] and the anchor stays on the active path.
+    A REUSED composer leaf is emptied again instead of deleted.
+  end note
+else chapter already finalized
+  PAGE -> PAGE : nothing to roll back — the chapter stays
+end
+PAGE -> DLG : saveState(chatId, last = chapter, characters, prefix)
+
+@enduml

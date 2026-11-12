@@ -50,7 +50,9 @@
     "docs:manual": "playwright test --config playwright.manual.config.ts --reporter=list",
     "docs:manual:index": "node e2e/manual/build-index.mjs",
     "docs:manual:full": "npm run docs:manual && npm run docs:manual:index",
-    "docs:manual:wiki": "npm run docs:manual:full && node e2e/manual/wiki-export.mjs"
+    "docs:manual:wiki": "npm run docs:manual:full && node e2e/manual/wiki-export.mjs",
+    "docs:specs": "node 0scripts/spec-inventory.mjs && node 0scripts/check-doc-links.mjs docs/specs/README.md docs/specs/assertions.md docs/specs/spec-inventory.md",
+    "docs:diagrams": "node 0scripts/render-puml.mjs docs/specs"
   },
   "private": true,
   "packageManager": "npm@10.9.8",

@@ -1,0 +1,72 @@
+@startuml seq-storage-routing
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam wrapWidth 190
+skinparam shadowing false
+title Where a write lands — storage profile routing\n(spec: chat-api.service.spec.ts · idb-chat-api.service.spec.ts · routes/shared server specs)
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "SVC_CHAT\nChatService" as SVC
+participant "PORT\nChatApiPort (token CHAT_API)" as PORT
+participant "COMPOSITE\nCompositeChatApiService" as COMP
+participant "SET_ENV\nEnvironmentService" as ENV
+participant "HTTP\nChatApiService" as HTTP
+participant "IDB\nIdbChatApiService" as IDB
+participant "SERVER\nExpress + sqlite-persistence" as SRV
+database "IndexedDB" as IDBX
+database "SQLite file" as SQLX
+
+== 1. Which profile is this installation? ==
+COMP -> ENV : usesIdb(kind)
+ENV --> COMP : storage kind for chats / projects / personas / params / providers
+note right of ENV
+  profiles: sqlite-all · indexeddb-all · chats-params-idb ·
+  content-idb · theme-local.
+  The profile comes from GET /api/environment on startup.
+end note
+
+== 2. One call, two implementations ==
+User -> SVC : create a node
+SVC -> PORT : createNode(chatId, data)
+PORT -> COMP : same interface, injected by provideChatApi()
+alt kind routes to the browser store
+  COMP -> IDB : createNode(...)
+  IDB -> IDBX : object store write (ordered by position, then creation)
+  note right of IDB
+    idb-chat-api.service.spec pins the CONTRACT, not the storage:
+    lists nodes by position then creation, versioning on
+    edit*, branchUser rejects non-user nodes, patchNode validates
+    reparent cycles, soft-delete/restore/purge, keepChildren.
+  end note
+else kind routes to the server
+  COMP -> HTTP : createNode(...)
+  HTTP -> SRV : POST /chats/:id/nodes
+  SRV -> SQLX : INSERT into chat_nodes
+  note right of SRV
+    routes.test.ts / endpoint-gaps.test.ts / snapshot-persistence.test.ts
+    assert the same contract over HTTP — that is why the two
+    implementations are kept in lockstep.
+  end note
+end
+IDB --> COMP : ChatNode
+HTTP --> COMP : ChatNode
+COMP --> PORT : ChatNode
+PORT --> SVC : updated tree state (signals)
+
+== 3. Why the specs test both ==
+note over COMP
+  The specs never mock the port: flows.spec / chat.component.spec
+  inject an InMemoryChatApi (test-helpers/) — a THIRD implementation
+  of the same interface. That keeps the domain spec independent of
+  sqlite vs IndexedDB while still exercising the real ChatService.
+end note
+note over HTTP
+  chat-api.service.spec asserts the HTTP client is stateless:
+  URL building, payload shape and error propagation only —
+  "no local state — ChatService remains the store / facade".
+end note
+
+@enduml

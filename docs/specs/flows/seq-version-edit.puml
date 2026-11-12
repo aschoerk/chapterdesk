@@ -1,0 +1,83 @@
+@startuml seq-version-edit
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam wrapWidth 190
+skinparam shadowing false
+title Editing a chapter creates a version\n(spec: node-edit-session.spec.ts · chat-editing.spec.ts · idb-chat-api.service.spec.ts)
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "CMP_NODE\nChatNodeComponent" as NODE
+participant "SVC_EDIT\nNodeEditSession" as EDIT
+participant "SVC_CHAT\nChatService (facade)" as SVC
+participant "SVC_TREE\nchat-tree-writer" as W
+participant "PORT\nChatApiPort" as API
+participant "CMP_VERSIONS\nTextVersionPanel /\nNodeVersionDiff" as VER
+
+== 1. Start editing ==
+User -> NODE : clicks into a chapter
+NODE -> EDIT : begin(chatId, nodeId)
+note right of EDIT
+  single-session invariant: at most ONE session at a time.
+  begin() for the same chat+node reuses it; a different node
+  replaces it — but only after the dirty-check (step 3).
+end note
+NODE -> EDIT : patch(drafts) on every keystroke
+EDIT -> EDIT : dirty = draft ≠ baseline\n(text OR attachments, order counts)
+note right of EDIT
+  node-edit-session.spec: "becomes dirty when draft text diverges",
+  "is clean again when drafts are patched back to the baseline".
+end note
+
+== 2. Commit the edit ==
+User -> NODE : clicks Done / Ctrl+S
+NODE -> SVC : editAssistant(chatId, nodeId, content, attachments, thinking, usage?)
+SVC -> W : editAssistant(...)
+W -> API : editAssistant()
+API --> W : saved node
+alt backend versioned the row (saved.id ≠ nodeId)
+  W -> W : old node isCurrent = false (retired, NOT deleted)
+  W -> W : adoptSubtree(oldId → saved.id)\nchildren + activeChildMap re-keyed
+  note right of W
+    chat-editing.spec: "editAssistant / editUser create a new version
+    and reparent children" (idb spec). The previous text stays
+    readable — nothing is lost.
+  end note
+end
+W -> W : setActiveChild(saved.parentId, saved.id)\nensureDraftAtLeaf(chatId)
+SVC --> NODE : saved
+NODE -> EDIT : commit(nodeId)  → session cleared
+note right of EDIT
+  commit() only clears when THAT node owns the session
+  (a late save must not clear someone else's edit).
+end note
+
+== 3. Navigating away while dirty ==
+User -> NODE : clicks another section
+NODE -> EDIT : canLeave?  (or begin() for the other node)
+EDIT -> EDIT : dirty ⇒ open confirm dialog\n(reuses SVC_DIALOGS confirm)
+alt user confirms discard
+  EDIT -> EDIT : abandon(oldNodeId) → switch / leave
+else user cancels
+  EDIT -> EDIT : keep the old session and the drafts
+end
+note right of EDIT
+  node-edit-session.spec covers: same node reopened in another chat,
+  automatic callers never prompted, and "canLeaveChat" on a dirty
+  session switching chats.
+end note
+
+== 4. Inspecting what changed ==
+User -> VER : opens the version panel on the chapter
+VER -> SVC : getPriorVersions(nodeId)
+SVC --> VER : retired versions (isCurrent = false)
+VER -> VER : side-by-side diff (NodeVersionDiff)
+note right of VER
+  text-version-panel.spec / node-version-diff-dialog.spec assert the
+  listing and the diff rendering; the version ROWS themselves are the
+  server's/src/app/api's job (idb + routes specs).
+end note
+
+@enduml

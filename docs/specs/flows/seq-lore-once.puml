@@ -1,0 +1,91 @@
+@startuml seq-lore-once
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam wrapWidth 190
+skinparam shadowing false
+title Chat lore — materialized once, sent once\n(spec: flows.spec.ts · "LLM synchronization — excludeFromContext flag in the request builder")
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "SVC_LORE\nChatLoreService" as LORE
+participant "SVC_CHAT\nChatService" as SVC
+participant "ORCH_CONTEXT\nbuildSendMessagesEx()" as CTX
+participant "flows/sends\nsend flow" as FLOW
+participant "PORT\nChatApiPort" as API
+
+== 1. Nobody has to write the lore into the thread ==
+User -> SVC : patchChatMeta(chatId, {lore: 'Ashley is married to Dr. Harvey.'})
+note right of SVC
+  Chat.lore is ONE free-text blob — it is never a node the
+  author has to edit. flows.spec asserts chat.lore stays
+  untouched by any send.
+end note
+
+== 2. Before a direction is sent, one lore node is materialized ==
+User -> FLOW : send a direction
+FLOW -> LORE : ensureLoreNodeBefore(chatId, directionId, planSlice?)
+LORE -> LORE : buildLoreNodeContent(lore, planSlice)
+note right of LORE
+  returns prefix + lore + suffix:
+  [Current chat-lore — fixed canon …]
+  …lore text…
+  [/End of chat-lore]
+  plus an OPTIONAL temporary section:
+  [Chapter plan for this chapter — fixed canon …] … [/End of chapter plan]
+  Blank / undefined lore ⇒ '' (no node at all).
+end note
+alt the direction already has a lore node as parent
+  LORE -> SVC : patch that node's content (idempotent re-arm)
+  note right of LORE
+    re-arming with a DIFFERENT plan slice updates the SAME node;
+    the old slice is gone, nothing accumulates.
+  end note
+else first send of this direction
+  LORE -> SVC : addNode(role:'user', parent of the direction,\n content = wrapped lore)
+  LORE -> SVC : patchNode(excludeAfterSend: true)
+  note right of LORE
+    excludeAfterSend = send it ONCE, then exclude it forever.
+  end note
+end
+SVC -> API : createNode / patchNode
+
+== 3. The send sees the lore, the chat does not change ==
+FLOW -> CTX : buildSendMessagesEx({chatId, nodeId: direction})
+CTX -> CTX : walk the path, skip excludeFromContext nodes,\nINCLUDE an excludeAfterSend node while it is still armed
+CTX --> FLOW : messages[] containing the lore text
+note right of CTX
+  flows.spec: an excluded node is still sent while it IS the current
+  question; a lore node is sent until it was sent, then flipped.
+end note
+
+== 4. After a real send the lore node is deactivated ==
+FLOW -> LORE : markSentOnceExcluded(direction)
+LORE -> SVC : patchNode(lore, excludeFromContext: true,\n excludeAfterSend: false)
+FLOW -> CTX : buildSendMessagesEx() again
+CTX --> FLOW : messages[] WITHOUT the lore text
+note right of CTX
+  so the canon costs tokens exactly once per direction, not
+  once per turn — and the tree stays readable.
+end note
+
+== 5. The next direction gets a fresh node ==
+User -> FLOW : send the next direction under the new answer
+FLOW -> LORE : ensureLoreNodeBefore(chatId, nextDirectionId)
+LORE -> SVC : addNode(…) — a NEW lore node (new id)
+note right of LORE
+  the old one stays deactivated; the new one carries the current
+  plan slice. flows.spec asserts lore2.id ≠ lore1.id.
+end note
+
+== 6. Regenerate / rewrite / insert re-arm the shared lore ==
+FLOW -> SVC : clear excludeFromContext on the lore node BEFORE the answer
+note right of SVC
+  flows.spec "send-regenerate / send-rewrite: clears the exclude flag
+  … and re-sends the lore" and "send-insert: re-arms the shared lore
+  node of the direction being inserted above".
+  Re-generating an answer must not silently lose the canon.
+end note
+
+@enduml
