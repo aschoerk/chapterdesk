@@ -27,6 +27,7 @@ import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service'
 import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchestration';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
+import { MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { ChatViewPrefsService } from '../../core/chat/chat-view-prefs.service';
 
 /** Thin aliases over the shared test-helpers factories. */
@@ -135,8 +136,8 @@ describe('ChatNodeComponent', () => {
               },
               opts?: { onChunk?: (c: unknown) => void },
             ) => {
-              opts?.onChunk?.({ content: 'Generated' });
-              const slots: Record<string, unknown> = { text: { status: 'ok', value: 'Generated' } };
+              opts?.onChunk?.({ content: 'Generated.' });
+              const slots: Record<string, unknown> = { text: { status: 'ok', value: 'Generated.' } };
               const imgUse = (build?.usecase ?? '').startsWith('storyboard')
                 || (build?.usecase ?? '').startsWith('planned')
                 || (build?.usecase ?? '').startsWith('render')
@@ -185,8 +186,8 @@ describe('ChatNodeComponent', () => {
               _req: unknown,
               opts?: { onChunk?: (c: unknown) => void },
             ) => {
-              opts?.onChunk?.({ content: 'Generated' });
-              return { text: { status: 'ok', value: 'Generated' } };
+              opts?.onChunk?.({ content: 'Generated.' });
+              return { text: { status: 'ok', value: 'Generated.' } };
             }),
             completeImage: vi.fn(async () => ({ images: { status: 'refused', value: null } })),
             images: vi.fn(async () => ({ images: { status: 'refused', value: null } }))
@@ -1792,7 +1793,7 @@ describe('ChatNodeComponent', () => {
       // A new assistant answer node was created + streamed live.
       const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
       expect(answers.length).toBeGreaterThanOrEqual(1);
-      expect(answers[0].content).toBe('Generated');
+      expect(answers[0].content).toBe('Generated.');
       expect(component.isEditing()).toBe(false);
     });
 
@@ -1872,7 +1873,7 @@ describe('ChatNodeComponent', () => {
       expect((build.vars?.attachments ?? []).length).toBe(1);
 
       const answers = chatService.nodes().filter((n) => n.role === 'assistant' && n.parentId === 'q1');
-      expect(answers[0].content).toBe('Generated');
+      expect(answers[0].content).toBe('Generated.');
 
       // The merged description was persisted onto the USER node content for
       // real, so it is available in the history (the image itself stays an
@@ -1976,13 +1977,145 @@ describe('ChatNodeComponent', () => {
       // One final placeholder per send is later versioned — count the settled
       // answers with actual generated content.
       const answers = chatService.nodes().filter(
-        (n) => n.role === 'assistant' && n.content === 'Generated' && n.isCurrent
+        (n) => n.role === 'assistant' && n.content === 'Generated.' && n.isCurrent
       );
       expect(answers).toHaveLength(3);
       // Batch progress published and cleared again.
       expect(chatService.batchProgress()).toBeNull();
       expect(component.isLoading()).toBe(false);
       expect(component.pendingAction()).toBeNull();
+    });
+
+    it('inserts a separate "complete the preceding message" direction when a repetition ends mid-sentence', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
+      // Repetition 1 stops mid-sentence (no terminal punctuation), so a
+      // separate completion direction must be sent before repetition 2.
+      const values = ['truncated mid', 'The message is now complete.', 'Another chapter.'];
+      let call = 0;
+      (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+          const value = values[Math.min(call, values.length - 1)];
+          call++;
+          opts?.onChunk?.({ content: value });
+          return { text: { status: 'ok', value } };
+        }
+      );
+
+      component.repeatCount.set(2);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      // The completion direction is its OWN user message between the two
+      // repetitions — not appended to the "continue" text.
+      const directions = chatService.getActivePath()
+        .filter(n => n.role === 'user')
+        .map(n => n.content ?? '')
+        .filter(c => c === 'continue the story' || c === 'complete the preceding message');
+      expect(directions).toEqual([
+        'continue the story',
+        'complete the preceding message',
+        'continue the story'
+      ]);
+
+      // The completion answer is what the second repetition is chained under.
+      const completionDirection = chatService.nodes()
+        .find(n => n.role === 'user' && n.content === 'complete the preceding message')!;
+      expect(completionDirection).toBeDefined();
+      const completionAnswer = chatService.getChildren(completionDirection.id)
+        .find(n => n.role === 'assistant');
+      expect(completionAnswer?.content).toBe('The message is now complete.');
+
+      // No "continue" direction carries the completion instruction inline.
+      const continues = chatService.nodes()
+        .filter(n => n.role === 'user' && n.content === 'continue the story');
+      expect(continues).toHaveLength(2);
+    });
+
+    it('takes the completion direction from the editable "structure.completeMessage" template', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) => {
+        if (id === 'structure.continue') return 'continue the story';
+        if (id === 'structure.completeMessage') return 'finish the unfinished paragraph';
+        return realEffective(id, topicId);
+      });
+
+      const values = ['truncated mid', 'Done now.', 'Another chapter.'];
+      let call = 0;
+      (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+          const value = values[Math.min(call, values.length - 1)];
+          call++;
+          opts?.onChunk?.({ content: value });
+          return { text: { status: 'ok', value } };
+        }
+      );
+
+      component.repeatCount.set(2);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      // The CUSTOM template text is what gets persisted as the direction…
+      const completion = chatService.nodes()
+        .find(n => n.role === 'user' && n.content === 'finish the unfinished paragraph');
+      expect(completion).toBeDefined();
+      // …and the constant text is not used at all.
+      expect(chatService.nodes().some(n => n.content === 'complete the preceding message')).toBe(false);
+    });
+
+    it('repeats the completion when the completion itself ends mid-sentence, bounded by MAX_COMPLETION_DIRECTIONS', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
+      // Every completion answer stays truncated, so the retry must stop after
+      // MAX_COMPLETION_DIRECTIONS attempts and continue with repetition 2.
+      const values = ['truncated one', 'truncated two', 'truncated three', 'Finally done.'];
+      let call = 0;
+      (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+          const value = values[Math.min(call, values.length - 1)];
+          call++;
+          opts?.onChunk?.({ content: value });
+          return { text: { status: 'ok', value } };
+        }
+      );
+
+      component.repeatCount.set(2);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      // rep1 + 2 completions + rep2 = 4 LLM calls (never an endless loop).
+      expect(runner.run).toHaveBeenCalledTimes(4);
+      expect(MAX_COMPLETION_DIRECTIONS).toBe(2);
+      const completions = chatService.nodes().filter(
+        n => n.role === 'user' && n.content === 'complete the preceding message'
+      );
+      expect(completions).toHaveLength(2);
+      // The batch still ran its second repetition.
+      const continues = chatService.nodes().filter(
+        n => n.role === 'user' && n.content === 'continue the story'
+      );
+      expect(continues).toHaveLength(2);
     });
 
     it('batch progress advances only when the next repetition actually starts', async () => {
@@ -2002,9 +2135,9 @@ describe('ChatNodeComponent', () => {
       // of the loop — the off-by-one this test pins down).
       const gates: Array<() => void> = [];
       runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
-        opts?.onChunk?.({ content: 'Generated' });
+        opts?.onChunk?.({ content: 'Generated.' });
         await new Promise<void>(resolve => gates.push(resolve));
-        return { text: { status: 'ok', value: 'Generated' } };
+        return { text: { status: 'ok', value: 'Generated.' } };
       });
       const flush = async () => {
         for (let i = 0; i < 40; i++) await Promise.resolve();
@@ -2061,9 +2194,9 @@ describe('ChatNodeComponent', () => {
       // current answer must be finished and saved, nothing after it may start.
       const gates: Array<() => void> = [];
       runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
-        opts?.onChunk?.({ content: 'Generated' });
+        opts?.onChunk?.({ content: 'Generated.' });
         await new Promise<void>(resolve => gates.push(resolve));
-        return { text: { status: 'ok', value: 'Generated' } };
+        return { text: { status: 'ok', value: 'Generated.' } };
       });
       const flush = async () => {
         for (let i = 0; i < 40; i++) await Promise.resolve();
@@ -2089,7 +2222,7 @@ describe('ChatNodeComponent', () => {
       );
       expect(continues).toHaveLength(1);
       const answers = chatService.nodes().filter(
-        (n) => n.role === 'assistant' && n.content === 'Generated' && n.isCurrent
+        (n) => n.role === 'assistant' && n.content === 'Generated.' && n.isCurrent
       );
       expect(answers).toHaveLength(1);
       // The batch cleared its progress state as usual.
@@ -2129,13 +2262,13 @@ describe('ChatNodeComponent', () => {
 
       // First repetition's LLM stops; its tail is still revealing → the second
       // repetition is prefetched in the background.
-      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one' } });
+      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one.' } });
       await new Promise(r => setTimeout(r, 0));
       expect(calls).toHaveLength(2);
 
       // The user presses "Finish & stop" NOW (repetition 1 is what they see).
       chatService.requestGracefulStop();
-      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two' } });
+      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two.' } });
       await new Promise(r => setTimeout(r, 0));
 
       // Drive the reveal frames: repetition 1's tail drains, and the prefetched
@@ -2158,7 +2291,7 @@ describe('ChatNodeComponent', () => {
       expect(continues).toHaveLength(1);
       const assistants = chatService.nodes().filter(n => n.role === 'assistant' && n.isCurrent);
       expect(assistants.map(n => `${n.id}|${n.content}`)).toHaveLength(1);
-      expect(assistants[0].content).toBe('Chapter one');
+      expect(assistants[0].content).toBe('Chapter one.');
       // The composer leaf is empty again (the dropped send left no direction).
       const leaf = chatService.nodes().find(n => n.role === 'user' && n.id !== q1.id);
       expect(leaf?.content ?? '').toBe('');
@@ -2186,9 +2319,9 @@ describe('ChatNodeComponent', () => {
       // Gate the LLM run so we can press Stop WHILE repetition 1 streams.
       const gates: Array<() => void> = [];
       runner.run.mockImplementation(async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
-        opts?.onChunk?.({ content: 'Generated' });
+        opts?.onChunk?.({ content: 'Generated.' });
         await new Promise<void>(resolve => gates.push(resolve));
-        return { text: { status: 'ok', value: 'Generated' } };
+        return { text: { status: 'ok', value: 'Generated.' } };
       });
       const flush = async () => {
         for (let i = 0; i < 40; i++) await Promise.resolve();
@@ -2255,7 +2388,7 @@ describe('ChatNodeComponent', () => {
 
       // LLM 1 stops — the current chapter's tail is NOT yet fully revealed
       // (no rAF frame has advanced the reveal).
-      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one' } });
+      calls[0].resolve({ text: { status: 'ok', value: 'Chapter one.' } });
       await new Promise(r => setTimeout(r, 0));
 
       // The NEXT chapter's LLM call must already be in flight (background
@@ -2264,7 +2397,7 @@ describe('ChatNodeComponent', () => {
 
       // Let the next chapter's LLM stop too, then drive the reveal frames so
       // the batch drains and completes (otherwise it hangs on the manual rAF).
-      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two' } });
+      calls[1].resolve({ text: { status: 'ok', value: 'Chapter two.' } });
       await new Promise(r => setTimeout(r, 0));
 
       // Drive the reveal frames so the FIRST chapter's tail drains and the
@@ -2279,7 +2412,7 @@ describe('ChatNodeComponent', () => {
 
       // Stream 3 (the final chapter) is now prefetched.
       expect(calls).toHaveLength(3);
-      calls[2].resolve({ text: { status: 'ok', value: 'Chapter three' } });
+      calls[2].resolve({ text: { status: 'ok', value: 'Chapter three.' } });
       await new Promise(r => setTimeout(r, 0));
 
       // Drive the reveal pump to completion.
@@ -2296,7 +2429,7 @@ describe('ChatNodeComponent', () => {
       // resolved evaluator text, not the raw chunk).
       const answers = chatService.nodes().filter(
         (n) => n.role === 'assistant'
-          && ['Chapter one', 'Chapter two', 'Chapter three'].includes(n.content ?? '')
+          && ['Chapter one.', 'Chapter two.', 'Chapter three.'].includes(n.content ?? '')
           && n.isCurrent
       );
       expect(answers.length).toBe(3);
@@ -2388,7 +2521,7 @@ describe('ChatNodeComponent', () => {
         .nodes()
         .find((n) => n.role === 'assistant' && n.parentId === branch!.id);
       expect(answer).toBeDefined();
-      expect(answer!.content).toBe('Generated');
+      expect(answer!.content).toBe('Generated.');
     });
 
     it('branches from an assistant answer by adding a child question', async () => {
@@ -2414,7 +2547,7 @@ describe('ChatNodeComponent', () => {
       expect(branch!.parentId).toBe('a1');
       expect(emitted).toContain(branch!.id);
       const answer = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === branch!.id);
-      expect(answer?.content).toBe('Generated');
+      expect(answer?.content).toBe('Generated.');
     });
 
     it('uses the model selected in the editor for the branch stream', async () => {
@@ -2740,7 +2873,7 @@ describe('ChatNodeComponent', () => {
       // A fresh answer was streamed under the question by the flow runner.
       const fresh = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === 'q1');
       expect(fresh).toBeDefined();
-      expect(fresh!.content).toBe('Generated');
+      expect(fresh!.content).toBe('Generated.');
     });
 
     it('does nothing while already loading or generating', async () => {
@@ -2842,7 +2975,7 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
-      expect(newAnswer.content).toBe('Generated');
+      expect(newAnswer.content).toBe('Generated.');
       expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
       expect(chatService.getActiveChild(newAnswer.id)?.id).toBe('d1');
 
@@ -2882,7 +3015,7 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
-      expect(newAnswer.content).toBe('Generated');
+      expect(newAnswer.content).toBe('Generated.');
     });
 
     it('asks for confirmation when there is following text; aborting keeps the node', async () => {
@@ -4988,7 +5121,7 @@ describe('ChatNodeComponent', () => {
       // The failed stream still created the director user node; the flag is
       // rolled back and no result was inserted.
       const nodes = chatService.nodes();
-      expect(nodes.some(n => n.role === 'assistant' && n.content === 'Generated')).toBe(false);
+      expect(nodes.some(n => n.role === 'assistant' && n.content === 'Generated.')).toBe(false);
       expect(nodes.find(n => n.id === 'q3')?.parentId).toBe('a1');
     });
 

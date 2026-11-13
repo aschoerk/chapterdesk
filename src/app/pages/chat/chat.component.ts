@@ -43,6 +43,7 @@ import { ChatElaborateDialogService } from '../../core/dialogs/chat-elaborate-di
 import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
 import { NameListDialogService } from '../../core/dialogs/name-list-dialog.service';
 import { ToastService } from '../../core/toast/toast.service';
+import { isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import type { NameTextUnit, NameOccurrence } from '../../core/names/name-replace';
 
 /** One row of the navbar-node right-click context menu. */
@@ -2063,7 +2064,7 @@ export class ChatComponent implements OnInit {
       // views — nothing is started here. Each prompt remembers its CHAPTER
       // number, so the toolbar progress can show "chapter N → destination"
       // (a chapter may consist of several named views).
-      const prompts: { prompt: string; chapter: number; loreExtra: string }[] = [];
+      const prompts: { prompt: string; chapter: number; loreExtra: string; kind?: 'complete' }[] = [];
       for (let chapter = first; chapter <= last; chapter++) {
         // Hard Stop aborts the operation; a graceful "Finish & stop" also
         // ends the chain, but only AFTER the current chapter's answer has
@@ -2089,6 +2090,20 @@ export class ChatComponent implements OnInit {
         for (const prompt of chapterPrompts) {
           if (stopped()) break;
           prompts.push({ prompt, chapter, loreExtra });
+        }
+        // A chapter that ends mid-sentence is completed by its OWN direction
+        // message before the next chapter starts. The placeholder is skipped
+        // at run time when the chapter's text already ended properly. The text
+        // comes from the editable `structure.completeChapter` template.
+        if (chapter < last) {
+          prompts.push({
+            prompt:
+              this.promptDefaults.render('structure.completeChapter', {}, topicId)
+              || 'complete the preceding chapter',
+            chapter,
+            loreExtra,
+            kind: 'complete'
+          });
         }
       }
       if (prompts.length === 0) return;
@@ -2169,8 +2184,60 @@ export class ChatComponent implements OnInit {
           current = null;
           break;
         }
-        // Prefetch the NEXT prepared chapter as a BACKGROUND slot — its LLM
-        // runs immediately but its text buffers (nothing paints yet).
+        // A "complete the preceding chapter" placeholder only gets sent when
+        // the chapter's text did not end like a proper sentence; otherwise it
+        // is skipped and the next chapter's prompt follows directly.
+        //
+        // The completion answer can itself stop mid-sentence, so it is sent
+        // again — bounded by MAX_COMPLETION_DIRECTIONS so a model that keeps
+        // truncating can never loop forever. The truncated tail simply stays
+        // in the story and the chain continues from the last answer.
+        if (prompts[i].kind === 'complete') {
+          let attempts = 0;
+          while (attempts < MAX_COMPLETION_DIRECTIONS && !isSentenceComplete(current.finalContent())) {
+            if (stopped()) break;
+            // Each attempt is anchored under the previous answer (the chapter
+            // itself, then the preceding completion).
+            parentId = current.answerNodeId ?? parentId;
+            const completion = await startStep(
+              prompts[i].prompt,
+              prompts[i].loreExtra,
+              current,
+            );
+            // A Stop / "Finish & stop" that landed while the completion was
+            // being prepared ends the chain with the previous answer.
+            if (stopped()) {
+              await completion.discard();
+              await current.drain(opSignal);
+              current = null;
+              break;
+            }
+            // Keep pacing the previous tail, then run the completion.
+            await current.drain(opSignal);
+            if (this.chatService.gracefulStop()) {
+              await completion.discard();
+              current = null;
+              break;
+            }
+            await completion.streamDone;
+            await completion.finalize(opSignal);
+            parentId = completion.answerNodeId ?? parentId;
+            current = completion;
+            attempts++;
+          }
+          if (!current) break;
+          // Nothing needed completing (or the last attempt still truncated):
+          // keep pacing the current tail and continue with the next chapter.
+          await current.drain(opSignal);
+          if (this.chatService.gracefulStop()) {
+            current = null;
+            break;
+          }
+          continue;
+        }
+        // Prefetch the NEXT prepared chapter (or the completion direction) as
+        // a BACKGROUND slot — its LLM runs immediately but its text buffers
+        // (nothing paints yet).
         const next = await startStep(
           prompts[i].prompt,
           prompts[i].loreExtra,

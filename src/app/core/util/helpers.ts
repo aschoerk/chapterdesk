@@ -1,5 +1,25 @@
 
 
+/**
+ * Whether a piece of text ends like a completed sentence (terminal
+ * punctuation, optionally followed by closing quotes/brackets/markdown).
+ */
+export function isSentenceComplete(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // A trailing markdown/quote character does not count as sentence end —
+  // strip the closing punctuation wrappers first and look at the last word.
+  return /[.!?…][”"’'）)\]}`*_~]*$/.test(trimmed);
+}
+
+/**
+ * How many "complete the preceding …" directions may follow each other before
+ * the sequence gives up and continues anyway. A completion answer can itself
+ * stop mid-sentence, so it is sent again — but only this often, so a model
+ * that keeps truncating can never loop forever.
+ */
+export const MAX_COMPLETION_DIRECTIONS = 2;
+
 export function newId(): string {
   const c = globalThis.crypto as Crypto | undefined;
   if (c && typeof c.randomUUID === 'function') {

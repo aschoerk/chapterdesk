@@ -173,6 +173,20 @@ Change the story as little as possible: keep established facts, and let every ch
     description: 'Fills an empty draft with the "switch characters" direction and sends it to the default model. The default text is a plain direction; edit this template to change what the button sends.',
     default: 'switch characters'
   },
+  {
+    id: 'structure.completeMessage',
+    category: 'structure',
+    label: 'Complete preceding message',
+    description: 'Sent as its own direction in a Continue / Multiple Characters batch when the previous answer did not end like a proper sentence. Edit this template to change the wording; it is sent at most a few times in a row.',
+    default: 'complete the preceding message'
+  },
+  {
+    id: 'structure.completeChapter',
+    category: 'structure',
+    label: 'Complete preceding chapter',
+    description: 'Sent as its own direction in the Elaborate chain when the previous chapter did not end like a proper sentence. Edit this template to change the wording; it is sent at most a few times in a row.',
+    default: 'complete the preceding chapter'
+  },
 
   // ------------------------------------------------------------------- image
   {

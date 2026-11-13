@@ -30,6 +30,8 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
+import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
+import { MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { seedApi } from '../../../../test-helpers/factories';
 
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api'
@@ -84,8 +86,8 @@ describe('Chat', () => {
               _req: unknown,
               opts?: { onChunk?: (c: { content: string }) => void },
             ) => {
-              opts?.onChunk?.({ content: 'Generated answer' });
-              return { text: { status: 'ok', value: 'Generated answer' } };
+              opts?.onChunk?.({ content: 'Generated answer.' });
+              return { text: { status: 'ok', value: 'Generated answer.' } };
             }),
             completeImage: vi.fn(async () => ({ images: { status: 'refused', value: null } })),
             images: vi.fn(async () => ({ images: { status: 'refused', value: null } }))
@@ -599,8 +601,8 @@ describe('Chat', () => {
     const [q1, q2] = questions;
     const a1 = chatService.getChildren(q1.id).find(n => n.role === 'assistant')!;
     const a2 = chatService.getChildren(q2.id).find(n => n.role === 'assistant')!;
-    expect(a1.content).toBe('Generated answer');
-    expect(a2.content).toBe('Generated answer');
+    expect(a1.content).toBe('Generated answer.');
+    expect(a2.content).toBe('Generated answer.');
     expect(q2.parentId).toBe(a1.id); // chapter 2 continues from the chapter-1 answer
 
     expect(orch.completion).toHaveBeenCalledTimes(2);
@@ -610,6 +612,130 @@ describe('Chat', () => {
     expect(q1.providerId).toBe('prov-1');
     expect(q2.modelId).toBe('alpha/model');
     expect(a2.modelId).toBe('alpha/model');
+  });
+
+  it('sends a separate "complete the preceding chapter" direction when a chapter ends mid-sentence', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // Chapter 1 stops mid-sentence; the completion and chapter 2 are complete.
+    const values = ['cut off mid', 'The chapter is now complete.', 'Chapter two is done.'];
+    let call = 0;
+    orch.completion.mockImplementation(async (
+      _cx: unknown,
+      _req: unknown,
+      opts?: { onChunk?: (c: { content: string }) => void },
+    ) => {
+      const value = values[Math.min(call, values.length - 1)];
+      call++;
+      opts?.onChunk?.({ content: value });
+      return { text: { status: 'ok', value } };
+    });
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // The completion is its OWN user direction between the two chapters — it
+    // is not appended to the next chapter's elaboration prompt.
+    const directions = chatService.getActivePath()
+      .filter(n => n.role === 'user')
+      .map(n => (n.content ?? '').split('\n')[0])
+      .filter(c => c.startsWith('elaborate on chapter') || c === 'complete the preceding chapter');
+    expect(directions).toEqual([
+      'elaborate on chapter 1',
+      'complete the preceding chapter',
+      'elaborate on chapter 2'
+    ]);
+
+    // One LLM call per direction (chapter 1, completion, chapter 2).
+    expect(orch.completion).toHaveBeenCalledTimes(3);
+
+    // Chapter 2 is chained under the completion answer, not under chapter 1.
+    const completion = chatService.nodes()
+      .find(n => n.role === 'user' && n.content === 'complete the preceding chapter')!;
+    expect(completion).toBeDefined();
+    const completionAnswer = chatService.getChildren(completion.id)
+      .find(n => n.role === 'assistant')!;
+    expect(completionAnswer.content).toBe('The chapter is now complete.');
+    const chapter2 = chatService.nodes()
+      .find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 2'))!;
+    expect(chapter2.parentId).toBe(completionAnswer.id);
+  });
+
+  it('takes the completion direction from the editable "structure.completeChapter" template', async () => {
+    await openElaborateStory();
+
+    const pd = TestBed.inject(PromptDefaultsService);
+    const realEffective = pd.effective.bind(pd);
+    vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+      id === 'structure.completeChapter' ? 'finish writing the previous chapter' : realEffective(id, topicId)
+    );
+
+    const values = ['cut off mid', 'The chapter is now complete.', 'Chapter two is done.'];
+    let call = 0;
+    orch.completion.mockImplementation(async (
+      _cx: unknown,
+      _req: unknown,
+      opts?: { onChunk?: (c: { content: string }) => void },
+    ) => {
+      const value = values[Math.min(call, values.length - 1)];
+      call++;
+      opts?.onChunk?.({ content: value });
+      return { text: { status: 'ok', value } };
+    });
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // The CUSTOM template text is what gets persisted as the direction…
+    expect(chatService.nodes()
+      .some(n => n.role === 'user' && n.content === 'finish writing the previous chapter')).toBe(true);
+    // …and the built-in wording is not used at all.
+    expect(chatService.nodes()
+      .some(n => n.content === 'complete the preceding chapter')).toBe(false);
+  });
+
+  it('repeats the chapter completion when the completion answer is itself truncated (bounded)', async () => {
+    await openElaborateStory();
+
+    // Every completion answer stays truncated → the retry must stop after
+    // MAX_COMPLETION_DIRECTIONS and continue with chapter 2.
+    const values = ['cut off one', 'cut off two', 'cut off three', 'Chapter two is done.'];
+    let call = 0;
+    orch.completion.mockImplementation(async (
+      _cx: unknown,
+      _req: unknown,
+      opts?: { onChunk?: (c: { content: string }) => void },
+    ) => {
+      const value = values[Math.min(call, values.length - 1)];
+      call++;
+      opts?.onChunk?.({ content: value });
+      return { text: { status: 'ok', value } };
+    });
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // chapter 1 + 2 completions + chapter 2 = 4 calls (never an endless loop).
+    expect(orch.completion).toHaveBeenCalledTimes(4);
+    expect(MAX_COMPLETION_DIRECTIONS).toBe(2);
+    const completions = chatService.nodes().filter(
+      n => n.role === 'user' && n.content === 'complete the preceding chapter'
+    );
+    expect(completions).toHaveLength(2);
+    // Chapter 2 still ran, chained under the LAST completion answer.
+    const chapter2 = chatService.nodes()
+      .find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 2'))!;
+    expect(chapter2).toBeDefined();
+    const lastCompletionAnswer = chatService.getChildren(completions[1].id)
+      .find(n => n.role === 'assistant')!;
+    expect(chapter2.parentId).toBe(lastCompletionAnswer.id);
   });
 
   it('adds exactly "plan chapters" descriptions to the lore of each elaboration', async () => {
@@ -772,9 +898,9 @@ describe('Chat', () => {
       _req: unknown,
       opts?: { onChunk?: (c: { content: string }) => void },
     ) => {
-      opts?.onChunk?.({ content: 'Generated answer' });
+      opts?.onChunk?.({ content: 'Generated answer.' });
       await new Promise<void>(resolve => gates.push(resolve));
-      return { text: { status: 'ok', value: 'Generated answer' } };
+      return { text: { status: 'ok', value: 'Generated answer.' } };
     });
     const flush = async () => {
       for (let i = 0; i < 40; i++) await Promise.resolve();
@@ -2295,7 +2421,7 @@ describe('Chat · elaborate with real streaming', () => {
       (window as any).cancelAnimationFrame = () => {};
     }
 
-    fetchMock = vi.fn(() => Promise.resolve(sseResponse('Elaborated chapter')));
+    fetchMock = vi.fn(() => Promise.resolve(sseResponse('Elaborated chapter.')));
     const originalFetch = globalThis.fetch;
     vi.stubGlobal('fetch', fetchMock);
 
@@ -2383,7 +2509,7 @@ describe('Chat · elaborate with real streaming', () => {
     fetchMock.mockImplementation(() => {
       calls++;
       if (calls === 2) chatService.requestGracefulStop();
-      return Promise.resolve(sseResponse('Elaborated chapter'));
+      return Promise.resolve(sseResponse('Elaborated chapter.'));
     });
 
     component.elaborateFirst.set(1);
@@ -2398,7 +2524,7 @@ describe('Chat · elaborate with real streaming', () => {
     expect(questions.map(q => q.content?.split('\n')[0])).toEqual(['elaborate on chapter 1']);
     // Exactly ONE elaborated chapter was kept, and the chain state is clean.
     const chapters = chatService.nodes()
-      .filter(n => n.role === 'assistant' && n.content === 'Elaborated chapter' && n.isCurrent);
+      .filter(n => n.role === 'assistant' && n.content === 'Elaborated chapter.' && n.isCurrent);
     expect(chapters).toHaveLength(1);
     expect(chatService.batchProgress()).toBeNull();
     expect(component.isElaborating()).toBe(false);

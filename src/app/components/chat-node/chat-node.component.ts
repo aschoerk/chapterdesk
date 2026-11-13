@@ -25,7 +25,7 @@ import { formatParametersSummary } from '../../models/chat-parameters';
 import {ProjectService} from '../../core/settings/project.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ToastService } from '../../core/toast/toast.service';
-import { newId } from '../../core/util/helpers';
+import { newId, isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
 import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
@@ -71,6 +71,11 @@ import {
   selectRangeAndScroll,
   sourceOffsetAtPoint
 } from './editor-scroll';
+
+/** Fallback for the editable `structure.completeMessage` prompt template —
+ *  sent when a generated message did not end like a proper sentence, so the
+ *  model finishes that message before the batch continues. */
+const COMPLETE_PRECEDING_MESSAGE_FALLBACK = 'complete the preceding message';
 
 /**
  * Fallback when a rewrite's original range cannot be mapped back to the
@@ -784,6 +789,9 @@ export class ChatNodeComponent implements OnDestroy {
     const content = direction === 'continue'
       ? (this.promptDefaults.effective('structure.continue') || 'continue')
       : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
+    // Editable completion direction (Settings → Prompt defaults).
+    const completionContent =
+      this.promptDefaults.effective('structure.completeMessage') || COMPLETE_PRECEDING_MESSAGE_FALLBACK;
 
     // One Stop press cancels the whole batch. A chat may run only ONE
     // streaming/batch operation at a time — a second one is refused so the
@@ -831,34 +839,35 @@ export class ChatNodeComponent implements OnDestroy {
           // generation is active). The drain of the previous tail happens
           // later on the OPERATION signal, so it is unaffected.
           this.chatService.clearGeneration();
+          // An answer that does not end like a proper sentence is completed by
+          // a SEPARATE direction message before the next repetition starts.
+          // The completion is a normal held step: it streams, finalizes and
+          // drains like a repetition and becomes the `current` answer the
+          // next repetition is chained under. A completion answer can itself
+          // stop mid-sentence, so it is repeated — bounded by
+          // MAX_COMPLETION_DIRECTIONS so a model that keeps truncating can
+          // never loop forever.
+          for (let attempt = 0; attempt < MAX_COMPLETION_DIRECTIONS; attempt++) {
+            if (isSentenceComplete(current.finalContent())) break;
+            if (stopped()) break;
+            const completion = await this.runCompletionStep(
+              chatId, current, completionContent, model, provider, queue, opSignal, started
+            );
+            // Stopped (hard or graceful) or no composer leaf: the batch ends
+            // with what is already in the story.
+            if (!completion) {
+              current = null;
+              break;
+            }
+            current = completion;
+          }
+          if (!current) break;
         }
 
         // Make sure the active path ends on an empty draft question to send
-        // on. The previous answer's reveal pump clamps its DISPLAYED content
-        // to the revealed slice (empty while the tail is still pacing), so
-        // `ensureDraftAtLeaf`'s content-based heuristic would treat it as an
-        // un-answered placeholder and refuse to hang the next composer. Hang
-        // the draft under the FINALIZED answer explicitly instead — through the
-        // SERIALIZED `ensureDraftUnderAnswer`, so the chat-page housekeeping
-        // effect cannot create a SECOND empty leaf in the same gap (the
-        // duplicate would linger as a superfluous empty sibling next to the
-        // materialized chat-lore node).
-        let leaf = this.chatService.getActivePath().at(-1) ?? null;
-        const prevAnswerId = current?.answerNodeId;
-        if (prevAnswerId) {
-          // `finalized: true` — the previous answer's LLM already stopped and
-          // was persisted; its DISPLAYED content is still clamped by the reveal
-          // pump, so the empty-content heuristic must be skipped here.
-          const ensured = await this.chatService.ensureDraftUnderAnswer(chatId, prevAnswerId, { finalized: true });
-          if (ensured) leaf = ensured;
-        }
-        if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
-          // Fall back to the generic draft housekeeping (e.g. right after a
-          // lore send flips exclude flags async).
-          await this.chatService.ensureDraftAtLeaf(chatId);
-          leaf = this.chatService.getActivePath().at(-1) ?? null;
-        }
-        if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) break;
+        // on — hung under the previous (possibly freshly completed) answer.
+        const leaf = await this.ensureDraftLeaf(chatId, current?.answerNodeId);
+        if (!leaf) break;
 
         // The draft housekeeping above is async — a Stop / a "Finish & stop"
         // pressed while it ran must NOT start another repetition: the CURRENT
@@ -929,6 +938,79 @@ export class ChatNodeComponent implements OnDestroy {
       this.isLoading.set(false);
       this.pendingAction.set(null);
     }
+  }
+
+  /**
+   * Ensure the active path ends on an empty user draft to send on. The
+   * previous answer's reveal pump clamps its DISPLAYED content to the revealed
+   * slice (empty while the tail is still pacing), so `ensureDraftAtLeaf`'s
+   * content-based heuristic would treat it as an un-answered placeholder and
+   * refuse to hang the next composer. Hang the draft under the FINALIZED
+   * answer explicitly instead — through the SERIALIZED `ensureDraftUnderAnswer`,
+   * so the chat-page housekeeping effect cannot create a SECOND empty leaf in
+   * the same gap. Returns null when no usable draft could be produced.
+   */
+  private async ensureDraftLeaf(
+    chatId: string,
+    prevAnswerId: string | null | undefined
+  ): Promise<ChatNode | null> {
+    let leaf = this.chatService.getActivePath().at(-1) ?? null;
+    if (prevAnswerId) {
+      // `finalized: true` — the previous answer's LLM already stopped and
+      // was persisted; its DISPLAYED content is still clamped by the reveal
+      // pump, so the empty-content heuristic must be skipped here.
+      const ensured = await this.chatService.ensureDraftUnderAnswer(chatId, prevAnswerId, { finalized: true });
+      if (ensured) leaf = ensured;
+    }
+    if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
+      // Fall back to the generic draft housekeeping (e.g. right after a
+      // lore send flips exclude flags async).
+      await this.chatService.ensureDraftAtLeaf(chatId);
+      leaf = this.chatService.getActivePath().at(-1) ?? null;
+    }
+    return leaf && leaf.role === 'user' && !(leaf.content ?? '').trim() ? leaf : null;
+  }
+
+  /**
+   * Send the "complete the preceding message" direction as its OWN step and
+   * drive it to a finalized + drained answer. Returns the completion stream
+   * (the caller's new `current`), or null when the run was stopped or no
+   * composer leaf could be produced.
+   */
+  private async runCompletionStep(
+    chatId: string,
+    prev: HeldAnswerStream,
+    completionContent: string,
+    model: ModelEntry,
+    provider: { baseUrl: string; apiKey: string },
+    queue: RevealQueue,
+    opSignal: AbortSignal,
+    started: HeldAnswerStream[]
+  ): Promise<HeldAnswerStream | null> {
+    const leaf = await this.ensureDraftLeaf(chatId, prev.answerNodeId);
+    if (!leaf) return null;
+    if (opSignal.aborted || this.chatService.shouldStopAfterCurrentStep()) return null;
+    const completion = await this.sendDirectionOnce(
+      chatId, leaf, completionContent, model, provider, {
+        queue,
+        signal: opSignal,
+        historyOverrides: prev.answerNodeId
+          ? { [prev.answerNodeId]: prev.finalContent() }
+          : undefined
+      }
+    );
+    started.push(completion);
+    // Keep pacing the previous tail, then run the completion step.
+    await prev.drain(opSignal);
+    if (this.chatService.gracefulStop()) {
+      await this.discardPrefetchedStep(chatId, leaf, completion);
+      return null;
+    }
+    await completion.streamDone;
+    await completion.finalize(opSignal);
+    await completion.drain(opSignal);
+    if (opSignal.aborted || this.chatService.shouldStopAfterCurrentStep()) return null;
+    return completion;
   }
 
   /**
