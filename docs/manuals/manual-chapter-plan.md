@@ -25,6 +25,13 @@ description separated by ` — `. That keeps the list easy to read *and* reliabl
 to parse. The parsed result is additionally stored next to the node as a hidden
 `chapter-plan.json` record, so later steps never have to re-read the prose.
 
+The record is kept up to date: **Regenerate** and **Rewrite in place** re-create
+it from the new list (a rewrite replaces the stale record of the old list), and a
+regenerated answer is parsed again. If a list has no record at all — older
+stories, or an answer regenerated before this was fixed — its own text is
+parsed instead; that fallback requires the list to *be* the node (first line is
+a numbered item) and every entry to carry a real description.
+
 ## Step 2 — use it in the Elaborate dialog
 
 **Elaborate** → **Chapter descriptions → lore** is already on whenever the story
@@ -63,7 +70,9 @@ chapter is never borrowed into canon.
 - If you previously saved your own version of the prompt **Chapter description
   list** (Settings → Prompt defaults), the improved default has no effect until
   you press **Revert to default** there.
-- Hand-written numbered lists work too, as long as no generated list exists in
-  the story: they are used as a fallback plan.
+- Hand-written numbered lists work too: a numbered list whose first line is an
+  item and whose entries each carry a description is offered in **Plan from**
+  next to the generated lists (newest first). A bare list of headings without
+  descriptions is not offered.
 - The list is matched by chapter **number**, so a chapter-number prefix in the
   Elaborate dialog (`ARC-`, …) does not interfere.

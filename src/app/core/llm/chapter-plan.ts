@@ -337,11 +337,63 @@ function parseBlocks(text: string, anchors: ChapterPlanAnchors): ChapterPlan {
   };
 }
 
-/** Cheap pre-check before parsing a node's (possibly huge) content. */
+/**
+ * Cheap pre-check before parsing a node's (possibly huge) content: does it
+ * contain a numbered line ANYWHERE?
+ *
+ * Coarse on purpose — it answers "might this text hold a list?", which is fine
+ * for guarding an expensive parse but NOT for deciding whether a node IS an
+ * outline (a prose chapter can contain an enumeration). Use
+ * {@link chapterPlanFromText} for that.
+ */
 export function looksLikeChapterPlan(content: string | null | undefined): boolean {
   const text = (content ?? '').trim();
   if (!text) return false;
   return /^[ \t]*(?:[-*+][ \t]+)?(?:#{1,6}[ \t]*)?(?:\*\*)?[ \t]*(?:\d{1,4}[.):]|chapter\s+\w)/im.test(text);
+}
+
+/**
+ * Stricter variant for lists that have NO stored record: the node's very FIRST
+ * line must be a numbered item. A normal chapter that merely *contains* an
+ * enumerated list ("… 1. she walks in …") therefore never competes with a real
+ * plan, while every generated list (contract: "every paragraph begins at
+ * column 1 with the chapter number") qualifies.
+ */
+export function startsWithChapterPlanItem(content: string | null | undefined): boolean {
+  const text = (content ?? '').replace(/^[ \t\r\n]+/, '');
+  if (!text) return false;
+  return /^(?:[-*+][ \t]+)?(?:#{1,6}[ \t]*)?(?:\*\*)?[ \t]*(?:\d{1,4}[.):]|chapter\s+\w)/i.test(text);
+}
+
+/**
+ * Minimum length of one chapter's description before a record-less text is
+ * trusted as an outline. The flow asks for "a few plain sentences"; a bare
+ * heading list ("Chapter 1: …") carries no description and is not something an
+ * elaboration can use as lore.
+ */
+export const MIN_PLAN_ENTRY_CHARS = 20;
+
+/**
+ * Recognize a chapter-description LIST from the node's own text — the fallback
+ * for outlines whose `chapter-plan.json` record is missing (see
+ * `syncChapterPlanRecord` for how that can happen, and the Elaborate dialog for
+ * why it matters).
+ *
+ * Deliberately conservative, because a false positive would inject random
+ * prose into the lore of an elaboration:
+ *  - the list must BE the node (first line = an item, not prose),
+ *  - at least two entries,
+ *  - every entry must carry an actual description, not just a heading.
+ *
+ * `looksLikeChapterPlan` (any numbered line anywhere) is NOT enough here: a
+ * chapter that happens to contain an enumeration would qualify.
+ */
+export function chapterPlanFromText(content: string | null | undefined): ChapterPlan | null {
+  if (!startsWithChapterPlanItem(content)) return null;
+  const plan = parseChapterPlan(content ?? '', {});
+  if (plan.entries.length < 2) return null;
+  if (!plan.entries.every((e) => e.text.trim().length >= MIN_PLAN_ENTRY_CHARS)) return null;
+  return plan;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,8 +476,9 @@ export function readChapterPlan(
 }
 
 /**
- * Resolve the plan of a node: the stored record when present, else a parse of
- * its visible text (validated against nothing — used for hand-picked nodes).
+ * Resolve the plan of a node: the stored record when present, else the node's
+ * own text IF it is a real outline (see {@link chapterPlanFromText} — the
+ * conservative text recognition, needed for outlines whose record was lost).
  */
 export function chapterPlanOf(
   node: Pick<ChatNode, 'content' | 'attachments'> | null | undefined,
@@ -433,9 +486,7 @@ export function chapterPlanOf(
   if (!node) return null;
   const stored = readChapterPlan(node);
   if (stored) return stored;
-  if (!looksLikeChapterPlan(node.content)) return null;
-  const plan = parseChapterPlan(node.content, {});
-  return plan.entries.length > 0 ? plan : null;
+  return chapterPlanFromText(node.content);
 }
 
 /**

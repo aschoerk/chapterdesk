@@ -19,10 +19,80 @@ import { isChatLoreNode } from '../../../chat/chat-lore.service';
 import {
   CHAPTER_PLAN_FORMAT_CONTRACT,
   chapterPlanRecord,
+  isChapterPlanRecordAttachment,
   parseChapterPlan,
   parseStrictChapterPlan,
+  type ChapterPlanAnchors,
 } from '../../chapter-plan';
 import type { FlowEnv, FlowController, HeldRun } from './env';
+
+// ---------------------------------------------------------------------------
+// Chapter-plan record upkeep
+// ---------------------------------------------------------------------------
+
+/** The flow's own parameter lines (never part of the editable prompt). */
+const PLAN_COUNT_LINE = /^Number of chapters to plan:\s*(\d+)\s*$/m;
+const PLAN_FIRST_LINE = /^First chapter number:\s*(\d+)\s*$/m;
+
+/**
+ * The dialog anchors of a chapter-description REQUEST, or null when the
+ * direction was not produced by that flow. The two parameter lines are
+ * appended by the flow itself, so they are a dependable marker (the editable
+ * prompt text is irrelevant).
+ */
+function chapterPlanAnchors(question: ChatNode | null | undefined): ChapterPlanAnchors | null {
+  const text = question?.content ?? '';
+  const count = PLAN_COUNT_LINE.exec(text);
+  if (!count) return null;
+  const first = PLAN_FIRST_LINE.exec(text);
+  return {
+    chapterCount: Math.max(1, Math.floor(Number(count[1]) || 1)),
+    firstChapter: Math.max(1, Math.floor(Number(first?.[1] ?? 1) || 1)),
+  };
+}
+
+/**
+ * Keep the machine-readable `chapter-plan.json` record of an answer in sync
+ * with its visible list.
+ *
+ * The record lives ONLY on the answer node, so any path that re-streams that
+ * answer used to DROP it: a regenerated chapter-description answer (e.g. the
+ * first attempt came back empty and the user pressed Regenerate) then had a
+ * perfect readable list but no plan, and the Elaborate dialog silently
+ * ignored it — "the second outline in the chat is not recognized". A rewrite
+ * in place is worse: it PRESERVES the old attachments, so the stale record of
+ * the OLD list stayed on the NEW text.
+ *
+ * Anchors come from the question, so nothing has to be remembered between
+ * runs. A no-op for every non-plan send. Never throws: the visible list is the
+ * deliverable, a failed record must not fail it.
+ */
+async function syncChapterPlanRecord(
+  env: FlowEnv,
+  chatId: string,
+  question: ChatNode | null | undefined,
+  answerNodeId: string,
+  text: string,
+): Promise<void> {
+  const anchors = chapterPlanAnchors(question);
+  if (!anchors) return;
+  try {
+    const plan = parseStrictChapterPlan(text, anchors) ?? parseChapterPlan(text, anchors);
+    const answer = env.chatService.nodes().find(n => n.id === answerNodeId);
+    // A rewrite keeps the old attachments: drop the previous (now stale)
+    // record, keep everything else, then store the freshly parsed plan.
+    const kept = (answer?.attachments ?? []).filter(a => !isChapterPlanRecordAttachment(a));
+    const hadRecord = kept.length !== (answer?.attachments ?? []).length;
+    const attachments = plan.entries.length > 0
+      ? [...kept, chapterPlanRecord(plan)]
+      : kept;
+    // Nothing to add and nothing stale to remove → leave the node alone.
+    if (plan.entries.length === 0 && !hadRecord) return;
+    await env.chatService.patchNode(chatId, answerNodeId, { attachments });
+  } catch (err) {
+    console.warn('[chapter-plan] could not store the parsed plan', err);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // send-branch — new sibling question + streamed answer
@@ -131,6 +201,9 @@ const sendRegenerate: FlowController = async env => {
   });
   await persistInterpretation(env, chatId, question, prep);
   const { answerNodeId, slots } = await streamAnswerNode(env, chatId, question.id, prep.messages);
+  // A regenerated chapter-description answer re-creates its plan record (the
+  // old answer — and with it the record — was deleted above).
+  await syncChapterPlanRecord(env, chatId, question, answerNodeId, slots.text?.value ?? '');
   return flowResult(slots, {
     questionNodeId: question.id,
     answerNodeId,
@@ -170,6 +243,9 @@ const sendRewrite: FlowController = async env => {
   const { answerNodeId, slots } = await streamAnswerNode(
     env, chatId, question.id, prep.messages, { adoptNodeIds, preserveAttachments: preservedAttachments }
   );
+  // The preserved attachments include the plan record of the OLD list — the
+  // rewritten text needs its own (or none), never the stale one.
+  await syncChapterPlanRecord(env, chatId, question, answerNodeId, slots.text?.value ?? '');
   if (adoptNodeIds.length) env.chatService.setActiveChild(answerNodeId, adoptNodeIds[0]);
   return flowResult(slots, {
     questionNodeId: question.id,
@@ -530,20 +606,7 @@ const sendChapterDescriptions: FlowController = async env => {
   // later elaboration can inject "this chapter + n following" into the lore
   // without ever parsing the prose again. The record attachment is excluded
   // from the LLM context (see nodeToMessageContent).
-  try {
-    const text = slots.text?.value ?? '';
-    const anchors = { firstChapter: first, chapterCount: count };
-    const plan = parseStrictChapterPlan(text, anchors) ?? parseChapterPlan(text, anchors);
-    if (plan.entries.length > 0) {
-      const answer = env.chatService.nodes().find(n => n.id === answerNodeId);
-      await env.chatService.patchNode(chatId, answerNodeId, {
-        attachments: [...(answer?.attachments ?? []), chapterPlanRecord(plan)],
-      });
-    }
-  } catch (err) {
-    // The visible list is the deliverable; a failed record must not fail it.
-    console.warn('[chapter-plan] could not store the parsed plan', err);
-  }
+  await syncChapterPlanRecord(env, chatId, newQuestion, answerNodeId, slots.text?.value ?? '');
 
   return flowResult(slots, {
     questionNodeId: newQuestion.id,

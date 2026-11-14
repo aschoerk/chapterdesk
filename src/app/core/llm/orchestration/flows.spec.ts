@@ -14,7 +14,12 @@ import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
 import { LlmLogService } from '../llm-log.service';
 import { buildLoreNodeContent, isChatLoreNode } from '../../chat/chat.service';
-import { readChapterPlan } from '../chapter-plan';
+import {
+  chapterPlanRecord,
+  isChapterPlanRecordAttachment,
+  parseStrictChapterPlan,
+  readChapterPlan,
+} from '../chapter-plan';
 
 /** Streaming SSE body (one `data:` line per chunk + [DONE]). */
 function sseResponse(chunks: string[]): Response {
@@ -796,6 +801,84 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     const plan = readChapterPlan(answer);
     expect(plan?.entries.map(e => e.chapter)).toEqual([4, 5]);
     expect(plan?.entries[0].text).toBe('One — start.');
+  });
+
+  it('send-regenerate: re-derives the chapter-plan record of a regenerated list', async () => {
+    // A chapter-description answer that came back EMPTY keeps no record (there
+    // is nothing to parse), and regenerating it used to leave the fresh list
+    // without a record too — the Elaborate dialog then ignored the outline.
+    fetchMock.mockResolvedValueOnce(sseResponse([
+      '20. The Double Frame — Marcus pulls Sasha into the shot.\n',
+      '21. The Paper Trail — Derek shows her the books.'
+    ]));
+    const questionText = [
+      'Plan the chapters that still have to be written.',
+      'Number of chapters to plan: 2',
+      'Sentences per chapter description: 3',
+      'First chapter number: 20',
+    ].join('\n');
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Write a story' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true }),
+      makeNode({ id: 'pq', parentId: 'a1', role: 'user', content: questionText, isCurrent: true, excludeFromContext: true }),
+      makeNode({ id: 'pa', parentId: 'pq', role: 'assistant', content: '', isCurrent: true })
+    ]);
+    chatService.setActiveChild('a1', 'pq');
+    chatService.setActiveChild('pq', 'pa');
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'pa')!,
+      usecase: 'send-regenerate',
+      vars: {}
+    });
+
+    const answer = chatService.nodes().find(n => n.id === slots.flow!.value!.answerNodeId)!;
+    expect(answer.parentId).toBe('pq');
+    expect(answer.content).toContain('20. The Double Frame');
+    // The anchors are read back from the QUESTION, so nothing had to be stored.
+    const plan = readChapterPlan(answer);
+    expect(plan?.entries.map(e => e.chapter)).toEqual([20, 21]);
+    expect(plan?.entries[0].text).toBe('The Double Frame — Marcus pulls Sasha into the shot.');
+  });
+
+  it('send-rewrite: replaces a stale plan record of the old list with the new one', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['21. The Paper Trail — Derek shows the books.']));
+    const questionText = [
+      'Plan the chapters that still have to be written.',
+      'Number of chapters to plan: 1',
+      'First chapter number: 21',
+    ].join('\n');
+    const plan = parseStrictChapterPlan('20. The Double Frame — old text.', {
+      firstChapter: 20, chapterCount: 1
+    })!;
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Write a story' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true }),
+      makeNode({ id: 'pq', parentId: 'a1', role: 'user', content: questionText, isCurrent: true, excludeFromContext: true }),
+      makeNode({
+        id: 'pa', parentId: 'pq', role: 'assistant', isCurrent: true,
+        content: '20. The Double Frame — old text.',
+        attachments: [chapterPlanRecord(plan)]
+      })
+    ]);
+    chatService.setActiveChild('a1', 'pq');
+    chatService.setActiveChild('pq', 'pa');
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'pa')!,
+      usecase: 'send-rewrite',
+      vars: {}
+    });
+
+    const answer = chatService.nodes().find(n => n.id === slots.flow!.value!.answerNodeId)!;
+    const records = (answer.attachments ?? []).filter(isChapterPlanRecordAttachment);
+    // Exactly ONE record, describing the NEW text — never the old list's.
+    expect(records).toHaveLength(1);
+    expect(readChapterPlan(answer)?.entries.map(e => e.chapter)).toEqual([21]);
   });
 });
 
