@@ -664,6 +664,44 @@ describe('Chat', () => {
     expect(chapter2.parentId).toBe(completionAnswer.id);
   });
 
+  it('does NOT insert a "complete the preceding chapter" direction when the chapter ends with an emoji', async () => {
+    await openElaborateStory();
+    orch.completion.mockClear();
+
+    // Chapter 1 closes on an emoji — that counts as a finished chapter.
+    const values = ['They rode into the sunset \u{1F307}', 'Chapter two is done.'];
+    let call = 0;
+    orch.completion.mockImplementation(async (
+      _cx: unknown,
+      _req: unknown,
+      opts?: { onChunk?: (c: { content: string }) => void },
+    ) => {
+      const value = values[Math.min(call, values.length - 1)];
+      call++;
+      opts?.onChunk?.({ content: value });
+      return { text: { status: 'ok', value } };
+    });
+
+    component.elaborateFirst.set(1);
+    component.elaborateLast.set(2);
+    component.elaborateNames.set('');
+    await component.confirmElaborate();
+
+    // Only the two chapters ran — no completion direction in between.
+    expect(orch.completion).toHaveBeenCalledTimes(2);
+    expect(chatService.nodes().some(
+      n => n.role === 'user' && n.content === 'complete the preceding chapter'
+    )).toBe(false);
+    // Chapter 2 is chained directly under chapter 1's answer.
+    const chapter1 = chatService.nodes()
+      .find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 1'))!;
+    const chapter1Answer = chatService.getChildren(chapter1.id)
+      .find(n => n.role === 'assistant')!;
+    const chapter2 = chatService.nodes()
+      .find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 2'))!;
+    expect(chapter2.parentId).toBe(chapter1Answer.id);
+  });
+
   it('takes the completion direction from the editable "structure.completeChapter" template', async () => {
     await openElaborateStory();
 
@@ -702,9 +740,9 @@ describe('Chat', () => {
   it('repeats the chapter completion when the completion answer is itself truncated (bounded)', async () => {
     await openElaborateStory();
 
-    // Every completion answer stays truncated → the retry must stop after
-    // MAX_COMPLETION_DIRECTIONS and continue with chapter 2.
-    const values = ['cut off one', 'cut off two', 'cut off three', 'Chapter two is done.'];
+    // The single allowed completion stays truncated → the sequence continues
+    // with chapter 2 instead of looping.
+    const values = ['cut off one', 'cut off two', 'Chapter two is done.'];
     let call = 0;
     orch.completion.mockImplementation(async (
       _cx: unknown,
@@ -722,20 +760,20 @@ describe('Chat', () => {
     component.elaborateNames.set('');
     await component.confirmElaborate();
 
-    // chapter 1 + 2 completions + chapter 2 = 4 calls (never an endless loop).
-    expect(orch.completion).toHaveBeenCalledTimes(4);
-    expect(MAX_COMPLETION_DIRECTIONS).toBe(2);
+    // chapter 1 + 1 completion + chapter 2 = 3 calls (never an endless loop).
+    expect(orch.completion).toHaveBeenCalledTimes(3);
+    expect(MAX_COMPLETION_DIRECTIONS).toBe(1);
     const completions = chatService.nodes().filter(
       n => n.role === 'user' && n.content === 'complete the preceding chapter'
     );
-    expect(completions).toHaveLength(2);
-    // Chapter 2 still ran, chained under the LAST completion answer.
+    expect(completions).toHaveLength(1);
+    // Chapter 2 still ran, chained under the (single) completion answer.
     const chapter2 = chatService.nodes()
       .find(n => n.role === 'user' && n.content?.startsWith('elaborate on chapter 2'))!;
     expect(chapter2).toBeDefined();
-    const lastCompletionAnswer = chatService.getChildren(completions[1].id)
+    const completionAnswer = chatService.getChildren(completions[0].id)
       .find(n => n.role === 'assistant')!;
-    expect(chapter2.parentId).toBe(lastCompletionAnswer.id);
+    expect(chapter2.parentId).toBe(completionAnswer.id);
   });
 
   it('adds exactly "plan chapters" descriptions to the lore of each elaboration', async () => {

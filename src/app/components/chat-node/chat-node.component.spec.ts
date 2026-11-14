@@ -2040,6 +2040,43 @@ describe('ChatNodeComponent', () => {
       expect(continues).toHaveLength(2);
     });
 
+    it('does NOT insert a completion direction when the answer ends with an emoji', async () => {
+      const q1 = node({ id: 'q1', content: '' });
+      await openChat([q1]);
+      createFixture(q1);
+
+      const pd = TestBed.inject(PromptDefaultsService);
+      const realEffective = pd.effective.bind(pd);
+      vi.spyOn(pd, 'effective').mockImplementation((id: string, topicId?: string | null) =>
+        id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
+      );
+
+      // Repetition 1 closes on an emoji — that counts as a finished message.
+      const values = ['And they lived on \u{1F60A}', 'Another chapter.'];
+      let call = 0;
+      (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
+          const value = values[Math.min(call, values.length - 1)];
+          call++;
+          opts?.onChunk?.({ content: value });
+          return { text: { status: 'ok', value } };
+        }
+      );
+
+      component.repeatCount.set(2);
+      await component.continueDraft();
+      fixture.detectChanges();
+
+      expect(chatService.nodes().some(
+        n => n.role === 'user' && n.content === 'complete the preceding message'
+      )).toBe(false);
+      // Exactly the two repetitions ran.
+      expect(runner.run).toHaveBeenCalledTimes(2);
+      expect(chatService.nodes().filter(
+        n => n.role === 'user' && n.content === 'continue the story'
+      )).toHaveLength(2);
+    });
+
     it('takes the completion direction from the editable "structure.completeMessage" template', async () => {
       const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
@@ -2087,9 +2124,9 @@ describe('ChatNodeComponent', () => {
         id === 'structure.continue' ? 'continue the story' : realEffective(id, topicId)
       );
 
-      // Every completion answer stays truncated, so the retry must stop after
-      // MAX_COMPLETION_DIRECTIONS attempts and continue with repetition 2.
-      const values = ['truncated one', 'truncated two', 'truncated three', 'Finally done.'];
+      // Every completion answer stays truncated, so the single allowed
+      // completion runs and the batch continues with repetition 2.
+      const values = ['truncated one', 'truncated two', 'Finally done.'];
       let call = 0;
       (runner.run as ReturnType<typeof vi.fn>).mockImplementation(
         async (_build: unknown, opts?: { onChunk?: (c: unknown) => void }) => {
@@ -2104,13 +2141,13 @@ describe('ChatNodeComponent', () => {
       await component.continueDraft();
       fixture.detectChanges();
 
-      // rep1 + 2 completions + rep2 = 4 LLM calls (never an endless loop).
-      expect(runner.run).toHaveBeenCalledTimes(4);
-      expect(MAX_COMPLETION_DIRECTIONS).toBe(2);
+      // rep1 + 1 completion + rep2 = 3 LLM calls (never an endless loop).
+      expect(runner.run).toHaveBeenCalledTimes(3);
+      expect(MAX_COMPLETION_DIRECTIONS).toBe(1);
       const completions = chatService.nodes().filter(
         n => n.role === 'user' && n.content === 'complete the preceding message'
       );
-      expect(completions).toHaveLength(2);
+      expect(completions).toHaveLength(1);
       // The batch still ran its second repetition.
       const continues = chatService.nodes().filter(
         n => n.role === 'user' && n.content === 'continue the story'
