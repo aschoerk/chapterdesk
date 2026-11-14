@@ -26,6 +26,7 @@
     "start": "ng serve",
     "build": "ng build --output-path=electron/renderer",
     "build:server": "npm run build --prefix chapterdesk-api-server",
+    "verify:size": "node 0scripts/check-file-size.mjs",
     "electron:build": "npm run build:server && npm run build && electron-builder",
     "electron:build:dir": "npm run build:server && npm run build && electron-builder --dir",
     "electron:build:appx": "npm run build:server && npm run build && electron-builder --win appx",

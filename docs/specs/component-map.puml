@@ -52,6 +52,7 @@ package "Pages — routed views" as PAGES {
 package "UI components — chat tree & editor" as UI_CHAT {
   component "ChatNodeComponent\nthe bubble (edit · read · reveal · ctx menu)\n(chat-node.component.spec)" as CMP_NODE
   component "chat-node pure parts\ncontext-menu · attachments · editor-scroll\n(3 specs)" as CMP_NODE_PARTS
+  component "chat-node action layer\nNodeActionState · EditorController · SendController\nDialogActionsController · IllustrationController\n(3 specs · rest via CMP_NODE)" as CMP_NODE_ACTIONS
   component "TextVersionPanel\n+ NodeVersionDiff\n(2 specs)" as CMP_VERSIONS
   component "SearchReplaceComponent\n(search-replace.component.spec)" as CMP_SEARCH
   component "ChatTitle / ChatParameters editors\n(2 specs)" as CMP_EDITORS
@@ -75,6 +76,7 @@ package "Domain — chat" as DOM_CHAT {
   component "ChatImagesService\n(chat-images.service.spec)" as SVC_IMAGES
   component "ReadingMarksService\n(reading-marks.service.spec)" as SVC_MARKS
   component "ChatNavSelectionService\n(chat-nav-selection.service.spec)" as SVC_NAVSEL
+  component "ChatNavMenuService\nnavbar context menus (state + rows)\n(chat-nav-menu.service.spec)" as SVC_NAVMENU
   component "ChatViewPrefsService + LayoutPrefs\n(chat-view-prefs.spec)" as SVC_VIEWPREFS
   component "ChatElaborateDialogService\n(via chat.component.spec)" as SVC_ELABDLG
   component "ChatParametersService\n(via chat-parameters-editor.spec)" as SVC_PARAMS
@@ -175,10 +177,18 @@ PAGES --> UI_DIALOGS
 PAGES --> DOM_CHAT
 PAGES --> DOM_SET
 PAGE_CHAT --> ORCH_RUNNER
+PAGE_CHAT --> SVC_NAVMENU
 
 UI_CHAT --> DOM_CHAT
 UI_CHAT --> LEAF_REVEAL
 UI_CHAT --> CLIP_ATT
+CMP_NODE --> CMP_NODE_ACTIONS
+CMP_NODE --> CMP_NODE_PARTS
+CMP_NODE_ACTIONS --> ORCH_USECASES
+CMP_NODE_ACTIONS --> ORCH_RUNNER
+CMP_NODE_ACTIONS --> LEAF_REVEAL
+CMP_NODE_ACTIONS --> DLG_IMAGE
+CMP_NODE_ACTIONS --> SVC_EDIT
 UI_DIALOGS --> SVC_DIALOGS
 UI_DIALOGS --> DOM_CHAT
 DLG_IMAGE --> ORCH_USECASES

@@ -13,9 +13,15 @@ Three documents, one diagram set:
 | File | Generated? | What it is |
 |---|---|---|
 | [`component-map.puml`](component-map.puml) / `component-map.svg` | hand-written | the component map: every spec-owning component with its **alias** and the spec file that describes it |
-| [`spec-inventory.md`](spec-inventory.md) | **yes** (`0scripts/spec-inventory.mjs`) | the **assignments**: every `describe` / `it` title of all 99 spec files, grouped by component alias |
+| [`spec-inventory.md`](spec-inventory.md) | **yes** (`0scripts/spec-inventory.mjs`) | the **assignments**: every `describe` / `it` title of every spec file, grouped by component alias |
 | [`assertions.md`](assertions.md) | hand-written | the **high-level explanations**: what a group of assertions guarantees, per component, cross-linked to the sequence diagrams |
 | `flows/seq-*.puml` | hand-written | the **sequence diagrams** referenced by `assertions.md` (rendered next to each `.puml`) |
+
+> Sibling document: [`../architecture/chat-ui.md`](../architecture/chat-ui.md)
+> explains *why* the two big UI files are structured the way they are and
+> which collaborators exist inside them — read it before redesigning anything
+> that this folder's aliases (`PAGE_CHAT`, `CMP_NODE`, `CMP_NODE_ACTIONS`,
+> `SVC_NAVMENU`) point at.
 
 The three are meant to be read together: an assertion title from the inventory is
 explained in `assertions.md`, and the explanation points into a sequence diagram,
@@ -48,13 +54,14 @@ They only exist in the diagrams — nothing in the code is renamed.
 |---|---|---|
 | `APP` | `app.ts` + `app.html` shell | `app.spec.ts` |
 | `ROUTES` | `app.routes.ts` | — (asserted through the page specs) |
-| `PAGE_CHAT` | chat page (`pages/chat`) — the elaborate/batch dialog lives here | `chat.component.spec.ts` (89 cases) |
+| `PAGE_CHAT` | chat page (`pages/chat`) — the elaborate/batch dialog and the navbar context menus live here | `chat.component.spec.ts` |
 | `PAGE_READER` | reader page | `chat-reader.component.spec.ts` |
 | `PAGE_CONFIG` | config shell + appearance/providers/tasks/prompts | 5 specs |
 | `PAGE_LOGS` | LLM log page | `llm-logs.component.spec.ts` |
 | `PAGE_PERSONAS` / `PAGE_PROJECTS` / `PAGE_TOPICS` / `PAGE_IMPORT` | entity pages | one spec each |
-| `CMP_NODE` | `ChatNodeComponent` — the bubble (edit, read, reveal, context menu) | `chat-node.component.spec.ts` (200 cases) |
+| `CMP_NODE` | `ChatNodeComponent` — the bubble (edit, read, reveal, context menu) | `chat-node.component.spec.ts` |
 | `CMP_NODE_PARTS` | pure helpers of the bubble (`context-menu`, `attachments`, `editor-scroll`) | 3 specs |
+| `CMP_NODE_ACTIONS` | action layer of the bubble: `NodeActionState` (one action at a time), `EditorController` (draft + edit lifecycle), `SendController` (composer send / branch / insert / batches + streaming), `DialogActionsController` (prepend / compare / chapter descriptions) and `IllustrationController` (illustrate / re-render / prompt records) | 3 specs (send + illustration via `CMP_NODE`) |
 | `CMP_VERSIONS` | version panel + version diff dialog | 2 specs |
 | `CMP_EDITORS` | chat title / chat parameter editors | 2 specs |
 | `CMP_SEARCH` | search & replace component | `search-replace.component.spec.ts` |
@@ -69,6 +76,7 @@ They only exist in the diagrams — nothing in the code is renamed.
 | `SVC_OP` | generation/operation lifecycle | — (via `chat-editing.spec`) |
 | `SVC_EDIT` | `NodeEditSession` + chat editing ops | 2 specs |
 | `SVC_USAGE` / `SVC_IMAGES` / `SVC_MARKS` / `SVC_NAVSEL` / `SVC_VIEWPREFS` | usage, images, reading marks, nav selection, view prefs | one spec each |
+| `SVC_NAVMENU` | `ChatNavMenuService` — navbar context menus (paste insert/append, node menu) | `chat-nav-menu.service.spec.ts` |
 | `SVC_ELABDLG` / `SVC_PARAMS` | elaborate dialog state, chat parameters | via page/editor specs |
 | `CLIP_NODE` / `CLIP_STORY` / `CLIP_ATT` | node / story / attachment clipboard | 2 specs (node via `flows.spec`) |
 | `SET_MAIN` / `SET_GEN` / `SET_SORT` / `SET_OTHER` / `SET_ENV` | settings, generation settings, sort prefs, projects/topics/theme, environment profile | 3 specs + page specs |
@@ -76,7 +84,7 @@ They only exist in the diagrams — nothing in the code is renamed.
 | `IO_DOCX_OUT` / `IO_DOCX_IN` / `IO_EPUB` / `IO_BUNDLE` / `IO_TEXTS` | docx/epub import + export, story bundles, text versions | 4 specs |
 | `SEARCH_SVC` / `I18N` / `TOAST` / `DEMO` / `UTIL` / `UTIL_RUNTIME` | cross-cutting helpers | 8 specs |
 | `ORCH_CORE` | `LlmOrchestratorService` + transport + postprocessor entry | `orchestration.spec.ts` |
-| `ORCH_RUNNER` | `LlmFlowRunner` + `flows/*` | `flows.spec.ts` (51) + `append.spec.ts` |
+| `ORCH_RUNNER` | `LlmFlowRunner` + `flows/*` | `flows.spec.ts` (53) + `append.spec.ts` |
 | `ORCH_USECASES` / `ORCH_CONTEXT` / `ORCH_TRANSPORT` / `ORCH_POST` / `ORCH_PURE` | use cases, context/prompt builders, transport, postprocessing, slots+evaluators | via `orchestration.spec` + `flows.spec` |
 | `LEAF_MSG` / `LEAF_SSE` / `LEAF_CTX` / `LEAF_REVEAL` / `LEAF_PACE` / `LEAF_PLAN` / `LEAF_USAGE` / `LEAF_LOG` | leaf helpers of the LLM layer | 10 specs |
 | `PORT` | `ChatApiPort` — the single storage seam | — (contract pinned by its implementations) |
@@ -100,6 +108,7 @@ caller; `assertions.md` says which one and why.
 | [`flows/seq-lore-once.puml`](flows/seq-lore-once.puml) | chat lore: one node per direction, sent once, then excluded; re-arm on regenerate/rewrite | `flows.spec.ts` |
 | [`flows/seq-structure-headings.puml`](flows/seq-structure-headings.puml) | heading generation for every unheaded chapter on the active path | `flows.spec.ts`, `chat.component.spec.ts` |
 | [`flows/seq-version-edit.puml`](flows/seq-version-edit.puml) | editing a chapter: edit session, versioned write, dirty confirm, diff panel | `node-edit-session.spec.ts`, `chat-editing.spec.ts`, `idb-chat-api.service.spec.ts` |
+| [`flows/seq-illustrate.puml`](flows/seq-illustrate.puml) | the Illustrate action layer: guards (`NodeActionState`), dialog → use case → placement plan → versioned chapter, and the adapt-and-re-render path | `chat-node.component.spec.ts`, `node-action-state.spec.ts`, `orchestration.spec.ts` |
 | [`flows/seq-storage-routing.puml`](flows/seq-storage-routing.puml) | where a write lands: storage profile → IndexedDB or server | `idb-chat-api.service.spec.ts`, `chat-api.service.spec.ts`, server specs |
 | [`../stream-reveal.puml`](../stream-reveal.puml) | (pre-existing) how a streamed answer appears character by character | `stream-reveal.spec.ts`, `reveal-queue.spec.ts` |
 

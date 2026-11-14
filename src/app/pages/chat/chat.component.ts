@@ -45,23 +45,21 @@ import { NameListDialogService } from '../../core/dialogs/name-list-dialog.servi
 import { ToastService } from '../../core/toast/toast.service';
 import { isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import type { NameTextUnit, NameOccurrence } from '../../core/names/name-replace';
-
-/** One row of the navbar-node right-click context menu. */
-interface NavMenuEntry {
-  label: string;
-  hint?: string;
-  action: () => void | Promise<void>;
-  danger?: boolean;
-  disabled?: boolean;
-  divider?: boolean;
-}
+import {
+  ChatNavMenuService,
+  type ChatNavMenuHost,
+  type NavMenuEntry,
+} from '../../core/chat/chat-nav-menu.service';
 
 @Component({
   selector: 'app-chat',
   standalone: true,
   imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent],
   templateUrl: './chat.component.html',
-  styleUrl: './chat.component.css'
+  styleUrl: './chat.component.css',
+  // The navbar context menus belong to THIS page (their actions touch its
+  // selection and dialogs) — one instance per chat page, not app-wide.
+  providers: [ChatNavMenuService]
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
@@ -191,10 +189,10 @@ export class ChatComponent implements OnInit {
 
   /** The empty "direction" node at the very end of the active path — the
    *  terminal draft question the user types into. It can never be selected in
-   *  the navbar and nothing may be pasted to its left. */
+   *  the navbar and nothing may be pasted to its left. A delegate over
+   *  `ChatNavMenuService` (which needs the same predicate for the menus). */
   private isLastEmptyDirection(nodeId: string): boolean {
-    const last = this.getActivePath().at(-1);
-    return !!last && last.id === nodeId && this.chatService.isDraftQuestion(last);
+    return this.navMenu.isLastEmptyDirection(nodeId);
   }
 
   onNavPointerDown(event: PointerEvent, node: ChatNode): void {
@@ -364,17 +362,10 @@ export class ChatComponent implements OnInit {
 
   /** The two visible navbar nodes around a paste button: the node itself
    *  (left) and the next visible node (right, or null when pasting at the end).
-   *  Excluded-from-context nodes are skipped — they are not shown in the nav-bar. */
+   *  Excluded-from-context nodes are skipped — they are not shown in the nav-bar.
+   *  A delegate over `ChatNavMenuService` (it owns the paste-menu geometry). */
   private navPasteTargets(nodeId: string): { leftId: string; rightId: string | null } | null {
-    if (!this.clipboard.hasContent()) return null;
-    const path = this.navPath();
-    const i = path.findIndex(n => n.id === nodeId);
-    if (i < 0) return null; // no longer a visible nav node
-    const right = i + 1 < path.length ? path[i + 1] : null;
-    // Nothing may be pasted LEFT of the empty direction node at the very end
-    // of the path — the draft question stays the terminal input target.
-    if (right && this.isLastEmptyDirection(right.id)) return null;
-    return { leftId: nodeId, rightId: right?.id ?? null };
+    return this.navMenu.pasteTargets(nodeId);
   }
 
   private async pasteChain(
@@ -395,211 +386,82 @@ export class ChatComponent implements OnInit {
   }
 
   // ------------------------------------------------------------------
-  // Context menu on the navbar paste button (right-click)
+  // Nodebar context menus — DELEGATES to `ChatNavMenuService`
+  // (popover state, row building, viewport clamping). The ACTIONS stay here:
+  // they mutate the selection / the tree, which this page owns.
   // ------------------------------------------------------------------
 
-  /** Open context menu: { pointer position, left/right visible node }. */
-  readonly navPasteMenu = signal<{
-    x: number;
-    y: number;
-    leftId: string;
-    rightId: string | null;
-  } | null>(null);
+  private readonly navMenu = inject(ChatNavMenuService);
+
+  /** Open context menu of a paste button: { pointer position, left/right node }. */
+  readonly navPasteMenu = this.navMenu.navPasteMenu;
+  /** Right-clicked nav node for the inline context menu. */
+  readonly navNodeMenu = this.navMenu.navNodeMenu;
+
+  private navMenuHost(): ChatNavMenuHost {
+    return this as unknown as ChatNavMenuHost;
+  }
 
   openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
-    const targets = this.navPasteTargets(node.id);
-    if (!targets) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (this.navNodeMenu()) this.closeNavNodeMenu();
-    this.navPasteMenu.set({ x: event.clientX, y: event.clientY, ...targets });
+    this.navMenu.openPasteMenu(event, node);
   }
 
   closeNavPasteMenu(): void {
-    this.navPasteMenu.set(null);
+    this.navMenu.closePasteMenu();
   }
 
   navPasteMenuLeftPx(): number {
-    const m = this.navPasteMenu();
-    if (!m) return 0;
-    return Math.max(8, Math.min(m.x, window.innerWidth - 260 - 8));
+    return this.navMenu.pasteMenuLeftPx();
   }
 
   navPasteMenuTopPx(): number {
-    const m = this.navPasteMenu();
-    if (!m) return 0;
-    return Math.max(8, Math.min(m.y, window.innerHeight - 120 - 8));
+    return this.navMenu.pasteMenuTopPx();
   }
 
-  navPasteMenuItems(menu: {
-    leftId: string;
-    rightId: string | null;
-  }): { label: string; hint: string; action: () => void }[] {
-    return [
-      {
-        label: this.i18n.t('node.pasteInsert'),
-        hint: this.i18n.t('node.pasteInsertTitle'),
-        action: () => void this.pasteChain('insert', menu.leftId, menu.rightId),
-      },
-      {
-        label: this.i18n.t('node.pasteAppend'),
-        hint: this.i18n.t('node.pasteAppendTitle'),
-        action: () => void this.pasteChain('append', menu.leftId, menu.rightId),
-      },
-    ];
+  navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
+    return this.navMenu.pasteMenuItems(menu);
   }
 
-  runNavPasteAction(item: { action: () => void }): void {
-    this.closeNavPasteMenu();
-    item.action();
+  runNavPasteAction(item: NavMenuEntry): void {
+    this.navMenu.runPasteAction(item);
   }
 
-  // ------------------------------------------------------------------
-  // Context menu on a navbar NODE (right-click)
-  // ------------------------------------------------------------------
-
-  /** Right-clicked nav node for the inline context menu. */
-  readonly navNodeMenu = signal<{ x: number; y: number; nodeId: string } | null>(null);
-
-  /** Open the inline context menu at the pointer position. The browser
-   *  native menu is suppressed for nav nodes; the terminal empty direction
-   *  (the draft input) gets no menu — it can never be selected/operated on. */
   openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
-    if (this.isLastEmptyDirection(node.id)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (this.navPasteMenu()) this.closeNavPasteMenu();
-    this.navNodeMenu.set({ x: event.clientX, y: event.clientY, nodeId: node.id });
+    this.navMenu.openNodeMenu(event, node);
   }
 
   closeNavNodeMenu(): void {
-    this.navNodeMenu.set(null);
+    this.navMenu.closeNodeMenu();
   }
 
   navNodeMenuLeftPx(): number {
-    const m = this.navNodeMenu();
-    if (!m) return 0;
-    return Math.max(8, Math.min(m.x, window.innerWidth - 260 - 8));
+    return this.navMenu.nodeMenuLeftPx();
   }
 
   navNodeMenuTopPx(): number {
-    const m = this.navNodeMenu();
-    if (!m) return 0;
-    return Math.max(8, Math.min(m.y, window.innerHeight - 300 - 8));
+    return this.navMenu.nodeMenuTopPx();
   }
 
-  /**
-   * Build the menu rows for the right-clicked navbar node. Grouped:
-   *  1. start a new branch here (empty direction leaf in parallel)
-   *  2. switch the active continuation to a sibling (prev/next)
-   *  3. selection (select/unselect this node, clear the selection)
-   *  4. clipboard (copy / cut / delete — the whole selection when the node
-   *     is part of one, otherwise just this node)
-   *  5. paste in front / behind (insert into the active path)
-   */
-  navNodeMenuItems(): (NavMenuEntry & { divider?: boolean })[] {
-    const menu = this.navNodeMenu();
-    if (!menu) return [];
-    const node = this.getActivePath().find(n => n.id === menu.nodeId);
-    if (!node) return [];
-    const busy = this.chatService.isGenerating(node.id);
-
-    const groups: NavMenuEntry[][] = [];
-
-    // Start a NEW branch NEXT TO the clicked node: an empty direction leaf
-    // with the same parent, so the story forks in parallel right here.
-    groups.push([
-      {
-        label: this.i18n.t('node.branchHere'),
-        hint: this.i18n.t('node.branchHereTitle'),
-        action: () => this.startBranchAt(node),
-        disabled: busy,
-      },
-    ]);
-
-    const siblings = this.getChildren(node.parentId);
-    if (siblings.length > 1) {
-      groups.push([
-        {
-          label: this.i18n.t('node.prevBranch'),
-          hint: this.i18n.t('node.prevBranch'),
-          action: () => this.switchNavSibling(node, -1),
-          disabled: busy,
-        },
-        {
-          label: this.i18n.t('node.nextBranch'),
-          hint: this.i18n.t('node.nextBranch'),
-          action: () => this.switchNavSibling(node, 1),
-          disabled: busy,
-        },
-      ]);
-    }
-
-    const isSelected = this.navSelectedIds().includes(node.id);
-    const selectionGroup: NavMenuEntry[] = [{
-      label: this.i18n.t(isSelected ? 'node.navUnselect' : 'node.navSelect'),
-      action: () => this.toggleNavSelection(node.id),
-    }];
-    if (this.navHasSelection()) {
-      selectionGroup.push({
-        label: this.i18n.t('node.clearSelection'),
-        action: () => this.clearNavSelection(),
-      });
-    }
-    groups.push(selectionGroup);
-
-    groups.push([
-      {
-        label: this.i18n.t('node.copySelected'),
-        hint: this.i18n.t('node.copySelectedTitle'),
-        action: () => this.copyNavNodes(node),
-      },
-      {
-        label: this.i18n.t('node.cutSelected'),
-        hint: this.i18n.t('node.cutSelectedTitle'),
-        action: () => this.cutNavNodes(node),
-      },
-      {
-        label: this.i18n.t('node.deleteSelected'),
-        hint: this.i18n.t('node.deleteSelectedTitle'),
-        action: () => this.deleteNavNodes(node),
-        danger: true,
-      },
-    ]);
-
-    if (this.clipboard.hasContent()) {
-      const before = this.navPasteBeforeTargets(node);
-      const after = this.navPasteTargets(node.id);
-      groups.push([
-        {
-          label: this.i18n.t('node.navPasteBefore'),
-          hint: before ? this.i18n.t('node.pasteInsertTitle') : this.i18n.t('node.navPasteBeforeDisabled'),
-          action: () => this.pasteNavSelectionBefore(node),
-          disabled: !before,
-        },
-        {
-          label: this.i18n.t('node.navPasteAfter'),
-          hint: after ? this.i18n.t('node.pasteAfterTitle') : this.i18n.t('node.navPasteAfterDisabled'),
-          action: () => this.pasteNavSelectionAfter(node.id),
-          disabled: !after,
-        },
-      ]);
-    }
-
-    const out: (NavMenuEntry & { divider?: boolean })[] = [];
-    for (const group of groups) {
-      if (!group.length) continue;
-      if (out.length) out.push({ label: '', action: () => undefined, divider: true });
-      out.push(...group);
-    }
-    return out;
+  navNodeMenuItems(): NavMenuEntry[] {
+    return this.navMenu.nodeMenuItems();
   }
 
   /** Close the menu, then run the chosen action (if it is enabled). */
-  runNavNodeAction(item: NavMenuEntry & { divider?: boolean }): void | Promise<void> {
-    if (item.divider || item.disabled) return;
-    this.closeNavNodeMenu();
-    return item.action();
+  runNavNodeAction(item: NavMenuEntry): void | Promise<void> {
+    return this.navMenu.runNodeAction(item);
+  }
+
+  /**
+   * Markup / host plumbing for the extracted nav menu: the page acts as the
+   * menu's host (its actions live here). `pasteChainInto` is the shared
+   * insert-vs-append splice.
+   */
+  pasteChainInto(
+    mode: 'insert' | 'append',
+    leftId: string,
+    rightId: string | null,
+  ): Promise<void> {
+    return this.pasteChain(mode, leftId, rightId);
   }
 
   /** Switch the active continuation at `node.parentId` to the previous/next
@@ -695,14 +557,10 @@ export class ChatComponent implements OnInit {
 
   /** Targets for pasting the clipboard IN FRONT OF `node` (between its
    *  predecessor and the node), or null when not possible — no predecessor
-   *  (first visible node) or left of the terminal empty direction. */
+   *  (first visible node) or left of the terminal empty direction. A delegate
+   *  over `ChatNavMenuService`. */
   private navPasteBeforeTargets(node: ChatNode): { leftId: string; rightId: string | null } | null {
-    if (!this.clipboard.hasContent()) return null;
-    if (this.isLastEmptyDirection(node.id)) return null; // draft stays the terminal input
-    const path = this.getActivePath();
-    const i = path.findIndex(n => n.id === node.id);
-    if (i <= 0) return null;
-    return { leftId: path[i - 1].id, rightId: node.id };
+    return this.navMenu.pasteBeforeTargets(node);
   }
 
   /** Paste the clipboard chain immediately BEFORE `node` in the active path. */
@@ -1156,6 +1014,10 @@ export class ChatComponent implements OnInit {
   }
 
   constructor() {
+    // The navbar context menus live in ChatNavMenuService; their ACTIONS are
+    // methods of this page (selection + tree mutation), so the page acts as
+    // the service's host.
+    this.navMenu.bind(this as unknown as ChatNavMenuHost);
     this.pacedRead.registerHost(this.pacedReadHost);
     console.log('ChatComponent constructed', Date.now());
     effect(() => {

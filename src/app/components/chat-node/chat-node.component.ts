@@ -1,12 +1,12 @@
 import {
   Component, HostListener, OnDestroy, inject, input, output, signal, effect, afterRenderEffect,
-  viewChild, ElementRef, Provider, computed
+  viewChild, ElementRef, computed
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
 import { SettingsService } from '../../core/settings/settings.service';
-import { ChatNode, NodeAttachment, ChatMessage, Chat } from '../../models/chat';
+import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
 import { MarkdownService } from '../../core/chat/markdown.service';
 import { markFragmentInSource } from '../../core/util/mark-fragment';
 import { NodeEditSession} from '../../core/chat/node-edit-session';
@@ -61,6 +61,11 @@ import { nearestScrollParent } from '../../core/util/dom-metrics';
 import { downloadUrl, filenameFromUrl } from '../../core/util/download';
 import { buildCtxMenuItems, type CtxMenuItem } from './context-menu';
 import { filesToAttachments as convertFilesToAttachments } from './attachments';
+import { NodeActionState } from './node-action-state';
+import { IllustrationController, type IllustrationCallContext } from './illustration-controller';
+import { EditorController } from './editor-controller';
+import { SendController } from './send-controller';
+import { DialogActionsController } from './dialog-actions';
 import {
   captureRoSourceOffset,
   ensureEditorTopOnScreen,
@@ -92,7 +97,17 @@ function appendRewriteFallback(source: string, rewrite: string): string {
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './chat-node.component.html',
-  styleUrl: './chat-node.component.css'
+  styleUrl: './chat-node.component.css',
+  // Per-CARD instances: the busy state, the editor draft, the send
+  // pipeline and the illustration/prompt-record signals belong to exactly
+  // one node card, never shared between cards.
+  providers: [
+    NodeActionState,
+    IllustrationController,
+    EditorController,
+    SendController,
+    DialogActionsController,
+  ]
 })
 export class ChatNodeComponent implements OnDestroy {
   private readonly settings = inject(SettingsService);
@@ -125,10 +140,7 @@ export class ChatNodeComponent implements OnDestroy {
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
-  readonly activate = output<string>();
-
-  readonly editAttachments = signal<NodeAttachment[]>([]);
-  readonly isEditorDragOver = signal(false);
+  readonly activate = output<string>();  readonly isEditorDragOver = signal(false);
 
   /** Client-side clipboard for moving/duplicating attachments between nodes. */
   readonly attachmentClipboard = inject(AttachmentClipboardService);
@@ -143,13 +155,72 @@ export class ChatNodeComponent implements OnDestroy {
   /** Tracks only the node id so the selection resets when a different node is shown. */
   private readonly nodeIdForSelection = computed(() => this.node().id);
 
-  readonly contentDraft = signal('');
-  readonly branchModelId = signal('');
-  readonly isLoading = signal(false);
-  /** How many Continue / Multiple Characters sends to chain in one batch. */
-  readonly repeatCount = signal(1);
-  private static readonly REPEAT_MAX = 20;
-  readonly pendingAction = signal<'version' | 'branch' | 'insert' | 'send' | 'continue' | 'switchCharacters' | 'structure' | 'prepend' | 'image' | 'chapterDescriptions' | null>(null);
+  /** "One action at a time" for THIS card (drives every busy label). */
+  private readonly actions = inject(NodeActionState);
+  /** The illustrate / re-render / prompt-record action sequence. */
+  readonly illustration = inject(IllustrationController);
+  /** The inline editor: draft text/attachments/model + edit lifecycle. */
+  private readonly editor = inject(EditorController);
+  /** The send pipeline: composer send, Branch, Insert, Continue batches. */
+  private readonly sender = inject(SendController);
+  /** The dialog actions: prepend, compare versions/siblings, descriptions. */
+  private readonly dialogActions = inject(DialogActionsController);
+
+  /** True while any action of this card runs (see `NodeActionState`). */
+  readonly isLoading = this.actions.loading;
+  /** Which action runs (null when idle) — drives the busy button labels. */
+  readonly pendingAction = this.actions.pending;
+
+  // Editor draft state — DELEGATES: the same signal objects, so the template
+  // and the specs read `component.contentDraft` etc. unchanged.
+  readonly contentDraft = this.editor.contentDraft;
+  readonly editAttachments = this.editor.editAttachments;
+  readonly branchModelId = this.editor.branchModelId;
+  readonly showPreview = this.editor.showPreview;
+  readonly editDismissed = this.editor.editDismissed;
+  readonly repeatCount = this.editor.repeatCount;
+
+  /** Progress of a storyboard run (done/total) while `pending === 'image'`. */
+  readonly imageProgress = this.illustration.imageProgress;
+  /** Which recorded prompt attachment is expanded inline. */
+  readonly expandedPromptId = this.illustration.expandedPromptId;
+  /** Which prompt attachment is being edited for re-render. */
+  readonly editingPromptId = this.illustration.editingPromptId;
+  /** Live draft of the adapted prompt while editing a prompt record. */
+  readonly promptEditDraft = this.illustration.promptEditDraft;
+
+  imageProgressLabel(): string {
+    return this.illustration.imageProgressLabel();
+  }
+
+  isPromptAttachment(a: NodeAttachment): boolean {
+    return this.illustration.isPromptAttachment(a);
+  }
+
+  isRefusedPromptAttachment(a: NodeAttachment): boolean {
+    return this.illustration.isRefusedPromptAttachment(a);
+  }
+
+  attachmentText(a: NodeAttachment): string {
+    return this.illustration.attachmentText(a);
+  }
+
+  promptAttachmentPrompt(a: NodeAttachment): string {
+    return this.illustration.promptAttachmentPrompt(a);
+  }
+
+  togglePrompt(a: NodeAttachment): void {
+    this.illustration.togglePrompt(a);
+  }
+
+  startPromptEdit(a: NodeAttachment): void {
+    this.illustration.startPromptEdit(a);
+  }
+
+  cancelPromptEdit(): void {
+    this.illustration.cancelPromptEdit();
+  }
+
   /** Check-my-English (direction) feature state. */
   readonly checkingEnglish = signal(false);
   readonly englishSuggestions = signal<string[] | null>(null);
@@ -158,11 +229,7 @@ export class ChatNodeComponent implements OnDestroy {
    * invoked with a MARKED part of the direction; null when the whole
    * direction is checked. Used to replace only that range on apply.
    */
-  private readonly englishSelection = signal<{ start: number; end: number } | null>(null);
-  readonly showPreview = signal(false);
-  /** Set by Cancel so auto-open does not immediately re-enter edit. */
-  readonly editDismissed = signal(false);
-  readonly enabledModels = this.settings.enabledModels;
+  private readonly englishSelection = signal<{ start: number; end: number } | null>(null);  readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
   /** Closed by default — thinking is hidden unless the user opens it. */
@@ -292,10 +359,6 @@ export class ChatNodeComponent implements OnDestroy {
       current: (index >= 0 ? index : 0) + 1,
       total: list.length
     };
-  }
-
-  isDraftEmpty(): boolean {
-    return !this.contentDraft().trim() && this.editAttachments().length === 0;
   }
 
   /**
@@ -540,12 +603,10 @@ export class ChatNodeComponent implements OnDestroy {
       });
     }
 
-    this.editDismissed.set(false);
-    this.contentDraft.set(n.content || '');
-    this.editAttachments.set([...(n.attachments || [])]);
-    this.clearAttachmentSelection();
-    this.branchModelId.set(n.modelId || this.resolvePreferredModelId(n));
-    this.pendingAction.set(null);
+    // Draft state (text / attachments / model / dismissed flag) belongs to
+    // the EditorController; opening the textarea and restoring the scroll
+    // position is DOM work and stays here.
+    this.editor.openDraft(n);
     this.scheduleResize();
   }
 
@@ -596,580 +657,7 @@ export class ChatNodeComponent implements OnDestroy {
     return this.generation.modelFor('default')?.modelId
       || models[0]?.modelId
       || '';
-  }
-
-  async cancelEdit(): Promise<void> {
-    if (
-      this.editSession.editingNodeId() === this.node().id &&
-      this.editSession.isDirty()
-    ) {
-      const discard = await this.confirm.ask({
-        title: this.i18n.t('node.discardTitle'),
-        message: this.i18n.t('node.discardMsg'),
-        confirmLabel: this.i18n.t('common.discard'),
-        cancelLabel: this.i18n.t('common.keepEditing'),
-        danger: true
-      });
-      if (!discard) return;
-    }
-    this.editDismissed.set(true);
-    this.pendingAction.set(null);
-    this.showPreview.set(false);
-    this.contentDraft.set('');
-    this.editAttachments.set([]);
-    this.clearAttachmentSelection();
-    this.pendingScrollOffset = null;
-    this.editSession.abandon(this.node().id);
-  }
-
-  private closeEditor(): void {
-    const id = this.node().id;
-    this.pendingAction.set(null);
-    this.showPreview.set(false);
-    this.contentDraft.set('');
-    this.editAttachments.set([]);
-    this.clearAttachmentSelection();
-    this.pendingScrollOffset = null;
-    this.editSession.commit(id);
-  }
-
-
-  /**
-   * OK — persist as a new version of this node. Does not call the LLM.
-   * Answers use /edit-assistant. Questions use /edit-question (see patches).
-   * For a question the model selected in the editor is ALSO persisted onto the
-   * new version, so the model choice sticks to the node (Send / Branch /
-   * Insert read it from there the next time).
-   */
-  async saveAsVersion(): Promise<void> {
-    const node = this.node();
-    const newContent = this.contentDraft().trim();
-    const attachments = this.editAttachments();
-
-    const attachmentsUnchanged =
-      JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
-
-    // Nothing was changed (empty draft w/o attachments, or identical text +
-    // attachments) → keep the node untouched and just close the editor. Use
-    // closeEditor() (NOT cancelEdit()): cancelEdit would ask for a discard
-    // confirmation when the edit session is dirty (e.g. the user typed and
-    // then reverted), which blocked saving. No new version node is created.
-    if ((!newContent && attachments.length === 0) ||
-      (newContent === node.content && attachmentsUnchanged)) {
-      this.closeEditor();
-      return;
-    }
-
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    this.isLoading.set(true);
-    this.pendingAction.set('version');
-    try {
-      let saved: ChatNode;
-      if (node.role === 'assistant' || node.role === 'system' || node.role === 'structural') {
-        saved = await this.chatService.editAssistant(
-          chatId,
-          node.id,
-          newContent,
-          attachments
-        );
-      } else {
-        saved = await this.chatService.editUser(
-          chatId,
-          node.id,
-          newContent,
-          attachments
-        );
-      }
-      // The model selector is only shown while editing a user node. Versioning
-      // copies the OLD model, so persist the freshly selected model (when it
-      // actually changed) onto the new version.
-      if (node.role === 'user' && this.branchModelId()) {
-        const selected = this.enabledModels().find(
-          m => m.modelId === this.branchModelId() || m.id === this.branchModelId()
-        );
-        if (selected && selected.modelId !== node.modelId && selected.providerId) {
-          saved = await this.chatService.patchNode(chatId, saved.id, {
-            modelId: selected.modelId,
-            providerId: selected.providerId
-          });
-        }
-      }
-      this.activate.emit(saved.id);
-      this.closeEditor();
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
-  }
-
-  /**
-   * Empty leaf question: fill the draft with the "Continue" template, pin the
-   * default LLM, and send. Same path as Send, no extra branch.
-   */
-  async continueDraft(): Promise<void> {
-    if (!this.isUnsentQuestion() || this.isLoading()) return;
-    if (this.repeatCount() > 1) {
-      await this.runDirectionBatch('continue', this.repeatCount());
-      return;
-    }
-    this.contentDraft.set(
-      this.promptDefaults.effective('structure.continue') || 'continue'
-    );
-    this.editAttachments.set([]);
-    this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
-    this.pendingAction.set('continue');
-    await this.sendDraft();
-    await this.cancelEdit();
-  }
-
-  /**
-   * Empty leaf question: fill the draft with the "switch characters"
-   * template, pin the default LLM, and send. Same path as Continue.
-   */
-  async switchCharactersDraft(): Promise<void> {
-    if (!this.isUnsentQuestion() || this.isLoading()) return;
-    if (this.repeatCount() > 1) {
-      await this.runDirectionBatch('switchCharacters', this.repeatCount());
-      return;
-    }
-    this.contentDraft.set(
-      this.promptDefaults.effective('structure.switchCharacters') || 'switch characters'
-    );
-    this.editAttachments.set([]);
-    this.branchModelId.set(this.node().modelId || this.resolvePreferredModelId(this.node()));
-    this.pendingAction.set('switchCharacters');
-    await this.sendDraft();
-    await this.cancelEdit();
-  }
-
-  decRepeat(): void {
-    this.repeatCount.update(n => Math.max(1, n - 1));
-  }
-
-  incRepeat(): void {
-    this.repeatCount.update(n => Math.min(ChatNodeComponent.REPEAT_MAX, n + 1));
-  }
-
-  /**
-   * Chain `count` Continue / Multiple Characters sends across successive empty
-   * leaf questions. Each send fills the current draft leaf, streams the
-   * answer, and the chat-page draft housekeeping appends the next empty leaf,
-   * so the loop simply targets the newest leaf every iteration. One Stop
-   * press aborts the WHOLE batch (beginOperation → operationAbort). The
-   * current repetition number is published via chatService.batchProgress so
-   * the answer node's spinner can render it below the spinner.
-   */
-  private async runDirectionBatch(
-    direction: 'continue' | 'switchCharacters',
-    count: number
-  ): Promise<void> {
-    if (!this.isUnsentQuestion() || this.isLoading()) return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    const modelId = this.node().modelId || this.resolvePreferredModelId(this.node());
-    const model = this.enabledModels().find(
-      m => m.modelId === modelId || m.id === modelId
-    );
-    if (!model) {
-      this.toast.error(this.i18n.t('node.modelMissing'));
-      return;
-    }
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      this.toast.error(this.i18n.t('node.providerMissing'));
-      return;
-    }
-
-    const content = direction === 'continue'
-      ? (this.promptDefaults.effective('structure.continue') || 'continue')
-      : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
-    // Editable completion direction (Settings → Prompt defaults).
-    const completionContent =
-      this.promptDefaults.effective('structure.completeMessage') || COMPLETE_PRECEDING_MESSAGE_FALLBACK;
-
-    // One Stop press cancels the whole batch. A chat may run only ONE
-    // streaming/batch operation at a time — a second one is refused so the
-    // message list cannot be mangled by two overlapping producers.
-    const opSignal = this.chatService.beginChatOperation(chatId, direction === 'continue' ? 'continue' : 'switchCharacters');
-    if (!opSignal) {
-      this.toast.error(this.i18n.t('node.busy'));
-      return;
-    }
-    this.pendingAction.set(direction);
-    this.isLoading.set(true);
-    this.chatService.batchProgress.set({ current: 1, total: count, unit: 'repetition' });
-    const started: HeldAnswerStream[] = [];
-    // A shared PRESENTER QUEUE decouples presenting from generation: each
-    // iteration's answer is a slot — the first becomes the live head (its
-    // reveal slows to the input speed while the LLM fills it), every later
-    // iteration's LLM runs in the background BUFFERING its text (nothing
-    // paints), and the queue reveals it in order once the previous head has
-    // fully revealed.
-    const queue = new RevealQueue(this.chatService.streamRevealPrefs(), (slot, content, thinking) => {
-      this.paintAnswer(slot.targetId, content, thinking);
-    }, { onHeadChange: id => this.chatService.setPresentedNode(id, chatId) });
-    try {
-      let current: HeldAnswerStream | null = null;
-      // A hard Stop (aborted operation signal — see ChatOperationService
-      // .stopGeneration) ends the batch IMMEDIATELY: every between-step check
-      // sees it, and the signal is forwarded into each held stream so a step
-      // that is still being prepared cannot issue a fresh request afterwards.
-      const stopped = () =>
-        opSignal.aborted || this.chatService.shouldStopAfterCurrentStep();
-      for (let i = 1; i <= count; i++) {
-        // Hard Stop aborts the operation; a graceful "Finish & stop"
-        // (requestGracefulStop) also ends the batch, but only AFTER the
-        // current stream has finished and been saved.
-        if (stopped()) break;
-
-        // The previous iteration's LLM has stopped — finalize it NOW (data
-        // model complete), so THIS iteration's context is correct even though
-        // its tail is still revealing.
-        if (current) {
-          await current.streamDone;
-          await current.finalize(opSignal);
-          // Release the single-answer generation slot so the next composer
-          // leaf can be hung below (draft housekeeping is skipped while a
-          // generation is active). The drain of the previous tail happens
-          // later on the OPERATION signal, so it is unaffected.
-          this.chatService.clearGeneration();
-          // An answer that does not end like a proper sentence is completed by
-          // a SEPARATE direction message before the next repetition starts.
-          // The completion is a normal held step: it streams, finalizes and
-          // drains like a repetition and becomes the `current` answer the
-          // next repetition is chained under. A completion answer can itself
-          // stop mid-sentence, so it is repeated — bounded by
-          // MAX_COMPLETION_DIRECTIONS so a model that keeps truncating can
-          // never loop forever.
-          for (let attempt = 0; attempt < MAX_COMPLETION_DIRECTIONS; attempt++) {
-            if (isSentenceComplete(current.finalContent())) break;
-            if (stopped()) break;
-            const completion = await this.runCompletionStep(
-              chatId, current, completionContent, model, provider, queue, opSignal, started
-            );
-            // Stopped (hard or graceful) or no composer leaf: the batch ends
-            // with what is already in the story.
-            if (!completion) {
-              current = null;
-              break;
-            }
-            current = completion;
-          }
-          if (!current) break;
-        }
-
-        // Make sure the active path ends on an empty draft question to send
-        // on — hung under the previous (possibly freshly completed) answer.
-        const leaf = await this.ensureDraftLeaf(chatId, current?.answerNodeId);
-        if (!leaf) break;
-
-        // The draft housekeeping above is async — a Stop / a "Finish & stop"
-        // pressed while it ran must NOT start another repetition: the CURRENT
-        // one is already complete, so the batch ends here.
-        if (stopped()) break;
-
-        // Publish the repetition that is actually about to generate. Doing it
-        // HERE (not at the top of the loop) keeps "Repetition X of Y" in sync
-        // with the live send: the top-of-loop slot still belongs to the
-        // previous repetition, whose tail is only being revealed.
-        this.chatService.batchProgress.set({ current: i, total: count, unit: 'repetition' });
-
-        // Start THIS iteration's stream. The first becomes the queue HEAD
-        // (reveals live at the pace, slowing to the input speed); every later
-        // one is a BACKGROUND slot — its LLM runs immediately but its text
-        // buffers (nothing paints) until the queue promotes it. The previous
-        // answer's FULL text is passed as a history override so THIS
-        // iteration's context is never truncated by the reveal clamp.
-        const held = await this.sendDirectionOnce(chatId, leaf, content, model, provider, {
-          queue,
-          signal: opSignal,
-          historyOverrides: current && current.answerNodeId
-            ? { [current.answerNodeId]: current.finalContent() }
-            : undefined
-        });
-        started.push(held);
-        // A Stop / "Finish & stop" that landed while this repetition was being
-        // prepared (question persist / placeholder creation) ends the batch
-        // with the PREVIOUS repetition: this one never became the current
-        // node, so it is dropped together with the nodes it just created.
-        if (stopped()) {
-          await this.discardPrefetchedStep(chatId, leaf, held);
-          if (current) await current.drain(opSignal);
-          current = null;
-          break;
-        }
-        if (current) {
-          // Keep pacing the previous tail — `held` streams in the background;
-          // once the tail fully reveals, the queue advances to `held`.
-          await current.drain(opSignal);
-          // A "Finish & stop" pressed while the tail was still revealing also
-          // ends the batch with the CURRENT repetition: the step that was
-          // prefetched in the background never reached the screen.
-          if (this.chatService.gracefulStop()) {
-            await this.discardPrefetchedStep(chatId, leaf, held);
-            current = null;
-            break;
-          }
-        }
-        current = held;
-      }
-      // Final iteration.
-      if (current) {
-        await current.streamDone;
-        await current.finalize(opSignal);
-        await current.drain(opSignal);
-      }
-    } catch (err: any) {
-      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
-      console.error(err);
-      this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
-    } finally {
-      // Abort any still-running held streams (error / hard stop).
-      for (const h of started) h.abort();
-      this.chatService.batchProgress.set(null);
-      this.chatService.clearGeneration();
-      this.chatService.endChatOperation(chatId);
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
-  }
-
-  /**
-   * Ensure the active path ends on an empty user draft to send on. The
-   * previous answer's reveal pump clamps its DISPLAYED content to the revealed
-   * slice (empty while the tail is still pacing), so `ensureDraftAtLeaf`'s
-   * content-based heuristic would treat it as an un-answered placeholder and
-   * refuse to hang the next composer. Hang the draft under the FINALIZED
-   * answer explicitly instead — through the SERIALIZED `ensureDraftUnderAnswer`,
-   * so the chat-page housekeeping effect cannot create a SECOND empty leaf in
-   * the same gap. Returns null when no usable draft could be produced.
-   */
-  private async ensureDraftLeaf(
-    chatId: string,
-    prevAnswerId: string | null | undefined
-  ): Promise<ChatNode | null> {
-    let leaf = this.chatService.getActivePath().at(-1) ?? null;
-    if (prevAnswerId) {
-      // `finalized: true` — the previous answer's LLM already stopped and
-      // was persisted; its DISPLAYED content is still clamped by the reveal
-      // pump, so the empty-content heuristic must be skipped here.
-      const ensured = await this.chatService.ensureDraftUnderAnswer(chatId, prevAnswerId, { finalized: true });
-      if (ensured) leaf = ensured;
-    }
-    if (!leaf || leaf.role !== 'user' || (leaf.content ?? '').trim()) {
-      // Fall back to the generic draft housekeeping (e.g. right after a
-      // lore send flips exclude flags async).
-      await this.chatService.ensureDraftAtLeaf(chatId);
-      leaf = this.chatService.getActivePath().at(-1) ?? null;
-    }
-    return leaf && leaf.role === 'user' && !(leaf.content ?? '').trim() ? leaf : null;
-  }
-
-  /**
-   * Send the "complete the preceding message" direction as its OWN step and
-   * drive it to a finalized + drained answer. Returns the completion stream
-   * (the caller's new `current`), or null when the run was stopped or no
-   * composer leaf could be produced.
-   */
-  private async runCompletionStep(
-    chatId: string,
-    prev: HeldAnswerStream,
-    completionContent: string,
-    model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string },
-    queue: RevealQueue,
-    opSignal: AbortSignal,
-    started: HeldAnswerStream[]
-  ): Promise<HeldAnswerStream | null> {
-    const leaf = await this.ensureDraftLeaf(chatId, prev.answerNodeId);
-    if (!leaf) return null;
-    if (opSignal.aborted || this.chatService.shouldStopAfterCurrentStep()) return null;
-    const completion = await this.sendDirectionOnce(
-      chatId, leaf, completionContent, model, provider, {
-        queue,
-        signal: opSignal,
-        historyOverrides: prev.answerNodeId
-          ? { [prev.answerNodeId]: prev.finalContent() }
-          : undefined
-      }
-    );
-    started.push(completion);
-    // Keep pacing the previous tail, then run the completion step.
-    await prev.drain(opSignal);
-    if (this.chatService.gracefulStop()) {
-      await this.discardPrefetchedStep(chatId, leaf, completion);
-      return null;
-    }
-    await completion.streamDone;
-    await completion.finalize(opSignal);
-    await completion.drain(opSignal);
-    if (opSignal.aborted || this.chatService.shouldStopAfterCurrentStep()) return null;
-    return completion;
-  }
-
-  /**
-   * Drop a prefetched batch step that never became the CURRENT repetition
-   * (a Stop / "Finish & stop" ended the batch while it was being prepared, or
-   * while the previous answer's tail was still revealing): abort its request,
-   * stop its reveal without painting and undo the nodes it created — as if the
-   * repetition had never been started.
-   */
-  private async discardPrefetchedStep(
-    chatId: string,
-    leaf: ChatNode,
-    held: HeldAnswerStream
-  ): Promise<void> {
-    await held.discard();
-    // The step filled the composer leaf with the auto direction — empty it
-    // again so the user's composer is exactly where it was before the press.
-    await this.chatService.patchNode(chatId, leaf.id, {
-      content: '',
-      excludeFromContext: false
-    });
-  }
-
-  /**
-   * Persist ONE direction onto a specific leaf question and start its stream.
-   * Returns a HELD answer-stream handle (the caller drives finalize/drain), so
-   * batched Continue / Switch-characters sends can pipeline: iteration N+1
-   * streams in the background while iteration N's tail is still revealing.
-   */
-  private async sendDirectionOnce(
-    chatId: string,
-    leaf: ChatNode,
-    content: string,
-    model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string },
-    opts: {
-      queue?: RevealQueue;
-      historyOverrides?: Record<string, string>;
-      /** Chat operation signal — a hard Stop also aborts this send. */
-      signal?: AbortSignal;
-    } = {}
-  ): Promise<HeldAnswerStream> {
-    // Only the FIRST iteration targets this component's own node, where the
-    // parent's (activate) binding is valid. Foreign leaves (iterations 2+)
-    // are activated directly through ChatService instead.
-    const isOwn = leaf.id === this.node().id;
-    const saved = await this.chatService.persistQuestion(
-      chatId, leaf.id, content, [], model.modelId, model.providerId
-    );
-    if (isOwn) {
-      this.activate.emit(saved.id);
-    } else {
-      this.chatService.setActiveChild(leaf.parentId ?? null, saved.id);
-    }
-
-    // Auto-generated meta directions (Continue, Multiple Characters) are sent
-    // while they are the current question, but excluded from history after.
-    await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
-
-    if (!leaf.parentId) {
-      const firstLine = content.split('\n')[0].trim().slice(0, 80);
-      if (firstLine && this.chatService.chats().find(c => c.id === chatId)?.title === 'New Chat') {
-        await this.chatService.updateChatTitle(chatId, firstLine);
-      }
-    }
-
-    return this.startHeldAppendStream(chatId, saved, content, model, provider, {
-      queue: opts.queue,
-      signal: opts.signal,
-      emitActivate: isOwn,
-      historyOverrides: opts.historyOverrides
-    });
-  }
-
-  onDraftText(text: string): void {
-    this.contentDraft.set(text);
-    this.editSession.patch(this.node().id, text, this.editAttachments());
-  }
-
-  /**
-   * Apply text produced by the shared search/replace dialog. The dialog
-   * persists replacements through patchNode (committed content), but an open
-   * editor renders the live draft — keep the two in sync so the textarea
-   * shows what will be found next, and the draft stays the source of truth
-   * for the next match offsets.
-   */
-  setDraftFromSearch(text: string): void {
-    if (!this.isEditing()) return;
-    this.contentDraft.set(text);
-    this.editSession.patch(this.node().id, text, this.editAttachments());
-    requestAnimationFrame(() => this.resizeTextarea());
-  }
-
-  private syncAttachments(): void {
-    this.editSession.patch(this.node().id, this.contentDraft(), this.editAttachments());
-  }
-
-
-  private async resolveSendTarget(): Promise<{
-    node: ChatNode;
-    content: string;
-    attachments: NodeAttachment[];
-    chatId: string;
-    model: ModelEntry;
-    provider: { baseUrl: string; apiKey: string };
-  } | null> {
-    const node = this.node();
-    const content = this.contentDraft().trim();
-    const attachments = this.editAttachments();
-    if (!content && attachments.length === 0) return null;
-
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return null;
-
-    const modelId = this.branchModelId() || this.resolvePreferredModelId(node);
-    const model = this.enabledModels().find(
-      m => m.modelId === modelId || m.id === modelId
-    );
-    if (!model) {
-      this.toast.error(this.i18n.t('node.modelMissing'));
-      return null;
-    }
-
-    const provider = this.settings.providers().find(p => p.id === model.providerId);
-    if (!provider) {
-      this.toast.error(this.i18n.t('node.providerMissing'));
-      return null;
-    }
-
-    return { node, content, attachments, chatId, model, provider };
-  }
-
-  private async runSend(
-    chatId: string,
-    pending: 'send' | 'branch' | 'insert' | 'continue' | 'switchCharacters',
-    work: () => Promise<void>
-  ): Promise<void> {
-    const opSignal = this.chatService.beginChatOperation(chatId, 'stream');
-    if (!opSignal) {
-      this.toast.error(this.i18n.t('node.busy'));
-      return;
-    }
-    if (pending !== 'continue' || this.pendingAction() !== 'continue') {
-      this.pendingAction.set(pending);
-    }
-    this.isLoading.set(true);
-    try {
-      await work();
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.failed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-      this.chatService.endChatOperation(chatId);
-    }
-  }
-
-  // ------------------------------------------------------------------
+  }  // ------------------------------------------------------------------
   // Illustrate — generate a picture for this beat from the chat so far
   // ------------------------------------------------------------------
 
@@ -1181,293 +669,6 @@ export class ChatNodeComponent implements OnDestroy {
   canIllustrate(): boolean {
     const n = this.node();
     return n.role === 'assistant' && !!n.content?.trim();
-  }
-
-  /** Progress of a storyboard run (done/total), set while `pendingAction === 'image'`. */
-  readonly imageProgress = signal<{ done: number; total: number } | null>(null);
-
-  /** Which recorded prompt attachment is expanded inline (by attachment id). */
-  readonly expandedPromptId = signal<string | null>(null);
-  /** Which refused prompt attachment is being edited for re-render. */
-  readonly editingPromptId = signal<string | null>(null);
-  /** Live draft of the adapted prompt while editing a refused prompt. */
-  readonly promptEditDraft = signal('');
-
-  /** Button label while generating — "Creating…" or "Creating 3/12…" in storyboard mode. */
-  imageProgressLabel(): string {
-    const p = this.imageProgress();
-    return p && p.total > 1
-      ? this.i18n.t('node.generatingImageCount', { done: p.done, total: p.total })
-      : this.i18n.t('node.generatingImage');
-  }
-
-  // ------------------------------------------------------------------
-  // Recorded prompt attachments — show the text inline; adapt + re-render
-  // the ones that were refused.
-  // ------------------------------------------------------------------
-
-  /** A text attachment recording an image prompt (`prompt-N.txt`, `refused-prompt-N.txt`). */
-  isPromptAttachment(a: NodeAttachment): boolean {
-    return isTextualMime(resolvedMime(a))
-      && /^(?:refused-)?prompt(?:-\d+)?\.txt$/i.test(a.name);
-  }
-
-  /** A prompt attachment that records a REFUSED / empty image generation. */
-  isRefusedPromptAttachment(a: NodeAttachment): boolean {
-    return isTextualMime(resolvedMime(a))
-      && /^refused-prompt(?:-\d+)?\.txt$/i.test(a.name);
-  }
-
-  /** Decoded text of a (prompt) attachment, or ''. */
-  attachmentText(a: NodeAttachment): string {
-    return typeof a.dataUrl === 'string' ? (decodeDataUrlToText(a.dataUrl) ?? '') : '';
-  }
-
-  /**
-   * The actual prompt portion of a recorded prompt attachment. For refused
-   * records the body is "Prompt used:\n…\n\nModel reply:\n…" — this returns
-   * only the prompt part so an adapted edit starts from the prompt alone.
-   */
-  promptAttachmentPrompt(a: NodeAttachment): string {
-    const text = this.attachmentText(a);
-    if (this.isRefusedPromptAttachment(a)) {
-      // Body: "Prompt used:\n<prompt>\n\nModel reply:\n<reply>"
-      const m = text.match(/^Prompt used\s*:\n([\s\S]*?)\n\s*\n\s*Model reply:/i);
-      if (m && (m[1] ?? '').trim()) return m[1].trim();
-    }
-    return text.trim();
-  }
-
-  /** The scene number recorded in a `prompt-N.txt` / `refused-prompt-N.txt` name (or null). */
-  private promptRecordScene(a: NodeAttachment): number | null {
-    const m = a.name.match(/^(?:refused-)?prompt-(\d+)\.txt$/i);
-    return m ? Number(m[1]) : null;
-  }
-
-  /** True when `a` is an illustration paired with the given scene number. */
-  private isIllustrationForScene(a: NodeAttachment, scene: number): boolean {
-    return isImageMime(resolvedMime(a)) &&
-      new RegExp(`^illustration-${scene}\.`, 'i').test(a.name);
-  }
-
-  togglePrompt(a: NodeAttachment): void {
-    const same = this.expandedPromptId() === a.id;
-    this.editingPromptId.set(null);
-    this.promptEditDraft.set('');
-    this.expandedPromptId.set(same ? null : a.id);
-  }
-
-  /** Open the inline editor for a refused prompt, pre-filled with the prompt used. */
-  startPromptEdit(a: NodeAttachment): void {
-    this.expandedPromptId.set(a.id);
-    this.editingPromptId.set(a.id);
-    this.promptEditDraft.set(this.promptAttachmentPrompt(a));
-  }
-
-  cancelPromptEdit(): void {
-    this.editingPromptId.set(null);
-    this.promptEditDraft.set('');
-  }
-
-  /**
-   * Delete a recorded prompt attachment from the chapter (with confirmation).
-   * Only the prompt trace/record is removed — a paired illustration, if any,
-   * is kept. `editAssistant` versions the change, so the record stays
-   * recoverable from prior versions.
-   */
-  async deletePromptAttachment(a: NodeAttachment): Promise<void> {
-    const node = this.node();
-    if (node.role !== 'assistant') return;
-    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    const ok = await this.confirm.ask({
-      title: this.i18n.t('node.promptDeleteTitle'),
-      message: this.i18n.t('node.promptDeleteMsg', { name: a.name }),
-      confirmLabel: this.i18n.t('common.delete'),
-      cancelLabel: this.i18n.t('common.cancel'),
-      danger: true
-    });
-    if (!ok) return;
-
-    try {
-      const rest = (node.attachments || []).filter(x => x.id !== a.id);
-      const saved = await this.chatService.editAssistant(
-        chatId,
-        node.id,
-        node.content || '',
-        rest,
-        node.thinking ?? undefined
-      );
-      // Close any open inline editor for this attachment.
-      if (this.expandedPromptId() === a.id) this.expandedPromptId.set(null);
-      if (this.editingPromptId() === a.id) {
-        this.editingPromptId.set(null);
-        this.promptEditDraft.set('');
-      }
-      this.activate.emit(saved.id);
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.deleteFailed', { error: err?.message || err }));
-    }
-  }
-
-  /**
-   * Re-render ONE refused picture with the adapted prompt. The fresh image
-   * (and its prompt file) replace the refused prompt record on the same
-   * chapter; every other attachment stays. Runs the orchestration
-   * `image-generation` use case: a single picture (no storyboard planning) —
-   * the adapted prompt IS the concrete scene.
-   */
-  async rerenderPrompt(a: NodeAttachment): Promise<void> {
-    const prompt = this.promptEditDraft().trim();
-    const node = this.node();
-    const chatId = this.chatService.currentChatId();
-    if (!prompt || !chatId) return;
-    if (node.role !== 'assistant') return;
-    if (this.isLoading() || this.chatService.isGenerating(node.id)) return;
-
-    this.isLoading.set(true);
-    this.pendingAction.set('image');
-    this.imageProgress.set(null);
-    try {
-      const chat = this.chatService.chats().find(c => c.id === chatId);
-      if (!chat) return;
-
-      // The orchestration `image-generation` use case resolves the image
-      // model itself (image-create task → first enabled image-capable model),
-      // grounds the picture in the context up to the chapter, forwards prior
-      // illustrations as reference when the model can read images, and
-      // renders the ADAPTED prompt as a single concrete scene — no storyboard
-      // planning.
-      const promptText = `${this.i18n.t('node.imageAnchor', {
-        role: this.i18n.t('node.roleAssistant')
-      })}:\n${prompt}`;
-      const result = await this.runner.run({
-        chat,
-        node,
-        usecase: 'image-generation',
-        vars: { promptText, count: 1 }
-      });
-
-      // A hard failure (e.g. no image model enabled) with no scene to fall
-      // back on surfaces as an alert instead of silently doing nothing.
-      const scenes = result.storyboard?.value ?? [];
-      const images = result.images?.value ?? [];
-      if (scenes.length === 0 && images.length > 0) {
-        // No per-scene records but images came back (defensive — the
-        // image-generation controller always emits a storyboard slot).
-        scenes.push({ scene: 1, prompt: promptText, images, refused: false });
-      }
-      const imageCount = images.length;
-      if (result.error?.status === 'error' && scenes.length === 0) {
-        const reason = result.error.reason ?? '';
-        if (/image model/i.test(reason)) {
-          this.toast.error(this.i18n.t('node.imageModelMissing'));
-          return;
-        }
-        throw new Error(reason || this.i18n.t('node.imageEmpty'));
-      }
-
-      const generated = buildIllustrationAttachments(scenes, promptText)
-        .map(x => ({ ...x, id: x.id || newId() }));
-
-      if (generated.length === 0) {
-        const reply = (scenes[0]?.content ?? '').trim()
-          || (result.text?.value ?? '').trim();
-        throw new Error(
-          reply
-            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-            : this.i18n.t('node.imageEmpty')
-        );
-      }
-
-      // Replace the adapted record with the fresh result, renumbered to the
-      // recorded scene number so it slots in next to the other storyboard
-      // images instead of colliding with an existing `illustration-N`.
-      const recordedScene = this.promptRecordScene(a);
-      let rest = (node.attachments || []).filter(x => x.id !== a.id);
-      if (recordedScene != null) {
-        // For a SUCCESSFUL prompt (paired with an illustration), also drop the
-        // old illustration of the same scene so the re-render REPLACES it
-        // instead of duplicating the picture. A refused record has no image.
-        rest = rest.filter(x => !this.isIllustrationForScene(x, recordedScene));
-      }
-      const placed = this.placeRerenderResult(generated, rest, recordedScene);
-      const merged = [...rest, ...placed];
-
-      const saved = await this.chatService.editAssistant(
-        chatId,
-        node.id,
-        node.content || '',
-        merged,
-        node.thinking ?? undefined
-      );
-
-      this.editingPromptId.set(null);
-      this.promptEditDraft.set('');
-      this.expandedPromptId.set(null);
-      this.activate.emit(saved.id);
-
-      if (imageCount === 0) {
-        // The model refused again (or returned nothing parseable): the updated
-        // refused-prompt record was saved above so the adapted prompt stays
-        // findable and pre-fills the next attempt — but there is STILL no
-        // picture. Surface the model's reply instead of silently "succeeding"
-        // (same as `illustrate`).
-        const reply = (scenes[0]?.content ?? '').trim()
-          || (result.text?.value ?? '').trim();
-        this.toast.error(reply
-          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-          : this.i18n.t('node.imageEmpty'));
-      }
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-      this.imageProgress.set(null);
-    }
-  }
-
-  /**
-   * Renumber the result of a refused-prompt re-render: illustration + prompt
-   * files get the refused scene number when it is still free, otherwise the
-   * next free number — so the re-rendered scene does not collide with other
-   * storyboard attachments.
-   */
-  private placeRerenderResult(
-    attachments: NodeAttachment[],
-    existing: NodeAttachment[],
-    preferredScene: number | null
-  ): NodeAttachment[] {
-    const used = new Set<number>();
-    for (const a of existing) {
-      const m = a.name.match(/^(?:illustration|(?:refused-)?prompt)-(\d+)(\.\w+)?$/i);
-      if (m) used.add(Number(m[1]));
-    }
-    let scene = preferredScene && !used.has(preferredScene) ? preferredScene : 0;
-    if (!scene) {
-      scene = 1;
-      while (used.has(scene)) scene++;
-      used.add(scene);
-    }
-    return attachments.map(a => {
-      const ill = a.name.match(/^illustration-(\d+)(\.\w+)?$/i);
-      if (ill) {
-        used.add(scene);
-        return { ...a, name: `illustration-${scene}${ill[2] ?? ''}` };
-      }
-      // Keep a re-refused attempt REFUSED (do not demote it to a success
-      // "prompt" file — the model returned no picture for it).
-      const re = a.name.match(/^refused-prompt-(\d+)(\.\w+)?$/i);
-      if (re) return { ...a, name: `refused-prompt-${scene}${re[2] ?? '.txt'}` };
-      const pr = a.name.match(/^prompt-(\d+)(\.\w+)?$/i);
-      if (pr) return { ...a, name: `prompt-${scene}${pr[2] ?? '.txt'}` };
-      return a;
-    });
   }
 
   /**
@@ -1490,561 +691,6 @@ export class ChatNodeComponent implements OnDestroy {
     if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) return '';
     if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) return '';
     return selection.toString().trim();
-  }
-
-  /**
-   * Generate one or more pictures for the current beat with the configured
-   * "image-create" generation task model (fallback: any enabled model that
-   * can generate images). Opens the Illustrate dialog first to collect how
-   * many scenes, the style, and (for word: >1 scenes) a storyboard prompt.
-   * When a part of the node content is MARKED (selected), the dialog is
-   * seeded with that marked text as the scene to depict — editable there —
-   * and ALL illustration use cases (planned / direct / pure) then depict
-   * exactly that marked part instead of the whole chapter. The prompt is
-   * grounded in the active path up to this point, so earlier chapters stay
-   * established context. A direction node delegates to the ASSISTANT chapter
-   * that responds to it — the direction is only the instruction, the chapter
-   * is the beat to depict (and the picture is attached to that chapter).
-   * Prior illustrations are forwarded as visual reference when the chosen
-   * model can also read images.
-   *
-   * @param promptOverride when given (e.g. an edited direction draft),
-   *   use it as the scene description instead of the depicted node's content.
-   */
-  async illustrate(promptOverride?: string | null): Promise<void> {
-    const pressed = this.node();
-    if (pressed.role !== 'user' && pressed.role !== 'assistant') return;
-    if (this.isLoading() || this.chatService.isGenerating(pressed.id)) return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    // The node to depict is the CURRENT CHAPTER: when the button was pressed
-    // on a direction (user) node, that is the assistant node right AFTER the
-    // direction (the beat that responded to it) — `this.node()` alone is the
-    // wrong node there. The picture is always attached to that chapter.
-    let chapter: ChatNode;
-    if (pressed.role === 'assistant') {
-      chapter = pressed;
-    } else {
-      const answers = this.chatService.getChildren(pressed.id)
-        .filter(c => c.role === 'assistant' && c.isCurrent);
-      const candidate = answers[0] ?? this.chatService.getChildren(pressed.id)
-        .find(c => c.role === 'assistant');
-      if (!candidate) {
-        this.toast.error(this.i18n.t('node.imageNoChapter'));
-        return;
-      }
-      chapter = candidate;
-    }
-    const anchorText = promptOverride ?? chapter.content ?? '';
-
-    // 1. Prefer the configured image-create task model.
-    let defaultModel = this.generation.modelFor('image-create');
-    let defaultProvider = this.generation.providerFor('image-create');
-    // 2. Fall back to any enabled model that can generate images.
-    if (!defaultModel || !defaultProvider) {
-      const fallback = this.enabledModels().find(canGenerateImages);
-      if (fallback) {
-        defaultModel = fallback;
-        defaultProvider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
-      }
-    }
-    if (!defaultModel || !defaultProvider) {
-      this.toast.error(this.i18n.t('node.imageModelMissing'));
-      return;
-    }
-
-    // Ask the user how many scenes, in which style, the storyboard prompt,
-    // and which image model should render the picture(s). The dialog is
-    // seeded with the default rendering model, but its own last-used
-    // selection (persisted in localStorage) wins when still valid. When a
-    // part of the node content is marked, the marked text seeds the dialog's
-    // "Scene to depict" field (editable) so the pictures depict exactly that
-    // marked part in every use case.
-    const markedSceneText = this.captureMarkedSceneText();
-    const options = await this.illustrateDialog.open({
-      modelId: defaultModel.modelId,
-      providerId: defaultModel.providerId,
-      ...(markedSceneText ? { sceneText: markedSceneText } : {})
-    });
-    if (!options) return; // cancelled
-    const { count, style, storyboardPrompt, purePictures, historyMode, historyNodes, storyboardHistoryNodes, planDescriptions } = options;
-    // The marked text the user confirmed in the dialog (may have edited it).
-    // Empty = use the whole chapter content as the scene (classic behavior).
-    const sceneText = (options.sceneText ?? '').trim();
-
-    // The dialog's options CHOOSE the orchestration use case:
-    //   count > 1 || assistant chapter || pure mode → planning-based
-    //   storyboards; single direction → render-node (current) / render-window
-    //   (last N beats) / render-full (complete chat). `content` overrides the
-    //   node text so an edited draft (promptOverride) is used as the scene.
-    // The window width is remembered PER USE CASE: storyboards (count > 1)
-    // use `storyboardHistoryNodes`, single pictures use `historyNodes`.
-    const activeHistoryNodes = count > 1
-      ? (storyboardHistoryNodes ?? historyNodes)
-      : historyNodes;
-    const vars = {
-      count,
-      style,
-      storyboardPrompt,
-      purePictures,
-      historyMode,
-      historyNodes: activeHistoryNodes,
-      planDescriptions,
-      // Reference images the user attached in the dialog (uploaded files or
-      // images picked from the current chat) — forwarded to the image model
-      // so it can keep characters / setting / style consistent.
-      attachments: options.attachments ?? [],
-      // The marked scene text (if any) overrides the whole chapter as the
-      // scene — in ALL illustration use cases, planned / direct / pure.
-      content: sceneText || anchorText,
-      modelId: options.modelId || defaultModel.modelId,
-      providerId: (options.modelId && options.providerId)
-        ? options.providerId
-        : defaultModel.providerId
-    };
-    const usecase = pickUsecase(vars);
-
-    // Storyboard use cases (count > 1, the user-choice driving the planner)
-    // render several pictures in stages: they take long enough to warrant a
-    // Stop button, and each picture can be attached to the chapter AS SOON AS
-    // it is ready (instead of waiting for the whole use case to finish).
-    const isStoryboard =
-      usecase === 'planned-enblock' || usecase === 'planned-scenes' || usecase === 'storyboard-direct';
-
-    const opSignal = this.chatService.beginChatOperation(chatId, 'illustrate');
-    if (!opSignal) {
-      this.toast.error(this.i18n.t('node.busy'));
-      return;
-    }
-    this.isLoading.set(true);
-    this.pendingAction.set('image');
-    this.imageProgress.set(null);
-
-    // Where the pictures live DURING a storyboard run. Progressive writes
-    // version the chapter node, so every write re-targets the LATEST version
-    // and the final write replaces the interim attachments with the
-    // authoritative placement plan (base attachments are captured once, at
-    // start, and authoritative end state = base + final plan).
-    let currentTargetId = chapter.id;
-    const baseAttachments = [...(chapter.attachments ?? [])];
-    const baseThinking = chapter.thinking ?? undefined;
-    let interimChain: Promise<void> = Promise.resolve();
-    let applySignal: AbortSignal | null = null;
-    const onImages = isStoryboard
-      ? (scenes: ImageScene[]): void => {
-          const interim = buildIllustrationAttachments(scenes, anchorText)
-            .map(a => ({ ...a, id: a.id || newId() }));
-          // Serialize the progressive writes so they never race (each one
-          // targets the node version returned by the previous write).
-          interimChain = interimChain.then(async () => {
-            try {
-              const cur = this.chatService.nodes().find(n => n.id === currentTargetId) ?? chapter;
-              const saved = await this.chatService.editAssistant(
-                chatId,
-                currentTargetId,
-                cur.content || '',
-                [...baseAttachments, ...interim],
-                cur.thinking ?? baseThinking
-              );
-              currentTargetId = saved.id;
-            } catch (err: any) {
-              console.error(err);
-            }
-          });
-        }
-      : undefined;
-
-    try {
-      const chat = this.chatService.chats().find(c => c.id === chatId)!;
-      if (isStoryboard) {
-        // One Stop press cancels the whole illustrate use case: the returned
-        // signal propagates into the orchestration runner so in-flight LLM
-        // calls abort and no further scenes are rendered.
-        applySignal = opSignal;
-        this.chatService.isIllustrating.set(true);
-      }
-      const build = { chat, node: chapter, usecase, vars };
-      const result = await this.runner.run(build, {
-        signal: applySignal ?? undefined,
-        ...(onImages ? { onImages } : {})
-      });
-      await interimChain; // flush any pending progressive writes
-
-      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
-
-      // Place the pictures on the chapter node (illustration-N + prompt-N /
-      // refused-prompt-N attachments), consistent with the app.
-      const plan = this.postprocessor.plan(result, build);
-      if (!plan) {
-        throw new Error(this.i18n.t('node.imageNoChapter'));
-      }
-
-      let saved: ChatNode;
-      if (isStoryboard) {
-        // Replace the interim (progressively attached) pictures with the
-        // authoritative final plan — the progressive writes above are
-        // supersets of the start state, so this never duplicates.
-        const cur = this.chatService.nodes().find(n => n.id === currentTargetId) ?? chapter;
-        saved = await this.chatService.editAssistant(
-          chatId,
-          currentTargetId,
-          cur.content || '',
-          [...baseAttachments, ...plan.attachments],
-          cur.thinking ?? baseThinking
-        );
-      } else {
-        saved = await this.postprocessor.apply(plan, build);
-      }
-      this.activate.emit(saved.id);
-
-      const imagesTotal = plan.summary.imagesTotal;
-      if (imagesTotal === 0) {
-        // Everything was refused — the refused-prompt attachments were saved
-        // above so the prompts stay findable; still inform the user. Prefer
-        // the model's own refusal reply: it lives on the refused scenes'
-        // `content` (storyboard-direct does NOT fill `result.text`), falling
-        // back to the generic empty message (UX playbook §8: the user sees
-        // the reason, not a generic failure).
-        const refusedReply = (result.storyboard?.value ?? [])
-          .find(s => (s.content ?? '').trim())?.content?.trim() ?? '';
-        const reply = result.text?.value?.trim() ?? refusedReply;
-        this.toast.error(reply
-          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-          : this.i18n.t('node.imageEmpty'));
-      } else if (count > 1 && imagesTotal < count) {
-        // Storyboard partially completed — keep what was generated, tell the
-        // user how many scenes came back.
-        this.toast.info(this.i18n.t('node.imagePartial', {
-          got: imagesTotal,
-          want: count
-        }));
-      }
-    } catch (err: any) {
-      if (this.chatService.isOperationCancelled()) return; // user stopped — not an error
-      console.error(err);
-      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-      this.imageProgress.set(null);
-      if (isStoryboard) {
-        this.chatService.isIllustrating.set(false);
-      }
-      this.chatService.endChatOperation(chatId);
-    }
-  }
-
-  /**
-   * Send an unsent question (the in-thread composer).
-   * Writes the draft onto this same node, then streams the answer.
-   *
-   * Text-only sends go through the LLM-orchestration `append` use case (full
-   * chat history + topic system prompt via the request builder). Directions
-   * carrying image attachments use `append-with-images`: the images are
-   * described first by the image-interpret model and the description is
-   * merged into the direction text (no binary images reach the writing
-   * model).
-   */
-  async sendDraft(): Promise<void> {
-    const target = await this.resolveSendTarget();
-    if (!target) return;
-    const { node, content, attachments, chatId, model, provider } = target;
-
-    const pending = this.pendingAction();
-    await this.runSend(chatId, pending === 'continue' || pending === 'switchCharacters' ? pending : 'send', async () => {
-      const saved = await this.chatService.persistQuestion(
-        chatId,
-        node.id,
-        content,
-        attachments,
-        model.modelId,
-        model.providerId
-      );
-      this.activate.emit(saved.id);
-
-      // Auto-generated meta directions (Continue, Multiple Characters) and
-      // directions in a chat with the "auto-exclude directions" mode are
-      // sent while they are the current question, but excluded from history
-      // afterwards (the stream builder skips excluded history nodes and
-      // always sends the final one).
-      const isMetaDirection =
-        this.pendingAction() === 'continue' || this.pendingAction() === 'switchCharacters';
-      const chat = this.chatService.chats().find(c => c.id === chatId);
-      if (isMetaDirection || chat?.autoExcludeDirections) {
-        await this.chatService.patchNode(chatId, saved.id, { excludeFromContext: true });
-      }
-
-      if (!node.parentId) {
-        const firstLine = content
-          ? content.split('\n')[0].trim().slice(0, 80)
-          : (attachments[0]?.name ?? '');
-        if (firstLine && this.chatService.chats().find(c => c.id === chatId)?.title === 'New Chat') {
-          await this.chatService.updateChatTitle(chatId, firstLine);
-        }
-      }
-
-      const hasImages = attachments.some(
-        a => isImageMime(resolvedMime(a)) && a.dataUrl?.startsWith('data:')
-      );
-      if (hasImages) {
-        await this.streamAppendOrchestrated(chatId, saved, content, model, provider, {
-          usecase: 'append-with-images',
-          attachments
-        });
-        return;
-      }
-
-      await this.streamAppendOrchestrated(chatId, saved, content, model, provider);
-    });
-  }
-
-  /**
-   * Stream one answer through the LLM-orchestration text-send use cases:
-   * the request builder sends the FULL chat up to this node (+ topic system
-   * prompt), the transport streams, and the evaluator folds the chunks into
-   * the text slot — while `onChunk` paints the answer node LIVE during the
-   * SSE stream. Placement (versioned editAssistant) goes through ChatService
-   * so the chat stays consistent with the rest of the app.
-   */
-  private async streamAppendOrchestrated(
-    chatId: string,
-    question: ChatNode,
-    content: string,
-    model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string },
-    opts: { usecase?: 'append' | 'append-with-images'; attachments?: NodeAttachment[]; emitActivate?: boolean } = {}
-  ): Promise<void> {
-    // Close the inline editor NOW (commit the session + clear the draft),
-    // mirroring the legacy streamForQuestion timing — the editor does not
-    // stay in edit mode after Send.
-    this.closeEditor();
-
-    // Placeholder answer bubble so the user sees it (and can Stop) streaming.
-    const answerNode = await this.chatService.addNode(chatId, {
-      parentId: question.id,
-      role: 'assistant',
-      content: '',
-      thinking: '',
-      modelId: model.modelId,
-      providerId: model.providerId
-    });
-    this.chatService.setActiveChild(question.id, answerNode.id);
-    const signal = this.chatService.startGeneration(answerNode.id);
-    // Single (raw) stream path — presented = the node being revealed.
-    this.chatService.setPresentedNode(answerNode.id, chatId);
-    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-
-    const usecase = opts.usecase ?? 'append';
-    const vars = {
-      content,
-      ...(usecase === 'append-with-images'
-        ? { attachments: opts.attachments }
-        : {})
-    };
-
-    let accContent = '';
-    let accThinking = '';
-    let accImages: LlmImagePart[] = [];
-    // Reveal pump: pace the streamed answer at the configured chars/s or
-    // words/s instead of painting the whole buffer on every chunk (restores
-    // the legacy LlmService behaviour lost when streaming moved into the
-    // orchestration flows). Painting is a view concern.
-    const reveal = new StreamReveal(this.chatService.streamRevealPrefs(), (content, thinking) => {
-      this.paintAnswer(answerNode.id, content, thinking);
-    });
-    try {
-      const slots = await this.runner.run(
-        { chat, node: question, usecase, vars },
-        {
-          signal,
-          nodeId: answerNode.id,
-          onChunk: chunk => {
-            if (chunk.content) accContent += chunk.content;
-            if (chunk.thinking) accThinking += chunk.thinking;
-            if (chunk.images?.length) accImages.push(...chunk.images);
-            reveal.update(accContent, accThinking);
-          }
-        }
-      );
-
-      // The model is done: keep revealing the leftover buffer at the chosen
-      // speed (respecting paceAfterComplete) before the answer is finalized.
-      await reveal.finish(accContent, accThinking, { signal });
-
-      // append-with-images: persist the merged direction text (direction +
-      // image description) ONTO the user node for real, so the description
-      // stays available in the history. The interpretation RECORD is stored
-      // too — it marks "the description is already part of this node's text",
-      // so the same images are NOT interpreted again on a later send.
-      // The attachments themselves remain on the node but are never sent to
-      // the LLM (history is text-only).
-      const interpretation = slots.interpretation?.value;
-      const mergedDirection = interpretation?.content?.trim()
-        ?? slots.direction?.value?.trim();
-      if (mergedDirection && mergedDirection !== question.content?.trim()) {
-        const attachments = interpretation
-          ? [...(question.attachments ?? []), interpretation.record as NodeAttachment]
-          : question.attachments;
-        await this.chatService.patchNode(chatId, question.id, {
-          content: mergedDirection,
-          ...(interpretation ? { attachments } : {})
-        });
-      } else if (interpretation) {
-        // Content already matches — only store the record so re-sends skip.
-        const attachments = [...(question.attachments ?? []), interpretation.record as NodeAttachment];
-        await this.chatService.patchNode(chatId, question.id, { attachments });
-      }
-
-      // Prefer the evaluator's settled slots.
-      const finalContent = slots.text?.value ?? accContent;
-      const finalThinking = slots.thinking?.value ?? accThinking;
-      const finalImages = slots.images?.value ?? accImages;
-      // An IMAGE-ONLY answer (the writing model returned only pictures, no
-      // text): fill the chapter with the original direction so it is not an
-      // empty bubble — the generated image is attached below it.
-      const chapterContent = imageOnlyAnswerContent(finalContent, question.content, finalImages);
-      this.paintAnswer(answerNode.id, chapterContent, finalThinking);
-
-      // An image-only answer (image-capable model streamed pictures, no text)
-      // must STILL be finalized with its attachments — otherwise it stays an
-      // empty placeholder that renders as "Generation stopped".
-      if (chapterContent.trim() || finalThinking.trim() || finalImages.length > 0) {
-        const attachments = finalImages.length
-          ? generatedImageAttachments(finalImages)
-          : undefined;
-        const versioned = await this.chatService.editAssistant(
-          chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
-        );
-        this.chatService.setActiveChild(question.id, versioned.id);
-        // For batch iterations on foreign leaves the component's (activate)
-        // output is bound to THIS node's parent — activating the answer under
-        // the foreign question directly via ChatService is the correct move.
-        if (opts.emitActivate !== false) {
-          this.activate.emit(versioned.id);
-        }
-        // The call was logged under the placeholder id — the versioned answer
-        // node that is kept must carry the usage/cost instead.
-        if (slots.logEntry && versioned.id !== answerNode.id) {
-          this.llmLog.retargetNode(slots.logEntry, versioned.id);
-        }
-      }
-    } finally {
-      // Show whatever arrived (error/abort) or nothing extra (success already
-      // revealed + finalized); stop the pump either way.
-      reveal.flush();
-      reveal.destroy();
-      this.chatService.clearGeneration(answerNode.id);
-      if (this.chatService.presentedNodeId() === answerNode.id) this.chatService.setPresentedNode(null, chatId);
-      // One-shot excluded nodes (e.g. the chat-lore node created with
-      // `excludeAfterSend`) were just sent as part of this request: flip them
-      // to permanently excluded so they document but never re-ship.
-      await this.chatService.markSentOnceExcluded(chatId, question.id);
-    }
-  }
-
-  /**
-   * HELD variant of `streamAppendOrchestrated` for the batched Continue /
-   * Switch-characters flows. The answer registers as a slot in the shared
-   * {@link RevealQueue}: the first becomes the live head (its reveal slows to
-   * the input speed while the LLM fills it), every later one is a background
-   * buffer — its LLM runs immediately but its text does NOT paint until the
-   * queue promotes it once the previous head has fully revealed (one bubble
-   * paints at a time, like a conveyor belt).
-   */
-  private async startHeldAppendStream(
-    chatId: string,
-    question: ChatNode,
-    content: string,
-    model: ModelEntry,
-    provider: { baseUrl: string; apiKey: string },
-    opts: {
-      queue?: RevealQueue;
-      emitActivate?: boolean;
-      historyOverrides?: Record<string, string>;
-      /** Chat operation signal — ties a hard Stop to this stream's request. */
-      signal?: AbortSignal;
-    } = {}
-  ): Promise<HeldAnswerStream> {
-    // Close the inline editor NOW (commit the session), mirroring the Send
-    // path timing.
-    this.closeEditor();
-    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-
-    const deps: HeldAnswerStreamDeps = {
-      prefs: this.chatService.streamRevealPrefs(),
-      createPlaceholderNode: async () => {
-        const answerNode = await this.chatService.addNode(chatId, {
-          parentId: question.id,
-          role: 'assistant',
-          content: '',
-          thinking: '',
-          modelId: model.modelId,
-          providerId: model.providerId
-        });
-        this.chatService.setActiveChild(question.id, answerNode.id);
-        return answerNode.id;
-      },
-      setActiveChild: (p: string | null, c: string) => this.chatService.setActiveChild(p, c),
-      startGeneration: (id: string) => this.chatService.startGeneration(id),
-      paint: (nodeId: string, c: string, t: string) => this.paintAnswer(nodeId, c, t),
-      runCompletion: async ({ nodeId, signal, onChunk }: {
-        nodeId: string;
-        signal: AbortSignal;
-        onChunk: (chunk: import('../../core/llm/llm-sse').LlmChunk) => void;
-      }) => this.runner.run(
-        {
-          chat,
-          node: question,
-          usecase: 'append',
-          vars: {
-            content,
-            ...(opts.historyOverrides ? { historyOverrides: opts.historyOverrides } : {})
-          }
-        },
-        { signal, nodeId, onChunk }
-      ),
-      finalizeAnswer: async (fo: {
-        placeholderId: string;
-        finalContent: string;
-        finalThinking: string;
-        finalImages: LlmImagePart[];
-        usage?: import('../../core/llm/usage').ParsedUsage;
-        logEntry?: import('../../core/llm/llm-log.service').LlmLogEntry;
-        adoptNodeIds?: string[];
-        preserveAttachments?: import('../../models/chat').NodeAttachment[];
-      }) => {
-        // An IMAGE-ONLY answer: fill the chapter with the original direction
-        // so it is not an empty bubble — the generated image is attached below.
-        const chapterContent = imageOnlyAnswerContent(fo.finalContent, question.content, fo.finalImages);
-        const attachments = fo.finalImages.length
-          ? generatedImageAttachments(fo.finalImages)
-          : undefined;
-        const versioned = await this.chatService.editAssistant(
-          chatId, fo.placeholderId, chapterContent, attachments, fo.finalThinking, fo.usage
-        );
-        this.chatService.setActiveChild(question.id, versioned.id);
-        if (opts.emitActivate !== false) {
-          this.activate.emit(versioned.id);
-        }
-        return { id: versioned.id, content: chapterContent };
-      },
-      markSentOnceExcluded: () => this.chatService.markSentOnceExcluded(chatId, question.id),
-      retargetLog: (entry: import('../../core/llm/llm-log.service').LlmLogEntry, nodeId: string) =>
-        this.llmLog.retargetNode(entry, nodeId),
-      discardAnswer: async ({ placeholderId }) => {
-        this.chatService.clearGeneration(placeholderId);
-        await this.chatService.deleteNode(chatId, placeholderId);
-      }
-    };
-
-    return startHeldAnswerStream(deps, {
-      queue: opts.queue,
-      // A hard Stop aborts the chat operation signal — forward it so a send
-      // whose preparation was still running when Stop was pressed never
-      // issues its LLM request.
-      signal: opts.signal
-    });
   }
 
   /** Paint streamed text incrementally onto the in-flux assistant node. */
@@ -2099,58 +745,6 @@ export class ChatNodeComponent implements OnDestroy {
       this.pendingAction.set(null);
       this.chatService.endChatOperation(chatId);
     }
-  }
-
-  /**
-   * Branch — create a new sibling question (a new leaf) and stream an answer.
-   *
-   * - From a question: sibling under the same parent.
-   * - From an answer: new question whose parent is this answer
-   *   (continues the thread from this point).
-   */
-  async saveAsBranchAndSend(): Promise<void> {
-    const target = await this.resolveSendTarget();
-    if (!target) return;
-    const { node, content, attachments, model } = target;
-
-    const ok = await this.runFlow('send-branch', 'branch', build => {
-      build.vars['content'] = content;
-      build.vars['attachments'] = attachments;
-      // The model selected in the editor wins — the flow writer (and the new
-      // question node) must use the freshly chosen model, not the node's.
-      build.vars['modelId'] = model.modelId;
-      build.vars['providerId'] = model.providerId;
-    });
-    // The draft was consumed to create the branch — close the editor so the
-    // edit session is not left dangling (otherwise the next edit on this node
-    // reopens a stale, dirty session).
-    if (ok) this.closeEditor();
-  }
-
-/**
-   * Insert — like Branch (new sibling question + LLM answer with the same
-   * prior-message context), then hang the previous question and its siblings
-   * under that new assistant answer.
-   */
-  async saveAsInsertAndSend(): Promise<void> {
-    const target = await this.resolveSendTarget();
-    if (!target) return;
-    const { node, content, attachments, model } = target;
-    if (node.role !== 'user') return;
-
-    // The draft was consumed to create the insert: close the editor NOW
-    // (commit the session) so it does not stay open while the insert flow
-    // streams its answer — matching the Send path timing.
-    this.closeEditor();
-
-    await this.runFlow('send-insert', 'insert', build => {
-      build.vars['content'] = content;
-      build.vars['attachments'] = attachments;
-      // The model selected in the editor wins — the flow writer (and the new
-      // question node) must use the freshly chosen model, not the node's.
-      build.vars['modelId'] = model.modelId;
-      build.vars['providerId'] = model.providerId;
-    });
   }
 
   /** Generate a chapter heading for THIS assistant answer; only its text is used as context. */
@@ -3089,30 +1683,7 @@ export class ChatNodeComponent implements OnDestroy {
   @HostListener('document:scroll')
   onCtxScroll(): void {
     this.closeCtxMenu();
-  }
-
-
-  private buildContextMessagesUpTo(parentId: string | null): ChatMessage[] {
-    if (!parentId) return [];
-
-    if (typeof (this.chatService as any).getPathToNode === 'function') {
-      const path: ChatNode[] = (this.chatService as any).getPathToNode(parentId);
-      const messages: ChatMessage[] = [];
-
-      for (const n of path) {
-        if (n.role !== 'structural') {
-          // Excluded meta / lore-documentation nodes are skipped (they show in
-          // the UI but are not part of the LLM context history).
-          if (n.excludeFromContext) continue;
-          messages.push({ role: n.role, content: nodeToMessageContent(n) });
-        }
-      }
-      return messages;
-    }
-    return [];
-  }
-
-  readonly renderedHtml = signal('');
+  }  readonly renderedHtml = signal('');
 
   /** True while THIS chapter is the one being revealed by paced reading. */
   readonly pacedReading = computed(() => this.pacedRead.isCurrent(this.node().id));
@@ -3242,6 +1813,56 @@ export class ChatNodeComponent implements OnDestroy {
   });
 
   constructor() {
+    // The extracted controllers act on the draft / the send + illustration
+    // pipelines; the card owns the DOM (textarea refs, scroll restoration)
+    // and the tree, so it hands those in as host callbacks.
+    this.editor.bind({
+      node: () => this.node(),
+      editSession: this.editSession,
+      enabledModels: () => this.enabledModels(),
+      resolvePreferredModelId: node => this.resolvePreferredModelId(node),
+      clearAttachmentSelection: () => this.clearAttachmentSelection(),
+      onEditorTargetCleared: () => { this.pendingScrollOffset = null; },
+      onDraftReplaced: () => requestAnimationFrame(() => this.resizeTextarea()),
+      isUnsentQuestion: () => this.isUnsentQuestion(),
+      sendDraft: () => this.sendDraft(),
+      runDirectionBatch: (direction, count) => this.runDirectionBatch(direction, count),
+      onActivated: id => this.activate.emit(id)
+    });
+    this.sender.bind({
+      node: () => this.node(),
+      actions: this.actions,
+      editor: this.editor,
+      enabledModels: () => this.enabledModels(),
+      providers: () => this.settings.providers(),
+      resolvePreferredModelId: node => this.resolvePreferredModelId(node),
+      isUnsentQuestion: () => this.isUnsentQuestion(),
+      closeEditor: () => this.closeEditor(),
+      paintAnswer: (id, content, thinking) => this.paintAnswer(id, content, thinking),
+      onActivated: id => this.activate.emit(id),
+      runFlow: (usecase, pending, builder) => this.runFlow(usecase, pending, builder)
+    });
+    this.dialogActions.bind({
+      node: () => this.node(),
+      actions: this.actions,
+      editor: this.editor,
+      editSession: this.editSession,
+      enabledModels: () => this.enabledModels(),
+      providers: () => this.settings.providers(),
+      resolvePreferredModelId: node => this.resolvePreferredModelId(node),
+      isEditing: () => this.isEditing(),
+      resizeTextarea: () => this.scheduleResize(),
+      onActivated: id => this.activate.emit(id),
+      runFlow: (usecase, pending, builder) => this.runFlow(usecase, pending, builder),
+      prependEnabled: this.prependEnabled,
+      prependText: this.prependText,
+      comparableSiblings: () => this.comparableSiblings(),
+      replaceDraft: text => {
+        this.contentDraft.set(text);
+        this.editSession.patch(this.node().id, text, this.editAttachments());
+        this.scheduleResize();
+      }
+    });
     effect(() => {
       const n = this.node();
       // Paced reading overrides the rendered text with the revealed slice —
@@ -3257,8 +1878,9 @@ export class ChatNodeComponent implements OnDestroy {
     });
     effect(() => {
       const id = this.node().id;
-      this.prependEnabled.set(this.isPrependStored(id));
-      this.prependText.set(this.storedPrependText(id));
+      // Prepend state is owned by the dialog-actions controller; this effect
+      // only mirrors it into the card's signals for the template.
+      this.dialogActions.syncPrependState(id);
       // A new node (fresh generation / versioned answer) means auto-follow
       // starts again — any previous user-scroll pause is cleared.
       this.followPausedByUser = false;
@@ -3324,218 +1946,6 @@ export class ChatNodeComponent implements OnDestroy {
       ChatNodeComponent.openMenu = null;
     }
     this.removeFollowScrollListener();
-  }
-
-  /**
-   * Stored director texts per node id (a `{ [nodeId]: string }` map).
-   * The value is the edited director instruction; presence ⇒ prepend enabled.
-   */
-  private readPrependMap(): Record<string, string> {
-    try {
-      const raw = localStorage.getItem(ChatNodeComponent.LS_PREPEND);
-      const parsed = raw ? JSON.parse(raw) : {};
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-      return parsed as Record<string, string>;
-    } catch {
-      return {};
-    }
-  }
-
-  private writePrependMap(map: Record<string, string>): void {
-    try {
-      localStorage.setItem(ChatNodeComponent.LS_PREPEND, JSON.stringify(map));
-    } catch { /* best-effort */ }
-  }
-
-  private isPrependStored(nodeId: string): boolean {
-    const map = this.readPrependMap();
-    return Object.prototype.hasOwnProperty.call(map, nodeId);
-  }
-
-  private storedPrependText(nodeId: string): string {
-    const map = this.readPrependMap();
-    return Object.prototype.hasOwnProperty.call(map, nodeId) ? (map[nodeId] ?? '') : '';
-  }
-
-  /**
-   * Open the "Prepend director" dialog, prefilled with the existing editor
-   * text or a newly-proposed instruction (from `prependInstruction`). On
-   * confirm, the edited text is stored AND the LLM is called with the
-   * director instruction + the following assistant chapters (≤5000 tokens);
-   * the result is inserted as TWO new nodes BEFORE the current
-   * direction/user/question node: the prompt-prefix (director) node and the
-   * LLM result node. An empty confirmed text clears the director.
-   */
-  async openPrependDialog(): Promise<void> {
-    const node = this.node();
-    if (node.role !== 'user') return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    const nodeId = node.id;
-    const existing = this.storedPrependText(nodeId);
-    const proposed = existing.trim() || this.prependInstruction();
-    const text = await this.prependDialog.open(proposed, this.isPrependStored(nodeId));
-    // Cancel resolves null — keep the current state.
-    if (text == null) return;
-    const cleaned = text.trim();
-    const map = this.readPrependMap();
-    if (cleaned) {
-      map[nodeId] = cleaned;
-    } else {
-      delete map[nodeId];
-    }
-    this.writePrependMap(map);
-    this.prependEnabled.set(this.isPrependStored(nodeId));
-    this.prependText.set(this.storedPrependText(nodeId));
-    if (!cleaned) return; // cleared — no generation
-
-    await this.generatePrependNodes(node, cleaned);
-  }
-
-  /**
-   * Open the "Compare versions" dialog.
-   *
-   * While the inline editor is open the dialog compares the UNSAVED draft
-   * against a prior version; on Apply the result stays in the draft (temporary
-   * until OK/Save). From the read-only view it compares the node's CURRENT
-   * content against a prior version; on Apply the edited result is persisted
-   * immediately as a new version (mirroring saveAsVersion).
-   */
-  async openVersionDiffDialog(): Promise<void> {
-    const node = this.node();
-    const versions = this.chatService.getPriorVersions(node);
-    if (versions.length === 0) return;
-    const newText = this.isEditing() ? this.contentDraft() : (node.content ?? '');
-    const result = await this.versionDiffDialog.open({ newText, versions });
-    if (result == null) return;
-
-    if (this.isEditing()) {
-      // Keep it temporary in the unsaved draft — the user presses OK/Save later.
-      this.applyDialogToDraft(node.id, result);
-      return;
-    }
-    await this.persistDialogAsVersion(node, result);
-  }
-
-  /**
-   * Open the "Compare siblings" dialog: compare THIS node against one of its
-   * siblings (the current sibling is the editable side). Mirrors the compare-
-   * versions dialog: draft-apply while editing, persist-as-new-version from
-   * the read-only view.
-   */
-  async openCompareSiblingsDialog(): Promise<void> {
-    const node = this.node();
-    const siblings = this.comparableSiblings();
-    if (siblings.length === 0) return;
-    const newText = this.isEditing() ? this.contentDraft() : (node.content ?? '');
-    const result = await this.versionDiffDialog.open({ newText, siblings });
-    if (result == null) return;
-
-    if (this.isEditing()) {
-      this.applyDialogToDraft(node.id, result);
-      return;
-    }
-    await this.persistDialogAsVersion(node, result);
-  }
-
-  /** Write a dialog result into the open editor's unsaved draft. */
-  private applyDialogToDraft(nodeId: string, result: string): void {
-    this.contentDraft.set(result);
-    this.editSession.patch(nodeId, result, this.editAttachments());
-    requestAnimationFrame(() => this.resizeTextarea());
-  }
-
-  /** Persist a dialog result as a new version of the node (read-only path). */
-  private async persistDialogAsVersion(node: ChatNode, result: string): Promise<void> {
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-    if (result.trim() === (node.content ?? '').trim()) return; // nothing changed
-    this.isLoading.set(true);
-    this.pendingAction.set('version');
-    try {
-      const saved =
-        node.role === 'assistant' || node.role === 'system' || node.role === 'structural'
-          ? await this.chatService.editAssistant(chatId, node.id, result, node.attachments)
-          : await this.chatService.editUser(chatId, node.id, result, node.attachments);
-      this.activate.emit(saved.id);
-      this.toast.success(this.i18n.t('node.versioned'));
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
-  }
-
-  /**
-   * Insert the director (user) node + a streamed result (assistant) BEFORE
-   * the current direction, adopting the current node under the result — via
-   * the orchestration `send-prepend` flow. On failure the stored flag is
-   * rolled back.
-   */
-  private async generatePrependNodes(
-    node: ChatNode,
-    directorText: string
-  ): Promise<void> {
-    const following = this.followingAssistantContent(node.id);
-    const hasHistory = this.buildContextMessagesUpTo(node.parentId).length > 0
-      || following.trim().length > 0;
-    // Nothing to narrate — no assistant chapter anywhere in the thread.
-    if (!hasHistory) return;
-
-    const ok = await this.runFlow('send-prepend', 'prepend', build => {
-      build.vars['directorText'] = directorText;
-      build.vars['followingText'] = following;
-    });
-    // On failure the flow runner alerted; roll back the stored flag so the UI
-    // reflects "not active".
-    if (!ok && this.prependEnabled()) {
-      const map = this.readPrependMap();
-      delete map[node.id];
-      this.writePrependMap(map);
-      this.prependEnabled.set(false);
-      this.prependText.set('');
-    }
-  }
-
-  /**
-   * Open the "Create chapter descriptions" dialog (available on the last
-   * node, next to Continue). On confirm, the chapter description list is
-   * generated as ANOTHER branch to the first one: a new sibling question
-   * carries the request (previous visible chat content + the dialog
-   * parameters + goal) and the answer streams under it. The last input
-   * parameters are remembered per chat, so the next press of the button
-   * provides them again (first chapter continues after the last generated).
-   */
-  async openChapterDescriptionsDialog(): Promise<void> {
-    const node = this.node();
-    if (node.role !== 'user' || this.isLoading()) return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-
-    const defaultModelId = node.modelId || this.resolvePreferredModelId(node);
-    const result = await this.chapterDescriptionsDialog.open({
-      chatId,
-      chat,
-      node,
-      defaultModelId,
-      defaultProviderId: node.providerId ?? ''
-    });
-    if (result == null) return; // cancelled
-
-    await this.runFlow('send-chapter-descriptions', 'chapterDescriptions', build => {
-      build.vars['chapterCount'] = result.chapterCount;
-      build.vars['sentencesPerChapter'] = result.sentencesPerChapter;
-      build.vars['firstChapter'] = result.firstChapter;
-      build.vars['goal'] = result.goal;
-      // The model chosen in the dialog wins — the new branch must use the
-      // freshly chosen model, not the node's (its draft is left untouched).
-      build.vars['modelId'] = result.modelId;
-      build.vars['providerId'] = result.providerId;
-    });
   }
 
   /** Last `followTick` seen — a change means the user pressed an arrow key. */
@@ -4012,67 +2422,137 @@ export class ChatNodeComponent implements OnDestroy {
       if (fromModel) return formatParametersSummary(fromModel);
     }
     return null;
-  }
-  private elaborateCharacters(): string {
-    try {
-      const chatId = this.chatService.currentChatId();
-      if (!chatId) return '';
-      const raw = localStorage.getItem('chat-client.elaborate.byChatId');
-      const map = raw ? JSON.parse(raw) : {};
-      const entry = map?.[chatId];
-      return typeof entry?.characters === 'string' ? entry.characters.trim() : '';
-    } catch {
-      return '';
-    }
+  }  // ------------------------------------------------------------------
+  // Extracted action controllers — thin DELEGATES. Kept as component members
+  // so the template and the existing specs keep addressing the card; the
+  // logic lives in EditorController / SendController / IllustrationController
+  // (see docs/architecture/chat-ui.md).
+  // ------------------------------------------------------------------
+
+  /** What the illustration controller needs from this card. */
+  private illustrationContext(): IllustrationCallContext {
+    return { pressed: this.node(), onActivated: id => this.activate.emit(id) };
   }
 
-  private prependInstruction(): string {
-    // The stored (user-edited) director text wins when present.
-    const stored = this.prependText().trim();
-    if (stored) return stored;
-    const characters = this.elaborateCharacters();
-    // Topic-scoped prompt versions apply to the current chat's topic.
-    const chatId = this.chatService.currentChatId();
-    const chat = chatId ? this.chatService.chats().find(c => c.id === chatId) ?? null : null;
-    const project = chat?.projectId
-      ? this.projectService.getProject(chat.projectId) ?? null
-      : null;
-    const topicId = this.projectService
-      .topicForProject(project?.id, this.projectService.topics())?.id ?? null;
-    return characters
-      ? this.promptDefaults.render('structure.prepend', { characters }, topicId)
-      : this.promptDefaults.render('structure.prepend-basic', {}, topicId);
+  /** Generate pictures for this beat (dialog → use case → placement plan). */
+  async illustrate(promptOverride?: string | null): Promise<void> {
+    return this.illustration.illustrate({
+      ...this.illustrationContext(),
+      promptOverride,
+      markedSceneText: this.captureMarkedSceneText()
+    });
   }
 
+  /** Re-render ONE picture with the adapted prompt. */
+  async rerenderPrompt(a: NodeAttachment): Promise<void> {
+    return this.illustration.rerenderPrompt(
+      this.node(), a, this.promptEditDraft(), this.illustrationContext()
+    );
+  }
 
+  /** Delete a recorded prompt attachment (keeps the paired picture). */
+  async deletePromptAttachment(a: NodeAttachment): Promise<void> {
+    return this.illustration.deletePromptAttachment(
+      this.node(), a, this.illustrationContext()
+    );
+  }
 
-  /**
-   * The concatenated FULL text of the assistant nodes that FOLLOW the current
-   * node on the active path (the chapters after the direction being prepended).
-   * Whole chapters are kept (never split); walking from the current node
-   * forward, chapters are appended until the aggregate token estimate exceeds
-   * `PREPEND_MAX_TOKENS` — the remaining (newest) chapters are left out.
-   * Returns '' when there is nothing following.
-   */
-  private followingAssistantContent(nodeId: string): string {
-    const path: ChatNode[] = this.chatService.getActivePath();
-    const start = path.findIndex(n => n.id === nodeId);
-    if (start < 0) return '';
+  /** Cancel the editor (asks before discarding a dirty draft). */
+  async cancelEdit(): Promise<void> {
+    await this.editor.cancelEdit();
+  }
 
-    const parts: string[] = [];
-    let tokens = 0;
-    // Walk the active path AFTER the node; keep only complete assistant
-    // chapters, newest-first append until the cap is exceeded.
-    for (let i = start + 1; i < path.length; i++) {
-      const n = path[i];
-      if (n.role !== 'assistant') continue;
-      const text = (n.content || '').trim();
-      if (!text) continue;
-      const t = estimateContentTokens(text);
-      if (parts.length > 0 && tokens + t > PREPEND_MAX_TOKENS) break;
-      parts.push(text);
-      tokens += t;
-    }
-    return parts.join('\n\n');
+  /** Commit the draft + close the editor without asking. */
+  private closeEditor(): void {
+    this.editor.closeEditor();
+  }
+
+  /** OK — persist the draft as a new version of this node (no LLM call). */
+  async saveAsVersion(): Promise<void> {
+    await this.editor.saveAsVersion();
+  }
+
+  /** Composer shortcut: fill the "Continue" template and send. */
+  async continueDraft(): Promise<void> {
+    await this.editor.continueDraft();
+  }
+
+  /** Composer shortcut: fill the "switch characters" template and send. */
+  async switchCharactersDraft(): Promise<void> {
+    await this.editor.switchCharactersDraft();
+  }
+
+  decRepeat(): void {
+    this.editor.decRepeat();
+  }
+
+  incRepeat(): void {
+    this.editor.incRepeat();
+  }
+
+  /** A keystroke in the textarea (draft + edit session). */
+  onDraftText(text: string): void {
+    this.editor.onDraftText(text);
+  }
+
+  /** Apply a search/replace result to the LIVE draft of an open editor. */
+  setDraftFromSearch(text: string): void {
+    this.editor.setDraftFromSearch(text);
+  }
+
+  /** Push the current draft into the edit session (attachments changed). */
+  private syncAttachments(): void {
+    this.editor.syncAttachments();
+  }
+
+  isDraftEmpty(): boolean {
+    return this.editor.isDraftEmpty();
+  }
+
+  /** Send the composer draft and stream the answer. */
+  async sendDraft(): Promise<void> {
+    await this.sender.sendDraft();
+  }
+
+  /** Branch — new sibling question + streamed answer. */
+  async saveAsBranchAndSend(): Promise<void> {
+    await this.sender.saveAsBranchAndSend();
+  }
+
+  /** Insert — new sibling question, adopting the previous siblings. */
+  async saveAsInsertAndSend(): Promise<void> {
+    await this.sender.saveAsInsertAndSend();
+  }
+
+  /** Chain N Continue / Switch-characters sends (one Stop aborts the batch). */
+  private async runDirectionBatch(
+    direction: 'continue' | 'switchCharacters',
+    count: number
+  ): Promise<void> {
+    await this.sender.runDirectionBatch(direction, count);
+  }
+
+  // ------------------------------------------------------------------
+  // Dialog actions — DELEGATES to `DialogActionsController`
+  // ------------------------------------------------------------------
+
+  /** Open the "Prepend director" dialog and run the prepend flow. */
+  async openPrependDialog(): Promise<void> {
+    await this.dialogActions.openPrependDialog();
+  }
+
+  /** Compare the draft/current text against a prior version. */
+  async openVersionDiffDialog(): Promise<void> {
+    await this.dialogActions.openVersionDiffDialog();
+  }
+
+  /** Compare this node against one of its current siblings. */
+  async openCompareSiblingsDialog(): Promise<void> {
+    await this.dialogActions.openCompareSiblingsDialog();
+  }
+
+  /** Open the "Create chapter descriptions" dialog and run its flow. */
+  async openChapterDescriptionsDialog(): Promise<void> {
+    await this.dialogActions.openChapterDescriptionsDialog();
   }
 }

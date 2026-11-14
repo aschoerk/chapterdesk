@@ -1,0 +1,103 @@
+@startuml seq-illustrate
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 210
+skinparam wrapWidth 190
+skinparam shadowing false
+title Illustrating a chapter\n(spec: chat-node.component.spec.ts · node-action-state.spec.ts · orchestration.spec.ts)
+' Aliases match docs/specs/component-map.puml.
+
+actor User
+participant "CMP_NODE\nChatNodeComponent\n(the card)" as NODE
+participant "CMP_NODE_ACTIONS\nIllustrationController" as ILL
+participant "CMP_NODE_ACTIONS\nNodeActionState" as ACT
+participant "DLG_IMAGE\nIllustrateDialogService" as DLG
+participant "ORCH_RUNNER\nLlmUseCaseRunner" as RUN
+participant "ORCH_CORE\nLlmPostprocessorService" as POST
+participant "SVC_CHAT\nChatService (facade)" as SVC
+participant "PORT\nChatApiPort" as API
+
+== 1. The card collects what only it can see ==
+User -> NODE : clicks Illustrate (optionally with a marked text)
+NODE -> NODE : captureMarkedSceneText()\n(editor textarea selection, else DOM selection\ninside #readContent)
+NODE -> ILL : illustrate({ pressed, markedSceneText,\n  onActivated })
+note right of NODE
+  The controller never touches viewChild refs: everything DOM-bound
+  is passed per call. A direction node delegates to the ASSISTANT
+  chapter that answers it — the picture attaches to that chapter.
+end note
+
+== 2. Guards: one action at a time ==
+ILL -> ACT : idle?
+note right of ACT
+  node-action-state.spec: begin(kind) is refused while ANY action runs,
+  end() clears both flags. A second send / illustrate / version write
+  on the same card would otherwise race.
+end note
+ILL -> ILL : resolve the image-create task model\n(fallback: first enabled image-capable model)
+ILL -> DLG : open({ modelId, providerId, sceneText? })
+DLG --> ILL : IllustrateOptions | null
+note right of DLG
+  null = cancelled ⇒ nothing runs (no busy state, no LLM call).
+  The use case is DERIVED from the options by pickUsecase().
+end note
+
+== 3. Run the use case ==
+ILL -> SVC : beginChatOperation(chatId, 'illustrate')
+ILL -> ACT : begin('image')
+alt storyboard use case (several pictures)
+  ILL -> SVC : isIllustrating = true  (surfaces the toolbar Stop)
+  note right of ILL
+    onImages(scenes) attaches each finished picture to the chapter
+    IMMEDIATELY, serialized: every write versions the node, so the
+    next write must target the id the previous write returned.
+  end note
+end
+ILL -> RUN : run({ chat, node: chapter, usecase, vars })
+RUN --> ILL : EvalSlots (text · images · storyboard)
+ILL -> ACT : end()  (finally)
+ILL -> SVC : endChatOperation(chatId)
+
+== 4. Place the result on the chapter ==
+ILL -> POST : plan(result, build)
+POST --> ILL : placement plan (illustration-N + prompt-N / refused-prompt-N)
+alt storyboard
+  ILL -> SVC : editAssistant(base attachments + final plan)
+  note right of ILL
+    The final plan REPLACES the interim progressive writes (they are a
+    superset of the start state), so pictures never duplicate.
+  end note
+else single picture
+  ILL -> POST : apply(plan, build)
+  POST -> SVC : editAssistant(...)
+end
+SVC -> API : editAssistant(...)  → new node version
+API --> SVC : saved node
+ILL -> NODE : onActivated(saved.id)  → activate.emit
+note right of ILL
+  Refused path: no image ⇒ the card shows the model's own refusal
+  reason (never a silent success). Partial storyboard ⇒ an info toast
+  with "got N of M", the rendered pictures are kept.
+end note
+
+== 5. Adapting a recorded prompt ==
+User -> NODE : opens a prompt record, edits it, presses Re-render
+NODE -> ILL : rerenderPrompt(node, record, draftPrompt\n, { onActivated })
+ILL -> ACT : idle? + begin('image')
+ILL -> RUN : run(usecase: 'image-generation',\n  vars: { promptText, count: 1 })
+RUN --> ILL : scenes
+ILL -> ILL : placeRerenderResult(generated, rest,\n  preferredScene)
+note right of ILL
+  The adapted result takes the RECORDED scene number when it is free and
+  drops the paired illustration of that scene, so a re-render REPLACES
+  the picture instead of adding a second one. A re-refused attempt
+  stays a refused-prompt record (never demoted to a success prompt).
+end note
+ILL -> SVC : editAssistant(merged attachments)
+SVC -> API : editAssistant(...)
+API --> SVC : saved node (new version)
+ILL -> ACT : end()  (finally)
+ILL -> NODE : onActivated(saved.id)
+
+@enduml

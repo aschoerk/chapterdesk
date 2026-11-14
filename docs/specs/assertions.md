@@ -25,7 +25,7 @@ Two conventions used throughout:
 
 ### 1.1 `PAGE_CHAT` — the chat page
 
-`chat.component.spec.ts` (89 cases, one big `Chat` group plus
+`chat.component.spec.ts` (94 cases, one big `Chat` group plus
 `Chat · elaborate with real streaming`). It is the specification of the
 *interaction*, not of the tree: it renders the real `ChatService` on top of the
 in-memory API and drives the page through its public handlers.
@@ -37,6 +37,15 @@ Guarantees worth knowing before touching the page:
   siblings (so branches stay reachable), and never selects the empty terminal
   draft. `Ctrl+click` toggles one node, `Ctrl+drag` selects a range in navbar
   order, and a copied selection becomes an ordered sequence.
+* **Navbar context menus** (rows + geometry asserted in `SVC_NAVMENU`, the
+  *actions* stay in the page spec): the two menus are mutually exclusive, the
+  terminal empty draft gets **no** node menu, and nothing may be pasted to its
+  left — the ⤵ button disappears after the node before it. Paste-offer rows
+  dispatch *Insert* (splice into the visible chain) vs *Append* (parallel
+  branch) through the page, and the node menu offers *branch here*, the
+  continuation switches **only when there are siblings**, select/unselect +
+  clear, copy/cut/delete, and paste in front/behind — the latter disabled where
+  impossible.
 * **Search scope.** "Node" search reads the **live draft** of a node that is
   being edited and the committed content of every other node, then scrolls both
   the textarea and the tree to the hit.
@@ -65,17 +74,38 @@ Guarantees worth knowing before touching the page:
 
 ### 1.2 `CMP_NODE` — the bubble, and its pure helpers
 
-`chat-node.component.spec.ts` is the largest file (200 cases). It asserts the
-node's own behaviour: edit/read mode, the context menu built per role and state,
-attachment intake (`filesToAttachments` rejects oversize payloads), the reveal
-of streamed text, follow-scrolling, and the click-to-edit caret mapping.
+`chat-node.component.spec.ts` is the largest file. It asserts the node's own
+behaviour: edit/read mode, the context menu built per role and state, attachment
+intake (`filesToAttachments` rejects oversize payloads), the reveal of streamed
+text, follow-scrolling, the click-to-edit caret mapping, and the illustrate
+family end to end (dialog options → orchestration run → attachments versioned
+onto the chapter).
 
-The extracted pure parts have their own specs, which is where the exact
-contracts live:
+The extracted parts have their own specs, which is where the exact contracts
+live:
 
 * `CMP_NODE_PARTS` — `buildCtxMenuItems(ctx)` (which items a role/state shows),
   `filesToAttachments`, `sourceOffsetAtPoint`, `findTextRange` (locating a stored
   reading mark in the **rendered** text), `selectRangeAndScroll`.
+* `CMP_NODE_ACTIONS` — `NodeActionState` (the *one action at a time* invariant:
+  `begin(kind)` is refused while anything runs, `end()` clears both flags),
+  `EditorController` (draft seeding, empty-draft rule, save-as-version persisting
+  the chosen model, cancel-with-confirm keeping a dirty draft on refusal, batch
+  clamp 1..20, session sync), `DialogActionsController` (prepend state
+  round-trip, the whole-chapter prepend token budget, draft-apply vs
+  version-write for a compare dialog, a no-op when the compared text did not
+  change, and the chapter-description flow receiving the dialog's parameters)
+  and `IllustrationController` (prompt-record recognition, `placeRerenderResult`
+  renumbering).
+  `SendController` has no own spec: it streams through the orchestration, so its
+  behaviour is asserted end to end by `chat-node.component.spec` (send / branch /
+  insert / batch / stop paths) — see the note below.
+* The **action sequences** are asserted through the component spec, because it is
+  the card that owns the DOM they need. Two sequence diagrams show the traces:
+  [`flows/seq-illustrate.puml`](flows/seq-illustrate.puml) (guards, dialog options
+  → `pickUsecase`, progressive storyboard writes re-targeting each node version,
+  final plan replacing the interim ones) and
+  [`flows/seq-send-branch.puml`](flows/seq-send-branch.puml).
 * `CMP_VERSIONS` — `TextVersionPanelComponent` lists a chapter's versions and
   `NodeVersionDiffDialogComponent` renders the Monaco diff.
 * `CMP_EDITORS` / `CMP_SEARCH` / `CMP_CHROME` — title & parameter editors,
@@ -191,7 +221,7 @@ builder"` is the lore specification. The assertions that matter:
 
 ![A sending flow — send-branch](flows/seq-send-branch.svg)
 
-`flows.spec.ts` (51 cases) drives the real `ChatService` with a stubbed `fetch`,
+`flows.spec.ts` (53 cases) drives the real `ChatService` with a stubbed `fetch`,
 so every assertion is about the **end state of the tree + the request that was
 sent**:
 
@@ -346,6 +376,7 @@ profile list in `EnvironmentService`.
 | `SVC_CHAT` (facade) | pure delegation | `chat.component.spec`, `flows.spec` |
 | `SVC_TREE` | exercised through the services that own the operations | `chat-editing.spec`, `flows.spec` |
 | `SVC_LORE`, `SVC_OP` | policies that only make sense inside a send | `flows.spec` |
+| `CMP_NODE_ACTIONS` (the controllers) | they act through the card's `viewChild` refs and `activate` output | `chat-node.component.spec` (`NodeActionState` has its own spec) |
 | `COMPOSITE`, `SET_ENV` | routing table | the two implementation specs |
 | `MODELS` | types only | — |
 | `ORCH_TRANSPORT`, `ORCH_POST`, `ORCH_CONTEXT`, `ORCH_PURE`, `ORCH_USECASES` | sub-parts of `ORCH_CORE`/`ORCH_RUNNER` | `orchestration.spec`, `flows.spec` |
