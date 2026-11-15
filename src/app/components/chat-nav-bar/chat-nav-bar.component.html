@@ -1,0 +1,166 @@
+<!-- Node nav bar: active path + multi-select tools -->
+<div class="node-nav-bar"
+     #nodeNavBar
+     [class.grown]="navBarHeight() !== null"
+     [style.height.px]="navBarHeight()">
+  @if (navHasSelection()) {
+    <div class="nav-tools">
+      <span class="nav-selection-info">
+        {{ i18n.t('node.selectedCount', { n: navSelectedIds().length }) }}
+      </span>
+      <button class="btn small" type="button" (click)="copyNavSelection()"
+              [title]="i18n.t('node.copySelectedTitle')">
+        {{ i18n.t('node.copySelected') }}
+      </button>
+      <button class="btn small" type="button" (click)="cutNavSelection()"
+              [title]="i18n.t('node.cutSelectedTitle')">
+        {{ i18n.t('node.cutSelected') }}
+      </button>
+      <button class="btn small" type="button" (click)="extractNavSelection()"
+              [title]="i18n.t('node.extractSelectedTitle')">
+        {{ i18n.t('node.extractSelected') }}
+      </button>
+      <button class="btn small" type="button" (click)="extractNavSelection(true)"
+              [title]="i18n.t('node.extractSubtreeTitle')">
+        {{ i18n.t('node.extractSubtree') }}
+      </button>
+      <button class="btn small danger" type="button" (click)="deleteNavSelection()"
+              [title]="i18n.t('node.deleteSelectedTitle')">
+        {{ i18n.t('node.deleteSelected') }}
+      </button>
+      <button class="btn small" type="button" (click)="clearNavSelection()"
+              [title]="i18n.t('node.clearSelectionTitle')">
+        {{ i18n.t('node.clearSelection') }}
+      </button>
+      @if (clipboard.hasContent()) {
+        <button class="btn small" type="button" (click)="pasteAtTopClick()"
+                [title]="i18n.t('chat.pasteAtTopTitle')">
+          {{ i18n.t('chat.pasteAtTop') }}
+        </button>
+      }
+    </div>
+  }
+
+  <div class="nav-path">
+    <button class="btn-icon" type="button"
+            (click)="openReader.emit()"
+            [disabled]="!hasChat()"
+            [title]="i18n.t('chat.bookViewTitle')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+        <path d="M4 4.5A2.5 2.5 0 0 1 6.5 7H20v13H6.5A2.5 2.5 0 0 0 4 22.5z"/>
+        <path d="M12 7v13"/>
+      </svg>
+    </button>
+    @for (node of navPath(); track node.id; let i = $index) {
+      <button
+        class="nav-node"
+        [class.question]="node.role === 'user'"
+        [class.answer]="node.role === 'assistant'"
+        [class.active]="isNearViewport(node.id)"
+        [class.selected]="isNavNodeSelected(node.id)"
+        [class.editing]="isNavNodeBeingEdited(node.id)"
+        (click)="onNavNodeClick($event, node)"
+        (pointerdown)="onNavPointerDown($event, node)"
+        (pointerenter)="onNavPointerEnter(node)"
+        (pointerleave)="onNavPointerLeave()"
+        (contextmenu)="openNavNodeMenu($event, node)"
+        [attr.data-nav-id]="node.id"
+        [title]="node.content">
+
+        @if (isNavNodeBeingEdited(node.id)) {
+          <span class="nav-edit-dot"
+                role="img"
+                [attr.aria-label]="i18n.t('node.currentlyEditing')"
+                [title]="i18n.t('node.currentlyEditing')"></span>
+        }
+        <span class="nav-badge">{{ node.role === 'user' ? 'D' : (node.role === 'assistant' ? 'C' :'S') }}</span>
+
+        @if (childCount(node) > 1) {
+          <span class="nav-branch-count">
+            {{ getSiblingIndex(node) }} / {{ childCount(node) }}
+          </span>
+        }
+      </button>
+
+      @if (clipboard.hasContent() && canPasteAfter(node)) {
+        <button class="nav-paste-after" type="button"
+                (click)="pasteNavSelectionAfter(node.id); $event.stopPropagation()"
+                (contextmenu)="openNavPasteMenu($event, node); $event.stopPropagation()"
+                [title]="i18n.t('node.pasteAfterTitle')">
+          ⤵
+        </button>
+      }
+
+      @if (i < navPath().length - 1) {
+        <span class="nav-separator">›</span>
+      }
+    }
+  </div>
+
+</div>
+
+<!-- Vertical separator: drag to enlarge the node-nav-bar vertically
+     (double-click to reset to auto height). -->
+<div class="nav-resizer"
+     [class.active]="isNavResizing()"
+     (pointerdown)="startNavResize($event)"
+     (dblclick)="resetNavBarHeight()"
+     [title]="i18n.t('chat.resizeNavBar')"></div>
+
+<!-- ============================================================
+     Navbar paste / node context menus
+     ============================================================
+     Kept OUTSIDE .node-nav-bar: it is a stacking context (sticky +
+     z-index 20), so a fixed-position menu nested in it would render
+     UNDER the resizer (z-index 40). As siblings of the resizer,
+     their z-index 1001 applies globally. -->
+@if (navPasteMenu(); as menu) {
+  <div class="nav-paste-backdrop" (mousedown)="closeNavPasteMenu()"></div>
+  <div class="nav-paste-menu"
+       role="menu"
+       [attr.aria-label]="i18n.t('node.pasteAfterTitle')"
+       [style.left.px]="navPasteMenuLeftPx()"
+       [style.top.px]="navPasteMenuTopPx()"
+       (contextmenu)="$event.preventDefault()">
+    @for (item of navPasteMenuItems(menu); track $index) {
+      <button type="button"
+              class="nav-paste-item"
+              role="menuitem"
+              [title]="item.hint"
+              (click)="runNavPasteAction(item)">
+        {{ item.label }}
+      </button>
+    }
+  </div>
+}
+
+@if (navNodeMenu(); as menu) {
+  <div class="nav-paste-backdrop" (mousedown)="closeNavNodeMenu()"></div>
+  <div class="nav-paste-menu nav-node-menu"
+       role="menu"
+       [attr.aria-label]="i18n.t('node.ctxMenu')"
+       [style.left.px]="navNodeMenuLeftPx()"
+       [style.top.px]="navNodeMenuTopPx()"
+       (contextmenu)="$event.preventDefault()"
+       (wheel)="$event.preventDefault()">
+    @for (item of navNodeMenuItems(); track $index) {
+      @if (item.divider) {
+        <div class="nav-paste-sep"></div>
+      } @else {
+        <button type="button"
+                class="nav-paste-item"
+                [class.danger]="item.danger"
+                [disabled]="item.disabled"
+                [title]="item.hint ?? ''"
+                role="menuitem"
+                (click)="runNavNodeAction(item)">
+          {{ item.label }}
+        </button>
+      }
+    }
+  </div>
+}

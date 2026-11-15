@@ -28,20 +28,14 @@ import { ToastService } from '../../core/toast/toast.service';
 import { newId, isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { GenerationSettingsService } from '../../core/settings/generation-settings.service';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
-import { ModelEntry, ProviderConfig, canGenerateImages } from '../../models/chat-config';
 import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.service';
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
-import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
-import { CreateImageDialogService } from '../../core/dialogs/create-image-dialog.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
-import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
-import { LlmPostprocessorService, pickUsecase, buildIllustrationAttachments, generatedImageAttachments, imageOnlyAnswerContent } from '../../core/llm/orchestration';
 import { type ImageScene } from '../../core/llm/orchestration';
-import { parseSuggestionVariants } from '../../core/llm/orchestration/evaluators';
 import { type LlmImagePart } from '../../core/llm/llm-message';
 import { StreamReveal } from '../../core/llm/stream-reveal';
 import { PacedReadService } from '../../core/llm/paced-read.service';
@@ -66,6 +60,7 @@ import { IllustrationController, type IllustrationCallContext } from './illustra
 import { EditorController } from './editor-controller';
 import { SendController } from './send-controller';
 import { DialogActionsController } from './dialog-actions';
+import { TextActionsController, type TextActionsHost, type EditorSelection } from './text-actions';
 import {
   captureRoSourceOffset,
   ensureEditorTopOnScreen,
@@ -82,16 +77,6 @@ import {
  *  model finishes that message before the batch continues. */
 const COMPLETE_PRECEDING_MESSAGE_FALLBACK = 'complete the preceding message';
 
-/**
- * Fallback when a rewrite's original range cannot be mapped back to the
- * source: keep the rewrite instead of losing it by appending it at the end of
- * the content as a new paragraph.
- */
-function appendRewriteFallback(source: string, rewrite: string): string {
-  const tail = source.trimEnd();
-  return tail.length ? tail + '\n\n' + rewrite : rewrite;
-}
-
 @Component({
   selector: 'app-chat-node',
   standalone: true,
@@ -107,6 +92,7 @@ function appendRewriteFallback(source: string, rewrite: string): string {
     EditorController,
     SendController,
     DialogActionsController,
+    TextActionsController,
   ]
 })
 export class ChatNodeComponent implements OnDestroy {
@@ -114,9 +100,7 @@ export class ChatNodeComponent implements OnDestroy {
   public readonly markdownService = inject(MarkdownService);
   readonly chatService = inject(ChatService);
   readonly projectService = inject(ProjectService);
-  private readonly runner = inject(LlmUseCaseRunner);
   private readonly flowRunner = inject(LlmFlowRunner);
-  private readonly postprocessor = inject(LlmPostprocessorService);
   private readonly llmLog = inject(LlmLogService);
   private readonly usage = inject(ChatUsageService);
   private readonly parameters = inject(ChatParametersService);
@@ -130,8 +114,6 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly illustrateDialog = inject(IllustrateDialogService);
   private readonly lightbox = inject(LightboxService);
-  private readonly rewriteDialog = inject(RewriteDialogService);
-  private readonly createImageDialog = inject(CreateImageDialogService);
   private readonly chapterDescriptionsDialog = inject(ChapterDescriptionsDialogService);
 
   private readonly confirm = inject(ConfirmService);
@@ -165,6 +147,8 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly sender = inject(SendController);
   /** The dialog actions: prepend, compare versions/siblings, descriptions. */
   private readonly dialogActions = inject(DialogActionsController);
+  /** The read-mode text actions: heading, English check, rewrite, image. */
+  private readonly textActions = inject(TextActionsController);
 
   /** True while any action of this card runs (see `NodeActionState`). */
   readonly isLoading = this.actions.loading;
@@ -221,15 +205,10 @@ export class ChatNodeComponent implements OnDestroy {
     this.illustration.cancelPromptEdit();
   }
 
-  /** Check-my-English (direction) feature state. */
-  readonly checkingEnglish = signal(false);
-  readonly englishSuggestions = signal<string[] | null>(null);
-  /**
-   * Selection range (in the draft) captured when "Check my English" was
-   * invoked with a MARKED part of the direction; null when the whole
-   * direction is checked. Used to replace only that range on apply.
-   */
-  private readonly englishSelection = signal<{ start: number; end: number } | null>(null);  readonly enabledModels = this.settings.enabledModels;
+  /** Check-my-English panel state — owned by `TextActionsController`. */
+  readonly checkingEnglish = this.textActions.checkingEnglish;
+  readonly englishSuggestions = this.textActions.englishSuggestions;
+  readonly enabledModels = this.settings.enabledModels;
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
   /** Closed by default — thinking is hidden unless the user opens it. */
@@ -747,459 +726,38 @@ export class ChatNodeComponent implements OnDestroy {
     }
   }
 
-  /** Generate a chapter heading for THIS assistant answer; only its text is used as context. */
+  /** Generate a chapter heading for THIS assistant answer (delegates to `TextActionsController`). */
   async generateHeading(): Promise<void> {
-    if (this.isLoading()) return;
-    const node = this.node();
-    if (node.role !== 'assistant') return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    const configuredModel = this.generation.modelFor('headings');
-    const model = configuredModel
-      ?? this.enabledModels().find(m => m.modelId === this.resolvePreferredModelId(node));
-    const provider = model
-      ? this.settings.providers().find(p => p.id === model.providerId)
-      : null;
-    if (!model || !provider) {
-      this.toast.error(this.i18n.t('node.structureModelMissing'));
-      return;
-    }
-
-    this.isLoading.set(true);
-    this.pendingAction.set('structure');
-    try {
-      const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-      // The `structure-heading` use case resolves the task prompt, runs the
-      // non-streaming completion and creates/patches the structural heading
-      // (activating it via the flow result).
-      const slots = await this.runner.run({
-        chat,
-        node,
-        usecase: 'structure-heading',
-        vars: { modelId: model.modelId, providerId: model.providerId }
-      });
-      if (slots.error?.status === 'error') {
-        const reason = (slots.error.reason ?? '').trim();
-        throw new Error(reason || this.i18n.t('node.structureEmpty'));
-      }
-      const structureNodeId = slots.flow?.value?.structureNodeId;
-      if (structureNodeId) this.activate.emit(structureNodeId);
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.structureFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+    await this.textActions.generateHeading();
   }
 
-  /**
-   * "Check my English" — asks the LLM to review the current direction and
-   * return three improved variants. The main goal is NOT style: directions are
-   * not part of the finished story, so the focus is grammar / orthography /
-   * unambiguous wording that helps the writing model understand the intent.
-   * One variant ("minimal") stays as close to the original as possible.
-   *
-   * Model/provider come from the "language-check" generation task (Settings →
-   * Generation tasks); when the task is unset it falls back to the model
-   * selected in the editor (the one that will read the direction).
-   */
+  /** "Check my English" — three improved variants of the direction (delegates to `TextActionsController`). */
   async checkMyEnglish(): Promise<void> {
-    if (this.node().role !== 'user' || !this.isEditing()) return;
-    if (this.checkingEnglish() || this.isLoading()) return;
-
-    // When the user has MARKED a part of the direction, check only that
-    // marked text (mirroring the rewrite-selection flow) so the suggestions
-    // replace just the selection instead of the whole direction.
-    let selection: { start: number; end: number } | null = null;
-    const ta = this.editArea()?.nativeElement;
-    if (ta) {
-      const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
-      const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
-      if (e > s) selection = { start: s, end: e };
-    }
-
-    const draft = this.contentDraft();
-    const fragment = selection ? draft.slice(selection.start, selection.end) : draft;
-    if (!fragment.trim()) {
-      this.toast.error(this.i18n.t('node.englishEmpty'));
-      return;
-    }
-    const text = fragment.trim();
-    this.englishSelection.set(selection);
-
-    // 1. Prefer the model configured for the language-check task.
-    let model = this.generation.modelFor('language-check');
-    let provider = this.generation.providerFor('language-check');
-    if (!model || !provider) {
-      // 2. Fall back to the model selected in the editor / the preferred model.
-      const modelId = this.branchModelId() || this.resolvePreferredModelId(this.node());
-      const fallback = this.enabledModels().find(
-        m => m.modelId === modelId || m.id === modelId
-      );
-      model = fallback ?? null;
-      provider = fallback
-        ? this.settings.providers().find(p => p.id === fallback.providerId) ?? null
-        : null;
-    }
-    if (!model || !provider) {
-      this.toast.error(this.i18n.t('node.englishModelMissing'));
-      return;
-    }
-
-    this.checkingEnglish.set(true);
-    this.englishSuggestions.set(null);
-    try {
-      const chatId = this.chatService.currentChatId();
-      const chat = chatId
-        ? this.chatService.chats().find(c => c.id === chatId) ?? null
-        : null;
-      // The `language-check` use case resolves the task prompt + model, runs
-      // the non-streaming completion and returns the RAW model text — the
-      // variants are parsed here for the suggestion panel.
-      const slots = await this.runner.run({
-        chat,
-        node: this.node(),
-        usecase: 'language-check',
-        vars: { content: text, modelId: model.modelId, providerId: model.providerId }
-      });
-      if (slots.error?.status === 'error') {
-        const reason = (slots.error.reason ?? '').trim();
-        throw new Error(reason || this.i18n.t('node.englishFailed'));
-      }
-      const variants = this.parseEnglishVariants(slots.text?.value ?? '');
-      if (variants.length === 0) {
-        this.toast.error(this.i18n.t('node.englishFailed', {
-          error: this.i18n.t('node.englishNoVariants')
-        }));
-        return;
-      }
-      this.englishSuggestions.set(variants);
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.englishFailed', { error: err?.message || err }));
-    } finally {
-      this.checkingEnglish.set(false);
-    }
+    await this.textActions.checkMyEnglish();
   }
 
-  /**
-   * Replace the draft — or just the marked range when the check was started
-   * on a selection — with a chosen variant and close the panel.
-   */
+  /** Apply a chosen variant to the draft (or just the marked range) — delegates to `TextActionsController`. */
   applyEnglishSuggestion(text: string): void {
-    const selection = this.englishSelection();
-    const draft = this.contentDraft();
-    const next = selection
-      ? draft.slice(0, selection.start) + text + draft.slice(selection.end)
-      : text;
-    this.contentDraft.set(next);
-    this.editSession.patch(this.node().id, next, this.editAttachments());
-    this.englishSuggestions.set(null);
-    this.englishSelection.set(null);
-    this.scheduleResize();
-    // Restore focus and place the cursor around the inserted replacement.
-    const ta = this.editArea()?.nativeElement;
-    if (ta && selection) {
-      requestAnimationFrame(() => {
-        ta.focus();
-        ta.setSelectionRange(selection.start, selection.start + text.length);
-      });
-    }
+    this.textActions.applyEnglishSuggestion(text);
   }
 
   dismissEnglishCheck(): void {
-    this.englishSuggestions.set(null);
-    this.englishSelection.set(null);
+    this.textActions.dismissEnglishCheck();
   }
 
-  /**
-   * Rewrite the MARKED text of the editor: capture the current textarea
-   * selection, open the rewrite dialog (editable fragment + directions +
-   * context scope + model), and when the dialog returns a text, replace the
-   * marked range in the draft with it. Works for both directions (user) and
-   * chapters (assistant) while editing.
-   */
+  /** Rewrite the marked text inside the editor — delegates to `TextActionsController`. */
   async openRewriteDialog(): Promise<void> {
-    if (!this.isEditing() || this.isLoading() || this.checkingEnglish()) return;
-    const ta = this.editArea()?.nativeElement;
-    if (!ta) return;
-
-    const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
-    const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
-    const draft = this.contentDraft();
-    const fragment = draft.slice(s, e);
-    if (!fragment.trim()) {
-      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
-      return;
-    }
-
-    const node = this.node();
-    const chatId = this.chatService.currentChatId();
-    const chat = chatId
-      ? this.chatService.chats().find(c => c.id === chatId) ?? null
-      : null;
-    const result = await this.rewriteDialog.open({
-      fragment,
-      // The whole node content is the most useful default context; the user
-      // can narrow it (none / up to the marked part / whole thread) in the dialog.
-      contextMode: 'node',
-      selectionEnd: e,
-      node,
-      chat,
-      modelId: node.modelId || this.resolvePreferredModelId(node),
-      providerId: node.providerId ?? ''
-    });
-    if (result == null) return; // cancelled
-
-    const next = draft.slice(0, s) + result + draft.slice(e);
-    this.contentDraft.set(next);
-    this.editSession.patch(node.id, next, this.editAttachments());
-    this.scheduleResize();
-    // Restore focus and place the cursor around the inserted replacement.
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(s, s + result.length);
-    });
+    await this.textActions.openRewriteDialog();
   }
 
-  /** Parse the LLM answer into up to 3 suggestion strings. */
-  private parseEnglishVariants(content: string): string[] {
-    return parseSuggestionVariants(content);
-  }
-
-  /**
-   * Rewrite a piece of text MARKED in the rendered (non-edit) content.
-   * Captures the current DOM selection inside the node, opens the rewrite
-   * dialog (editable fragment + directions + context scope + model), and when
-   * the dialog returns a text, persists a new version of the node with the
-   * marked range replaced. The marked text is located in the markdown source
-   * via a marker map (markdown syntax removed, whitespace collapsed), so the
-   * rest of the source — including surrounding markdown formatting — is
-   * preserved. If the range cannot be mapped back at all, the rewrite is
-   * appended at the end of the node instead of being lost.
-   */
+  /** Rewrite a marked passage of the rendered chapter — delegates to `TextActionsController`. */
   async openReadRewriteDialog(): Promise<void> {
-    if (this.isEditing() || this.isLoading()) return;
-    const contentEl = this.readContent()?.nativeElement;
-    const selection = window.getSelection();
-    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
-      return;
-    }
-    if (!contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
-      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
-      return;
-    }
-    const fragment = selection.toString();
-    if (!fragment.trim()) {
-      this.toast.error(this.i18n.t('node.rewriteNoSelection'));
-      return;
-    }
-
-    const node = this.node();
-    const source = node.content || '';
-    const loc = markFragmentInSource(source, fragment);
-    const chatId = this.chatService.currentChatId();
-    const chat = chatId
-      ? this.chatService.chats().find(c => c.id === chatId) ?? null
-      : null;
-    const result = await this.rewriteDialog.open({
-      fragment,
-      // The whole node content is the most useful default context; the user
-      // can narrow it (none / up to the marked part / whole thread) in the dialog.
-      contextMode: 'node',
-      selectionEnd: loc ? loc.index + loc.length : source.length,
-      node,
-      chat,
-      modelId: node.modelId || this.resolvePreferredModelId(node),
-      providerId: node.providerId ?? ''
-    });
-    if (result == null) return; // cancelled
-
-    // Never lose the created rewrite: when the marked range cannot be mapped
-    // back to the source (formatting/rendering differences), append the
-    // rewrite at the end of the node instead of discarding it.
-    const newContent = loc
-      ? source.slice(0, loc.index) + result + source.slice(loc.index + loc.length)
-      : appendRewriteFallback(source, result);
-    if (!loc) this.toast.info(this.i18n.t('node.rewriteAppended'));
-
-    this.isLoading.set(true);
-    this.pendingAction.set('version');
-    try {
-      let saved: ChatNode;
-      if (node.role === 'assistant' || node.role === 'system' || node.role === 'structural') {
-        saved = await this.chatService.editAssistant(
-          chatId!,
-          node.id,
-          newContent,
-          node.attachments || []
-        );
-      } else {
-        saved = await this.chatService.editUser(
-          chatId!,
-          node.id,
-          newContent,
-          node.attachments || []
-        );
-      }
-      this.activate.emit(saved.id);
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.saveFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-    }
+    await this.textActions.openReadRewriteDialog();
   }
 
-  /**
-   * Create an image of a piece of text MARKED in the rendered chapter content.
-   * Captures the current DOM selection inside the ASSISTANT node, opens the
-   * "Create image" dialog (chat-specific constant + the marked text, both
-   * editable, plus optional reference images + the image model), and when the
-   * dialog confirms, sends the combined text AS-IS (with any reference images)
-   * to the image model. The created picture is attached to the assistant node
-   * via `editAssistant` (versioned), exactly like the illustration flow.
-   *
-   * Unlike `illustrate` there is NO planning and NO drawing-instruction
-   * template — "send it as it is" is the point of this action; reference
-   * images only ever appear when the user attached them.
-   */
+  /** "Create image" of a marked passage of the rendered chapter — delegates to `TextActionsController`. */
   async openReadCreateImageDialog(): Promise<void> {
-    if (this.isEditing() || this.isLoading()) return;
-    const node = this.node();
-    if (node.role !== 'assistant') return;
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-
-    const contentEl = this.readContent()?.nativeElement;
-    const selection = window.getSelection();
-    if (!contentEl || !selection || selection.isCollapsed || selection.rangeCount === 0 ||
-        !contentEl.contains(selection.anchorNode) || !contentEl.contains(selection.focusNode)) {
-      this.toast.error(this.i18n.t('node.createImageNoSelection'));
-      return;
-    }
-    const script = selection.toString();
-    if (!script.trim()) {
-      this.toast.error(this.i18n.t('node.createImageNoSelection'));
-      return;
-    }
-
-    // Default image-producing model from the settings (image-create task,
-    // fallback: the first enabled image-capable model).
-    let defaultModel = this.generation.modelFor('image-create');
-    let defaultProvider = this.generation.providerFor('image-create');
-    if (!defaultModel || !defaultProvider) {
-      const fallback = this.enabledModels().find(canGenerateImages);
-      if (fallback) {
-        defaultModel = fallback;
-        defaultProvider = this.settings.providers().find(p => p.id === fallback.providerId) ?? null;
-      }
-    }
-    if (!defaultModel || !defaultProvider) {
-      this.toast.error(this.i18n.t('node.imageModelMissing'));
-      return;
-    }
-
-    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
-    const result = await this.createImageDialog.open({
-      chatId,
-      chat,
-      node,
-      script,
-      modelId: defaultModel.modelId,
-      providerId: defaultModel.providerId
-    });
-    if (!result) return; // cancelled
-
-    // The text is sent AS-IS: the chat constant (always shown) followed by
-    // the marked text, with the reference images attached as image parts.
-    const prompt = [result.constant.trim(), result.script.trim()]
-      .filter(Boolean)
-      .join('\n\n');
-    if (!prompt.trim() && result.images.length === 0) {
-      this.toast.error(this.i18n.t('createImageDialog.empty'));
-      return;
-    }
-
-    this.isLoading.set(true);
-    this.pendingAction.set('image');
-    this.imageProgress.set(null);
-    try {
-      const build = {
-        chat,
-        node,
-        usecase: 'image-send' as const,
-        vars: {
-          promptText: prompt,
-          attachments: result.images,
-          count: 1,
-          modelId: result.modelId || defaultModel.modelId,
-          providerId: (result.modelId && result.providerId)
-            ? result.providerId
-            : defaultModel.providerId
-        }
-      };
-      const slots = await this.runner.run(build);
-
-      const scenes = slots.storyboard?.value ?? [];
-      const images = slots.images?.value ?? [];
-      if (scenes.length === 0 && images.length > 0) {
-        // No per-scene records but images came back (defensive).
-        scenes.push({ scene: 1, prompt, images, refused: false });
-      }
-      if (slots.error?.status === 'error' && scenes.length === 0) {
-        const reason = slots.error.reason ?? '';
-        if (/image model/i.test(reason)) {
-          this.toast.error(this.i18n.t('node.imageModelMissing'));
-          return;
-        }
-        throw new Error(reason || this.i18n.t('node.imageEmpty'));
-      }
-
-      const generated = buildIllustrationAttachments(scenes, prompt)
-        .map(x => ({ ...x, id: x.id || newId() }));
-      if (generated.length === 0) {
-        const reply = (scenes[0]?.content ?? '').trim()
-          || (slots.text?.value ?? '').trim();
-        throw new Error(
-          reply
-            ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-            : this.i18n.t('node.imageEmpty')
-        );
-      }
-
-      // Attach the created picture (+ the prompt record) to the chapter node.
-      const merged = [...(node.attachments ?? []), ...generated];
-      const saved = await this.chatService.editAssistant(
-        chatId,
-        node.id,
-        node.content || '',
-        merged,
-        node.thinking ?? undefined
-      );
-      this.activate.emit(saved.id);
-
-      if (images.length === 0) {
-        // Everything refused — the refused-prompt record was saved so the
-        // prompt stays findable; still inform the user.
-        const reply = (scenes[0]?.content ?? '').trim()
-          || (slots.text?.value ?? '').trim();
-        this.toast.error(reply
-          ? `${this.i18n.t('node.imageEmpty')} — ${reply.slice(0, 300)}`
-          : this.i18n.t('node.imageEmpty'));
-      }
-    } catch (err: any) {
-      console.error(err);
-      this.toast.error(this.i18n.t('node.imageFailed', { error: err?.message || err }));
-    } finally {
-      this.isLoading.set(false);
-      this.pendingAction.set(null);
-      this.imageProgress.set(null);
-    }
+    await this.textActions.openReadCreateImageDialog();
   }
 
   /**
@@ -1503,6 +1061,35 @@ export class ChatNodeComponent implements OnDestroy {
   /** True when a part of this node's text is currently selected. */
   hasContentSelection(): boolean {
     return this.captureSelectionMark() !== null;
+  }
+
+  /**
+   * The textarea selection while the editor is open, else null. A collapsed
+   * caret counts as "no selection" — the read/edit actions only act on a
+   * marked range.
+   */
+  private captureEditorSelection(): EditorSelection | null {
+    if (!this.isEditing()) return null;
+    const ta = this.editArea()?.nativeElement;
+    if (!ta) return null;
+    const s = Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+    const e = Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0);
+    return e > s ? { start: s, end: e } : null;
+  }
+
+  /** The text marked in the rendered (read-only) content, else null. */
+  private captureReadSelection(): string | null {
+    return this.captureSelectionMark()?.quote ?? null;
+  }
+
+  /** Re-focus the editor and select `start .. start+length`. */
+  private focusEditorRange(start: number, length: number): void {
+    const ta = this.editArea()?.nativeElement;
+    if (!ta) return;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start, start + length);
+    });
   }
 
   /**
@@ -1861,6 +1448,26 @@ export class ChatNodeComponent implements OnDestroy {
         this.contentDraft.set(text);
         this.editSession.patch(this.node().id, text, this.editAttachments());
         this.scheduleResize();
+      }
+    });
+    this.textActions.bind({
+      node: () => this.node(),
+      isEditing: () => this.isEditing(),
+      actions: this.actions,
+      editor: this.editor,
+      illustration: this.illustration,
+      editSession: this.editSession,
+      enabledModels: () => this.enabledModels(),
+      providers: () => this.settings.providers(),
+      resolvePreferredModelId: node => this.resolvePreferredModelId(node),
+      onActivated: id => this.activate.emit(id),
+      editorSelection: () => this.captureEditorSelection(),
+      readSelection: () => this.captureReadSelection(),
+      resizeEditor: () => this.scheduleResize(),
+      focusEditorAt: (start, length) => this.focusEditorRange(start, length),
+      writeDraft: text => {
+        this.contentDraft.set(text);
+        this.editSession.patch(this.node().id, text, this.editAttachments());
       }
     });
     effect(() => {
