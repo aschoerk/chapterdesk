@@ -50,11 +50,12 @@ import {
   type ChatNavMenuHost,
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
+import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent, ChatNavBarComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
   // The navbar context menus belong to THIS page (their actions touch its
@@ -137,6 +138,9 @@ export class ChatComponent implements OnInit {
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
+
+  /** Node currently open in the editor — re-exported for `app-chat-nav-bar`. */
+  readonly editingNodeId = this.editSession.editingNodeId;
 
   // ------------------------------------------------------------------
   // Navbar multi-selection (Ctrl+click / Ctrl+drag on the active path)
@@ -570,6 +574,12 @@ export class ChatComponent implements OnInit {
     await this.pasteChain('insert', targets.leftId, targets.rightId);
   }
 
+  /** `app-chat-nav-bar` emits the node ID — resolve it to the path node. */
+  async pasteNavSelectionBeforeId(nodeId: string): Promise<void> {
+    const node = this.getActivePath().find(n => n.id === nodeId);
+    if (node) await this.pasteNavSelectionBefore(node);
+  }
+
   @HostListener('window:resize')
   onNavNodeMenuResize(): void {
     this.closeNavNodeMenu();
@@ -663,8 +673,9 @@ export class ChatComponent implements OnInit {
   // Node-nav-bar height (vertical separator between the nav bar and the tree)
   // ------------------------------------------------------------------
 
-  /** The node-nav-bar element — measured at drag start for the baseline height. */
-  private readonly nodeNavBar = viewChild<ElementRef<HTMLElement>>('nodeNavBar');
+  /** The extracted nav bar — it owns the bar element now; the page forwards
+   *  the resizer drag and the auto-scroll to it (stage 1 of the extraction). */
+  private readonly navBar = viewChild(ChatNavBarComponent);
 
   /** Nav-bar pointer-move delegate — a property so the resize specs can drive
    *  it directly (like the pre-extraction component). */
@@ -674,13 +685,8 @@ export class ChatComponent implements OnInit {
   private readonly onNavResizePointerUp = () => this.layoutPrefs.endNavResize();
 
   startNavResize(event: PointerEvent) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    // Baseline = the currently rendered height (auto-size or last explicit one).
-    const el = this.nodeNavBar()?.nativeElement;
-    const base = el?.offsetHeight ?? this.navBarHeight() ?? 140;
-    this.layoutPrefs.startNavResize(event, base);
+    // The bar element (and its baseline height) live in the extracted component.
+    this.navBar()?.startNavResize(event);
   }
 
   endNavResize() {
@@ -694,25 +700,10 @@ export class ChatComponent implements OnInit {
   }
 
   /** Default handling — keep the marked node's line visible inside the nav
-   *  bar's OWN scroll area (the 4-line cap). Mirrors `scrollIntoView` with
-   *  `block:'nearest'` but scoped to the bar, so the page never scrolls. */
+   *  bar's OWN scroll area (the 4-line cap). The bar lives in the extracted
+   *  component now — forward to it. */
   private scrollNavBarToMarked(markedId: string | null): void {
-    const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
-    if (!bar || !markedId) return;
-    let el: HTMLElement | null = null;
-    try {
-      el = bar.querySelector(`[data-nav-id="${CSS.escape(markedId)}"]`);
-    } catch {
-      el = bar.querySelector(`[data-nav-id="${markedId}"]`);
-    }
-    if (!el) return;
-    const barRect = bar.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    if (elRect.top < barRect.top) {
-      bar.scrollTop += elRect.top - barRect.top - 1;
-    } else if (elRect.bottom > barRect.bottom) {
-      bar.scrollTop += elRect.bottom - barRect.bottom + 1;
-    }
+    this.navBar()?.scrollNavBarToMarked(markedId);
   }
 
   // ------------------------------------------- paced reading: position host

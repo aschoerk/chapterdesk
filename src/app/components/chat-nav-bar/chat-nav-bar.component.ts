@@ -1,6 +1,7 @@
 import {
   Component,
   ElementRef,
+  computed,
   input,
   output,
   viewChild,
@@ -51,8 +52,15 @@ export class ChatNavBarComponent {
   // Inputs — the active path as the page computed it, plus the mark state
   // ------------------------------------------------------------------
 
-  /** The active path filtered to what the navbar shows (page's `navPath()`). */
-  readonly navPath = input.required<ChatNode[]>();
+  /** The FULL active path (page's `getActivePath()`). The bar renders only the
+   *  visible nodes, but the hidden ones are kept here so marks (the "being
+   *  edited" point, the "current" frame) can fall back to the next visible
+   *  node exactly like the old inline bar did. */
+  readonly activePath = input.required<ChatNode[]>();
+  /** The path as RENDERED: nodes excluded from the model context are hidden
+   *  UNLESS they sit in a branch (have siblings) — same filter as the page's
+   *  `navPath()`. */
+  readonly visibleNavPath = computed(() => this.activePath().filter(n => this.isNavVisible(n)));
   /** Node whose block sits nearest the top of the tree (page's `visibleNodeId`). */
   readonly visibleNodeId = input<string | null>(null);
   /** Node currently open in the editor (page's edit session). */
@@ -135,7 +143,7 @@ export class ChatNavBarComponent {
    */
   private navMarkFallback(id: string | null): string | null {
     if (!id) return null;
-    const path = this.navPath();
+    const path = this.activePath();
     const i = path.findIndex(n => n.id === id);
     if (i < 0) return null;
     for (let k = i; k < path.length; k++) {
@@ -180,7 +188,7 @@ export class ChatNavBarComponent {
     this.navSelection.enterNode(
       node,
       this.navNodeIndex(node.id),
-      this.navPath(),
+      this.activePath(),
       (id) => this.isLastEmptyDirection(id),
     );
   }
@@ -192,13 +200,13 @@ export class ChatNavBarComponent {
   @HostListener('document:pointerup', ['$event'])
   onNavDocumentPointerUp(_event: PointerEvent): void {
     this.navSelection.endDrag(
-      this.navPath(),
+      this.activePath(),
       (id) => this.isLastEmptyDirection(id),
     );
   }
 
   toggleNavSelection(id: string): void {
-    this.navSelection.toggle(id, this.navPath(), (x) => this.isLastEmptyDirection(x));
+    this.navSelection.toggle(id, this.activePath(), (x) => this.isLastEmptyDirection(x));
   }
 
   clearNavSelection(): void {
@@ -394,7 +402,7 @@ export class ChatNavBarComponent {
   }
 
   private navNodeIndex(nodeId: string): number {
-    return this.navPath().findIndex(n => n.id === nodeId);
+    return this.activePath().findIndex(n => n.id === nodeId);
   }
 
   /** The empty "direction" node at the very end of the active path. */

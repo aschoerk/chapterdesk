@@ -55,7 +55,7 @@
         <path d="M12 7v13"/>
       </svg>
     </button>
-    @for (node of navPath(); track node.id; let i = $index) {
+    @for (node of visibleNavPath(); track node.id; let i = $index) {
       <button
         class="nav-node"
         [class.question]="node.role === 'user'"
@@ -95,7 +95,7 @@
         </button>
       }
 
-      @if (i < navPath().length - 1) {
+      @if (i < visibleNavPath().length - 1) {
         <span class="nav-separator">›</span>
       }
     }

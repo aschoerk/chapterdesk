@@ -298,14 +298,19 @@ describe('Chat', () => {
     expect(a1.classList.contains('active')).toBe(true);
   });
 
-  /** Seed a story with two assistant answers and make it the active chat. */
+  /** Seed a story with two assistant answers and make it the active chat.
+   *  Explicit EQUAL timestamps keep `newestChild` deterministic (a1): with
+   *  `now()`-derived stamps the millisecond can tick between the a1/a2 seeds,
+   *  `restoreMostRecentPath` then picks a2 and the auto-created draft leaf
+   *  lands under a2 — a1's leaf is not a draft question and this suite's
+   *  draft assertions flake. */
   async function openStory(): Promise<void> {
     seedApi(api, {
       chats: [{ id: 'chat-1', title: 'Story' }],
       nodes: [
-        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question' },
-        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one' },
-        { id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer two' }
+        { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Question', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer one', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'a2', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer two', createdAt: '2026-01-01T00:00:00.000Z' }
       ]
     });
     await chatService.loadChats();
