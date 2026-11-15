@@ -189,7 +189,7 @@ const DEMO_TOUR = [
       '## Reading\n\n' +
       'Open the **Reader view** (`Ctrl-B`) to render the story as a book: ' +
       'choose columns, typeface and size, and flip through every ' +
-      'continuation path. Markdown is rendered throughout — headings, ' +
+      'fork path. Markdown is rendered throughout — headings, ' +
       '**bold**, *italics*, lists, tables and block quotes.\n\n' +
       '## Editing\n\n' +
       'Click any section to enter the editor — no model call needed:\n\n' +

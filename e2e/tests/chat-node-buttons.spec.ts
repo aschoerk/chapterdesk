@@ -62,7 +62,7 @@ const L = {
   continue: 'Continue',
   switchCharacters: 'Multiple Characters',
   ok: 'OK',
-  branch: 'Continuation',
+  branch: 'Fork',
   insert: 'Insert',
   cancel: 'Cancel',
   heading: 'Heading',

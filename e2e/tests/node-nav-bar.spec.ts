@@ -131,9 +131,9 @@ test.describe('node-nav-bar', () => {
     // user node back to the greeting → S, D, C, draft (4).
     await openNavNodeMenu(page, 3);
     await expect(
-      page.locator('.nav-paste-menu .nav-paste-item').filter({ hasText: 'Next continuation' }),
+      page.locator('.nav-paste-menu .nav-paste-item').filter({ hasText: 'Next fork' }),
     ).toBeVisible();
-    await clickNavMenuAction(page, 'Next continuation');
+    await clickNavMenuAction(page, 'Next fork');
     await expectNavPathLength(page, 4);
     await expect(navNode(page, 3)).toHaveClass(/answer/);
     await expect(navNode(page, 3)).toHaveAttribute(
@@ -144,9 +144,9 @@ test.describe('node-nav-bar', () => {
     // "Previous continuation" switches back to the branch.
     await openNavNodeMenu(page, 3);
     await expect(
-      page.locator('.nav-paste-menu .nav-paste-item').filter({ hasText: 'Previous continuation' }),
+      page.locator('.nav-paste-menu .nav-paste-item').filter({ hasText: 'Previous fork' }),
     ).toBeVisible();
-    await clickNavMenuAction(page, 'Previous continuation');
+    await clickNavMenuAction(page, 'Previous fork');
     await expectNavPathLength(page, 5);
     await expect(navNode(page, 3)).toHaveClass(/question/);
   });

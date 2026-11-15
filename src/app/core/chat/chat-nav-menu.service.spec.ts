@@ -165,9 +165,9 @@ describe('ChatNavMenuService', () => {
     const labels = items.filter(i => !i.divider).map(i => i.label);
 
     expect(labels).toContain('Start branch here');
-    // Two current siblings → the continuation switches are offered.
-    expect(labels).toContain('Previous continuation');
-    expect(labels).toContain('Next continuation');
+    // Two current siblings → the fork switches are offered.
+    expect(labels).toContain('Previous fork');
+    expect(labels).toContain('Next fork');
     // The node is part of the selection → "Unselect" is offered + clear.
     expect(labels).toContain('Unselect');
     expect(labels).toContain('Clear');

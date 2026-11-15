@@ -368,7 +368,7 @@ export async function expectTrashCount(page: Page, count: number | null): Promis
 /** Assert the trash panel shows its empty ("No deleted continuations") state. */
 export async function expectTrashEmpty(page: Page): Promise<void> {
   await expect(page.locator('.trash-panel .trash-empty')).toHaveText(
-    'No deleted continuations',
+    'No deleted forks',
   );
 }
 

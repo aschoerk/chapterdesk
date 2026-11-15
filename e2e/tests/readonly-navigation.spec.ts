@@ -76,7 +76,7 @@ test.describe('read-only navigation (chat-reader)', () => {
     // Previous → the first continuation (its own full root→leaf document).
     await page.locator('.doc-pager button[title="Previous document"]').click();
     await expect(docFolio(page)).toContainText('Doc 1 / 2');
-    await expect(docFolio(page).locator('small')).toContainText('continuation 1');
+    await expect(docFolio(page).locator('small')).toContainText('fork 1');
     await expect(
       bookNode(page, 'assistant').filter({ hasText: 'A quiet, warm opening scene.' }),
     ).toBeVisible();

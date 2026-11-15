@@ -1984,7 +1984,7 @@ describe('Chat', () => {
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
     component.openNavNodeMenu(navMenuEvent(), a1);
 
-    component.runNavNodeAction(nodeMenuItem('Next continuation'));
+    component.runNavNodeAction(nodeMenuItem('Next fork'));
 
     expect(chatService.getActiveChildId('q1')).toBe('a2');
     expect(component.getActivePath().some(n => n.id === 'a2')).toBe(true);

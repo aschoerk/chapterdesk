@@ -388,8 +388,8 @@ describe('ChatNodeComponent', () => {
       const q3 = node({ id: 'q3', content: 'Third' });
       await openChat([q1, q2, q3]);
       createFixture(q1, q2.id);
-      const prev = titleButton('Previous continuation');
-      const next = titleButton('Next continuation');
+      const prev = titleButton('Previous fork');
+      const next = titleButton('Next fork');
       expect(prev).not.toBeNull();
       expect(next).not.toBeNull();
 

@@ -120,9 +120,9 @@ test('UC7 append-with-images — attached image is interpreted, then the answer 
 test('UC8 send-branch — new sibling question + streamed answer under it', async ({ page }) => {
   await freshQA(page);
   await mockLlm(page, { answer: ['A quiet branch opens.'] });
-  // Edit the direction node and click Continuation.
+  // Edit the direction node and click Fork.
   await openEditorOn(page, QA);
-  await page.locator('.editor-actions button').filter({ hasText: 'Continuation' }).click();
+  await page.locator('.editor-actions button').filter({ hasText: 'Fork' }).click();
   await expectNodeText(page, 'A quiet branch opens.');
   // The original question now has two continuations (sibling branches).
   await expect(nodeFor(page, QA).locator('.branch-count')).toContainText('/ 2');
