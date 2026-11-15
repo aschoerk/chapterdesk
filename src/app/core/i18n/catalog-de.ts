@@ -561,7 +561,7 @@ export const DE: typeof EN = {
     extractSelectedDone: 'In eine neue Geschichte extrahiert.',
     extractSubtree: 'Mit Folgetext',
     extractSubtreeTitle: 'Ausgewählte Abschnitte zusammen mit allem sichtbar darunter Liegenden in eine neue Geschichte extrahieren (die Lore wird mitkopiert)',
-    extractSubtreeAsk: '{{count}} Abschnitt(e) plus sichtbaren Strang in eine neue Geschichte extrahieren?',,
+    extractSubtreeAsk: '{{count}} Abschnitt(e) plus sichtbaren Strang in eine neue Geschichte extrahieren?',
     extractSubtreeMsg: 'Die ausgewählten Abschnitte UND alles sichtbar darunter Liegende werden zusammen mit der Lore dieser Geschichte in eine NEUE Geschichte kopiert und aus dieser Geschichte entfernt. Zweige, die nicht zur Auswahl gehören, bleiben hier und werden unter den Elternabschnitt des ersten ausgewählten Abschnitts gehängt.',
     extractFailed: 'Extrahieren fehlgeschlagen: {{error}}',
     deleteSelected: 'Löschen',
