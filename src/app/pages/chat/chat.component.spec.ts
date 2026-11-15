@@ -710,7 +710,7 @@ describe('Chat', () => {
     await component.confirmElaborate();
 
     // Each elaboration got its own one-shot lore node carrying the slice.
-    const loreNodes = chatService.nodes().filter(n => n.role === 'user' && isChatLoreNode(n));
+    const loreNodes = chatService.nodes().filter(n => isChatLoreNode(n));
     expect(loreNodes).toHaveLength(2);
     expect(loreNodes[0].content).toContain('Ashley is married.');
     // Chapter 1 → exactly chapters 1..3 (NOT 4).

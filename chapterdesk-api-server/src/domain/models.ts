@@ -1,4 +1,4 @@
-export type NodeRole = 'system' | 'user' | 'assistant' | 'structural';
+export type NodeRole = 'system' | 'user' | 'assistant' | 'structural' | 'lore';
 
 export interface NodeAttachment {
   id: string;

@@ -23,7 +23,7 @@ import { ProviderConfig, ModelEntry } from '../models/chat-config';
 import { ChatParameters, ChatParametersDraft } from '../models/chat-parameters';
 
 const DB_NAME = 'chat-client';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 type StoreName = 'projects' | 'topics' | 'personas' | 'chats' | 'nodes' | 'providers' | 'models' | 'chatParameters';
 
@@ -43,8 +43,9 @@ export class IdbChatApiService implements ChatApiPort {
   private open(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (ev) => {
         const db = req.result;
+        const oldVersion = (ev as IDBVersionChangeEvent).oldVersion;
         if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('topics')) db.createObjectStore('topics', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('personas')) db.createObjectStore('personas', { keyPath: 'id' });
@@ -70,6 +71,28 @@ export class IdbChatApiService implements ChatApiPort {
               }
             }
           } catch { /* ignore broken cache */ }
+        }
+        // v4: give materialized chat-lore nodes their dedicated `lore` role.
+        // Legacy data stored them as `role: 'user'` with the canon/plan
+        // markers in the content; the app now distinguishes lore by role.
+        // Runs on every upgrade from a pre-v4 database (and harmlessly on a
+        // fresh one, which has no nodes yet).
+        if (oldVersion < 4 && db.objectStoreNames.contains('nodes')) {
+          const store = req.transaction!.objectStore('nodes');
+          const all = store.getAll();
+          all.onsuccess = () => {
+            const rows = all.result as ChatNode[];
+            for (const n of rows) {
+              if (
+                n.role === 'user' &&
+                typeof n.content === 'string' &&
+                (n.content.includes('[Current chat-lore') ||
+                 n.content.includes('[Chapter plan for this chapter'))
+              ) {
+                store.put({ ...n, role: 'lore' });
+              }
+            }
+          };
         }
       };
       req.onsuccess = () => resolve(req.result);

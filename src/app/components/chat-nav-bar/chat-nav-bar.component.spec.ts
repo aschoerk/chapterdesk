@@ -6,6 +6,7 @@ import { ChatNavBarComponent } from './chat-nav-bar.component';
 import { CHAT_API } from '../../api/chat-api.token';
 import { ChatService } from '../../core/chat/chat.service';
 import { ChatNavMenuService } from '../../core/chat/chat-nav-menu.service';
+import { buildLoreNodeContent } from '../../core/chat/chat-lore.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
@@ -185,6 +186,112 @@ describe('ChatNavBarComponent', () => {
       fixture.componentRef.setInput('activePath', chatService.getActivePath());
       fixture.detectChanges();
       expect(navNode('x')).toBeNull();
+    });
+
+    it('shows a documented lore node (first appearance) as a ⟡ pill even though it is excluded', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+        node({
+          id: 'lore1', parentId: 'a1', role: 'user',
+          content: buildLoreNodeContent('Ashley is married to Dr. Harvey.'),
+          excludeFromContext: true,
+        }),
+        node({ id: 'd1', parentId: 'lore1', role: 'user', content: 'Next' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'lore1');
+      chatService.setActiveChild('lore1', 'd1');
+
+      createBar(chatService.getActivePath());
+
+      // A sent lore node is excluded from context and has no sibling — a
+      // normal node would drop out of the bar entirely, but the first
+      // appearance of the lore stays as a documented ⟡ pill.
+      const lore = navNode('lore1');
+      expect(lore).not.toBeNull();
+      expect(lore.classList.contains('lore')).toBe(true);
+      expect(lore.classList.contains('lore-documented')).toBe(true);
+      expect(lore.classList.contains('lore-armed')).toBe(false);
+      expect(badgeText('lore1')).toBe('⟡');
+      expect(lore.getAttribute('title')).toBe(i18n.t('node.loreDocumentedTitle'));
+    });
+
+    it('shows the armed lore node emphasized with the ⟡ badge', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+        node({
+          id: 'lore1', parentId: 'a1', role: 'user',
+          content: buildLoreNodeContent('Ashley is married to Dr. Harvey.'),
+          excludeAfterSend: true,
+        }),
+        node({ id: 'd1', parentId: 'lore1', role: 'user', content: 'Next' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'lore1');
+      chatService.setActiveChild('lore1', 'd1');
+
+      createBar(chatService.getActivePath());
+
+      const lore = navNode('lore1');
+      expect(lore).not.toBeNull();
+      expect(lore.classList.contains('lore-armed')).toBe(true);
+      expect(lore.classList.contains('lore-documented')).toBe(false);
+      expect(badgeText('lore1')).toBe('⟡');
+      expect(lore.getAttribute('title')).toBe(i18n.t('node.loreArmedTitle'));
+    });
+
+    it('hides identical lore repeats — only the first appearance is shown', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1' }),
+        node({ id: 'lore1', parentId: 'a1', role: 'user', content: buildLoreNodeContent('Ashley is married to Dr. Harvey.'), excludeFromContext: true }),
+        node({ id: 'd1', parentId: 'lore1', role: 'user', content: 'D1' }),
+        node({ id: 'a2', parentId: 'd1', role: 'assistant', content: 'A2' }),
+        node({ id: 'lore2', parentId: 'a2', role: 'user', content: buildLoreNodeContent('Ashley is married to Dr. Harvey.'), excludeAfterSend: true }),
+        node({ id: 'd2', parentId: 'lore2', role: 'user', content: 'D2' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'lore1');
+      chatService.setActiveChild('lore1', 'd1');
+      chatService.setActiveChild('d1', 'a2');
+      chatService.setActiveChild('a2', 'lore2');
+      chatService.setActiveChild('lore2', 'd2');
+
+      createBar(chatService.getActivePath());
+
+      // lore2 carries the SAME canon as lore1 — it is a repeat and stays
+      // hidden, even though it is the armed (current) lore.
+      expect(navNode('lore1')).not.toBeNull();
+      expect(navNode('lore2')).toBeNull();
+    });
+
+    it('shows a new ⟡ pill when the lore content changes', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1' }),
+        node({ id: 'lore1', parentId: 'a1', role: 'user', content: buildLoreNodeContent('Ashley is married to Dr. Harvey.'), excludeFromContext: true }),
+        node({ id: 'd1', parentId: 'lore1', role: 'user', content: 'D1' }),
+        node({ id: 'a2', parentId: 'd1', role: 'assistant', content: 'A2' }),
+        node({ id: 'lore2', parentId: 'a2', role: 'user', content: buildLoreNodeContent('Ashley is now the keeper of the gate.'), excludeAfterSend: true }),
+        node({ id: 'd2', parentId: 'lore2', role: 'user', content: 'D2' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'lore1');
+      chatService.setActiveChild('lore1', 'd1');
+      chatService.setActiveChild('d1', 'a2');
+      chatService.setActiveChild('a2', 'lore2');
+      chatService.setActiveChild('lore2', 'd2');
+
+      createBar(chatService.getActivePath());
+
+      // lore2 is a DIFFERENT canon — both the documented first appearance and
+      // the new armed lore get their own pill.
+      expect(navNode('lore1')).not.toBeNull();
+      expect(navNode('lore2')).not.toBeNull();
+      expect(navNode('lore2').classList.contains('lore-armed')).toBe(true);
+      expect(navNode('lore1').classList.contains('lore-documented')).toBe(true);
     });
   });
 

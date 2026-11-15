@@ -383,6 +383,23 @@ export class SqlitePersistence implements PersistencePort {
     this.addColumn('name_entries', 'gender', 'TEXT');
     this.addColumn('name_entries', 'category', 'TEXT');
     this.migrateChatNodeRoles();
+    this.migrateChatNodeLoreRole();
+  }
+
+  /**
+   * Give materialized chat-lore nodes their dedicated `lore` role. Older
+   * databases stored them as `role = 'user'` with the canon/plan markers in
+   * the content; the client now distinguishes lore by role. Idempotent: only
+   * `user` nodes carrying the markers are touched, so re-running is a no-op.
+   */
+  private migrateChatNodeLoreRole(): void {
+    this.db
+      .prepare(
+        `UPDATE chat_nodes SET role = 'lore'
+         WHERE role = 'user'
+           AND (content LIKE '%[Current chat-lore%' OR content LIKE '%[Chapter plan for this chapter%')`,
+      )
+      .run();
   }
 
   private addColumn(table: string, column: string, definition: string): void {
@@ -1060,7 +1077,9 @@ export class SqlitePersistence implements PersistencePort {
     usage?: NodeUsageSummary,
   ): ChatNode {
     const old = this.node(chatId, nodeId);
-    if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected)
+    // Lore nodes are user-versioned content (edited in place like a direction).
+    if (old.role !== 'system' && old.role !== 'structural' && old.role !== expected
+        && !(expected === 'user' && old.role === 'lore'))
       throw badRequest(`Only ${expected}s can be versioned this way`);
     const ts = now();
     const oldAttachments = json<NodeAttachment[]>(old.attachments, []);

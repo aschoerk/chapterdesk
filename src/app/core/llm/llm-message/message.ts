@@ -32,6 +32,20 @@ export function messageText(m: { role: string; content: unknown }): string {
   return '';
 }
 
+/**
+ * Map a node's TREE role to the LLM message role. Lore nodes are canon
+ * injected into the prompt, so they travel as USER messages (the wrapped
+ * lore text is the content). `structural` has no message role and must be
+ * filtered out by callers before this is used.
+ */
+export function nodeRoleToMessageRole(role: ChatNode['role']): ChatMessage['role'] {
+  if (role === 'lore') return 'user';
+  // `structural` has no message role; callers filter it out before this is
+  // reached, but the fallback keeps the mapping total for the type system.
+  if (role === 'structural') return 'user';
+  return role;
+}
+
 const TEXT_EMBED_LIMIT = 80_000;
 export const PREPEND_MAX_TOKENS = 5000;
 

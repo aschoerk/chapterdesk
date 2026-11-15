@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { SettingsService } from './settings.service';
 import {ChatService} from '../chat/chat.service';
+import { isChatLoreNode } from '../chat/chat-lore';
 
 @Injectable({
   providedIn: 'root'
@@ -28,7 +29,7 @@ export class LastModelService {
   setLastUsedModel() {
     const nodes = this.nodes();
     const lastQuestion = [...nodes]
-      .filter(n => n.role === 'user' && n.modelId)
+      .filter(n => n.role === 'user' && !isChatLoreNode(n) && n.modelId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 
     if (!lastQuestion?.modelId) return;

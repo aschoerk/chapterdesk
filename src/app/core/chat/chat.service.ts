@@ -14,7 +14,7 @@ import { ChatLoreService } from './chat-lore.service';
  * working (e.g. flows.spec imports `buildLoreNodeContent` / `isChatLoreNode`
  * from `./chat.service`).
  */
-export { buildLoreNodeContent, isChatLoreNode } from './chat-lore.service';
+export { buildLoreNodeContent, isChatLoreNode, loreTextOf } from './chat-lore.service';
 export { hasImageAttachment } from './chat-tree-writer.service';
 
 const LS_CHAT = 'chat.currentChatId';

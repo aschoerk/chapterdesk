@@ -12,6 +12,7 @@ import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-des
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import {
   estimateContentTokens,
+  nodeRoleToMessageRole,
   nodeToMessageContent,
   PREPEND_MAX_TOKENS,
 } from '../../core/llm/llm-message';
@@ -253,7 +254,7 @@ export class DialogActionsController {
         // Excluded meta / lore-documentation nodes are shown but are not part
         // of the LLM context history.
         if (n.excludeFromContext) continue;
-        messages.push({ role: n.role, content: nodeToMessageContent(n) });
+        messages.push({ role: nodeRoleToMessageRole(n.role), content: nodeToMessageContent(n) });
       }
     }
     return messages;

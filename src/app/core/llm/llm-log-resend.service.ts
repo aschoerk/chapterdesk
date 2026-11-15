@@ -342,7 +342,7 @@ export class LlmLogResendService {
     thinking: string,
     usage: NodeUsageSummary | undefined
   ): Promise<ChatNode> {
-    if (node.role === 'user') {
+    if (node.role === 'user' || node.role === 'lore') {
       return this.chat.editUser(chatId, node.id, content, attachments);
     }
     return this.chat.editAssistant(chatId, node.id, content, attachments, thinking, usage);

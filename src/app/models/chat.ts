@@ -1,4 +1,4 @@
-export type NodeRole = 'system' | 'user' | 'assistant' | 'structural';
+export type NodeRole = 'system' | 'user' | 'assistant' | 'structural' | 'lore';
 
 /**
  * Normalized, provider-agnostic token usage / cost of one LLM call. Mirrors

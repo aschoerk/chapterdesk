@@ -104,8 +104,9 @@ const sendBranch: FlowController = async env => {
   const carried = carryAttachments(node.attachments ?? [], env.cx.vars.attachments);
 
   // Legacy rule: branching a QUESTION creates a sibling under its parent;
-  // branching an ANSWER creates a child question under the answer.
-  const newQuestion = node.role === 'user'
+  // branching an ANSWER creates a child question under the answer. Lore nodes
+  // branch like questions (a sibling direction beside the lore milestone).
+  const newQuestion = (node.role === 'user' || node.role === 'lore')
     ? await env.chatService.branchQuestion(
         chatId, node.id, content, env.write.model.modelId, env.write.model.providerId, carried
       )

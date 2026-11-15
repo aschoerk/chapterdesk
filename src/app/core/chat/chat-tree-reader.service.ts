@@ -1,5 +1,6 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { Chat, ChatNode } from '../../models/chat';
+import { isChatLoreNode } from './chat-lore';
 import { ChatTreeStateService } from './chat-tree-state.service';
 
 /**
@@ -119,6 +120,7 @@ export class ChatTreeReaderService {
 
   isDraftQuestion(node: ChatNode): boolean {
     return node.role === 'user'
+      && !isChatLoreNode(node)
       && !node.content?.trim()
       && !(node.attachments?.length);
   }

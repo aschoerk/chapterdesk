@@ -167,6 +167,27 @@ body.nav-resizing * {
 .nav-node.question .nav-badge { background: #dbeafe; color: #1e40af; }
 .nav-node.answer .nav-badge   { background: #dcfce7; color: #166534; }
 
+/* Lore milestones: ⟡ badge, always visible. Armed = emphasized outline,
+   documented = dimmed (sent once, no longer shipped). These rules come AFTER
+   the .question/.answer badge rules so they win the specificity tie (a lore
+   node still carries role 'user' today). */
+.nav-node.lore .nav-badge { background: #fef3c7; color: #92400e; }
+
+.nav-node.lore-armed {
+  border-color: color-mix(in srgb, #d97706 55%, transparent);
+  background: color-mix(in srgb, #fef3c7 45%, transparent);
+  color: #78350f;
+}
+
+.nav-node.lore-documented {
+  opacity: 0.62;
+}
+
+.nav-node.lore-documented .nav-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .nav-badge {
   font-size: 0.7rem;
   font-weight: 700;

@@ -424,7 +424,7 @@
                   @for (node of chatService.deletedNodes(); track node.id) {
                     <li class="trash-item">
                       <div class="trash-item-head">
-                        <span class="trash-badge">{{ node.role === 'user' ? i18n.t('node.roleUser') : node.role === 'assistant' ? i18n.t('node.roleAssistant') : i18n.t('node.roleSystem') }}</span>
+                        <span class="trash-badge">{{ node.role === 'user' ? i18n.t('node.roleUser') : node.role === 'assistant' ? i18n.t('node.roleAssistant') : node.role === 'lore' ? i18n.t('node.roleLore') : i18n.t('node.roleSystem') }}</span>
                         <span class="trash-date">{{ trashDate(node) }}</span>
                       </div>
                       <div class="trash-preview">{{ trashPreview(node) }}</div>

@@ -263,7 +263,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
   readonly bookHtml = computed(() => {
     const hideQ = this.hideQuestions();
     return this.currentDoc()
-      .filter((n) => !(hideQ && n.role === 'user'))
+      .filter((n) => !(hideQ && (n.role === 'user' || n.role === 'lore')))
       .map((n) => this.nodeToHtml(n))
       .join('');
   });
@@ -274,7 +274,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const parts: string[] = [];
     let chars = 0;
     for (const n of this.currentDoc()) {
-      if (hideQ && n.role === 'user') continue;
+      if (hideQ && (n.role === 'user' || n.role === 'lore')) continue;
       if (!this.isUsable(n)) continue;
       parts.push(this.nodeToHtml(n));
       chars += (n.content || '').length;
@@ -310,7 +310,7 @@ export class ChatReaderComponent implements OnInit, OnDestroy {
     const path = this.currentDoc();
     if (!path.length) return '';
     const tip = path[path.length - 1];
-    const kind = tip.role === 'user' ? 'D' : tip.role === 'assistant' ? 'C' : 'S';
+    const kind = tip.role === 'user' ? 'D' : tip.role === 'assistant' ? 'C' : tip.role === 'lore' ? 'L' : 'S';
     const branch =
       this.allChildren(tip.parentId).length > 1
         ? ` · fork ${this.allChildren(tip.parentId).findIndex((n) => n.id === tip.id) + 1}`

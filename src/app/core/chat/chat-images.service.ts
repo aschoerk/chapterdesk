@@ -19,7 +19,7 @@ export interface ChatImageEntry {
 function nodeLabel(node: ChatNode): string {
   const text = (node.content ?? '').trim();
   const firstLine = text.split('\n')[0]?.trim() ?? '';
-  if (!firstLine) return node.role === 'user' ? 'Direction' : 'Chapter';
+  if (!firstLine) return node.role === 'user' ? 'Direction' : node.role === 'lore' ? 'Lore' : 'Chapter';
   return firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
 }
 

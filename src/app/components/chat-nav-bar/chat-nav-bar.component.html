@@ -42,11 +42,14 @@
   }
 
   <div class="nav-path">
-    @for (node of visibleNavPath(); track node.id; let i = $index) {
+    @for (node of navPathEntries(); track node.id; let i = $index) {
       <button
         class="nav-node"
-        [class.question]="node.role === 'user'"
+        [class.question]="node.role === 'user' && !isLoreNode(node)"
         [class.answer]="node.role === 'assistant'"
+        [class.lore]="isLoreNode(node)"
+        [class.lore-armed]="isLoreArmed(node)"
+        [class.lore-documented]="isLoreDocumented(node)"
         [class.active]="isNearViewport(node.id)"
         [class.selected]="isNavNodeSelected(node.id)"
         [class.editing]="isNavNodeBeingEdited(node.id)"
@@ -56,7 +59,7 @@
         (pointerleave)="onNavPointerLeave()"
         (contextmenu)="openNavNodeMenu($event, node)"
         [attr.data-nav-id]="node.id"
-        [title]="node.content">
+        [title]="navNodeTitle(node)">
 
         @if (isNavNodeBeingEdited(node.id)) {
           <span class="nav-edit-dot"
@@ -64,7 +67,7 @@
                 [attr.aria-label]="i18n.t('node.currentlyEditing')"
                 [title]="i18n.t('node.currentlyEditing')"></span>
         }
-        <span class="nav-badge">{{ node.role === 'user' ? 'D' : (node.role === 'assistant' ? 'C' :'S') }}</span>
+        <span class="nav-badge">{{ navBadge(node) }}</span>
 
         @if (childCount(node) > 1) {
           <span class="nav-branch-count">
@@ -82,7 +85,7 @@
         </button>
       }
 
-      @if (i < visibleNavPath().length - 1) {
+      @if (i < navPathEntries().length - 1) {
         <span class="nav-separator">›</span>
       }
     }

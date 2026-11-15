@@ -4,6 +4,7 @@ import { CHAT_API } from '../../api/chat-api.token';
 import { isImageMime, resolvedMime } from '../llm/llm-message';
 import { ChatTreeStateService } from './chat-tree-state.service';
 import { ChatTreeReaderService } from './chat-tree-reader.service';
+import { isChatLoreNode } from './chat-lore';
 import { ChatOperationService } from './chat-operation.service';
 
 /** True when the node carries at least one real image attachment (e.g. a
@@ -372,7 +373,7 @@ export class ChatTreeWriterService {
       let leaf = this.reader.getActivePath().at(-1) ?? null;
 
       if (!leaf) {
-        const roots = this.reader.getChildren(null).filter(n => n.role === 'user');
+        const roots = this.reader.getChildren(null).filter(n => n.role === 'user' && !isChatLoreNode(n));
         if (roots.length > 0) {
           this.setActiveChild(null, this.reader.newestChild(null)!.id);
           return;

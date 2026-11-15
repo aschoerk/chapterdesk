@@ -8,6 +8,7 @@ import { resolveCurrentTopic } from '../../llm-context';
 import {
   isImageMime,
   messageText,
+  nodeRoleToMessageRole,
   nodeToMessageContent,
   resolvedMime
 } from '../../llm-message';
@@ -46,7 +47,7 @@ export class ContextMessageBuilderService {
     const out: ChatMessage[] = [];
     for (const n of path) {
       if (n.chatId !== chatId) continue;
-      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant' && n.role !== 'lore') continue;
       // Meta/excluded nodes (auto-continue, elaborate instructions, lore
       // documentation) are shown in the UI but never re-shipped as history.
       // The FINAL node is excluded from this rule: it is the question being
@@ -54,7 +55,7 @@ export class ContextMessageBuilderService {
       if (n.id !== nodeId && n.excludeFromContext) continue;
       const content = nodeToMessageContent(n);
       if (!content) continue;
-      out.push({ role: n.role, content });
+      out.push({ role: nodeRoleToMessageRole(n.role), content });
     }
     return out;
   }
@@ -93,11 +94,11 @@ export class ContextMessageBuilderService {
     const out: ChatMessage[] = [];
     for (const n of slice) {
       if (n.chatId !== chatId) continue;
-      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant' && n.role !== 'lore') continue;
       if (n.id !== nodeId && n.excludeFromContext) continue;
       const content = nodeToMessageContent(n);
       if (!content) continue;
-      out.push({ role: n.role, content });
+      out.push({ role: nodeRoleToMessageRole(n.role), content });
     }
     return out;
   }
@@ -158,7 +159,7 @@ export class ContextMessageBuilderService {
     for (let i = 0; i < path.length - 1; i++) {
       const n = path[i];
       if (n.chatId !== chatId) continue;
-      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant') continue;
+      if (n.role !== 'system' && n.role !== 'user' && n.role !== 'assistant' && n.role !== 'lore') continue;
       // Excluded meta / lore-documentation nodes are skipped in history. The
       // final node is always included (it is the question being answered), so
       // an auto-excluded continue/elaborate direction is still sent exactly
@@ -167,7 +168,7 @@ export class ContextMessageBuilderService {
       const source = overrides?.[n.id] ?? nodeToMessageContent(n);
       const text = messageText({ role: n.role, content: source }).trim();
       if (!text) continue;
-      out.push({ role: n.role, content: text });
+      out.push({ role: nodeRoleToMessageRole(n.role), content: text });
     }
     // Optional in-between context (e.g. the auto-generated image description).
     if (beforeFinal) {

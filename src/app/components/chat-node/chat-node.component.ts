@@ -5,6 +5,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
+import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
 import { MarkdownService } from '../../core/chat/markdown.service';
@@ -350,12 +351,26 @@ export class ChatNodeComponent implements OnDestroy {
    */
   isUnsentQuestion(): boolean {
     const n = this.node();
-    if (n.role !== 'user') return false;
+    if (n.role !== 'user' || isChatLoreNode(n)) return false;
     return this.chatService.getChildren(n.id).length === 0;
   }
 
   isQuestion(): boolean {
-    return this.node().role === 'user';
+    const n = this.node();
+    return n.role === 'user' && !isChatLoreNode(n);
+  }
+
+  /** True for a materialized chat-lore node (role `lore` or legacy markers). */
+  isLoreNode(): boolean {
+    return isChatLoreNode(this.node());
+  }
+
+  /** User-facing role label of a node (for confirm messages / badges). */
+  roleLabel(node: ChatNode): string {
+    if (node.role === 'user') return this.i18n.t('node.roleUser');
+    if (node.role === 'assistant') return this.i18n.t('node.roleAssistant');
+    if (node.role === 'lore') return this.i18n.t('node.roleLore');
+    return this.i18n.t('node.roleSystem');
   }
 
   /** Last node on the active path (no current children). */
@@ -846,8 +861,8 @@ export class ChatNodeComponent implements OnDestroy {
       const ok = await this.confirm.ask({
         title: this.i18n.t('node.removeTitleAsk'),
         message: childCount > 0
-          ? this.i18n.t('node.removeMsgChildren', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem'), count: childCount })
-          : this.i18n.t('node.removeMsg', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem') }),
+          ? this.i18n.t('node.removeMsgChildren', { role: this.roleLabel(node), count: childCount })
+          : this.i18n.t('node.removeMsg', { role: this.roleLabel(node) }),
         confirmLabel: this.i18n.t('node.remove'),
         cancelLabel: this.i18n.t('common.cancel'),
         danger: true
@@ -882,8 +897,8 @@ export class ChatNodeComponent implements OnDestroy {
       const ok = await this.confirm.ask({
         title: this.i18n.t('node.deleteTitleAsk'),
         message: extra > 0
-          ? this.i18n.t('node.deleteMsgExtra', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem'), count: extra, filled: nonTrivial.length })
-          : this.i18n.t('node.deleteMsg', { role: node.role === 'user' ? this.i18n.t('node.roleUser') : node.role === 'assistant' ? this.i18n.t('node.roleAssistant') : this.i18n.t('node.roleSystem') }),
+          ? this.i18n.t('node.deleteMsgExtra', { role: this.roleLabel(node), count: extra, filled: nonTrivial.length })
+          : this.i18n.t('node.deleteMsg', { role: this.roleLabel(node) }),
         confirmLabel: this.i18n.t('common.delete'),
         cancelLabel: this.i18n.t('common.cancel'),
         danger: true

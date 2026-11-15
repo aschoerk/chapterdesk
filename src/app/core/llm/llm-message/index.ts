@@ -13,7 +13,7 @@
  * `extractImageUrlsFromText`, …) are deliberately NOT re-exported.
  */
 export type { MessagePart } from './message';
-export { PREPEND_MAX_TOKENS, estimateContentTokens, messageText, nodeToMessageContent, normalizeChatMessages } from './message';
+export { PREPEND_MAX_TOKENS, estimateContentTokens, messageText, nodeRoleToMessageRole, nodeToMessageContent, normalizeChatMessages } from './message';
 
 export {
   fileExtension,

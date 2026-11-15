@@ -11,6 +11,7 @@
  * logic is testable without mounting the component.
  */
 import type { ChatNode } from '../../models/chat';
+import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 
 /** A single command shown in the node right-click (context) menu. */
 export interface CtxMenuItem {
@@ -115,7 +116,7 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
 
   // Role-specific actions — mirror the toolbar buttons' availability.
   const roleItems: CtxMenuItem[] = [];
-  if (n.role === 'user' || n.role === 'system') {
+  if (n.role === 'user' || n.role === 'system' || isChatLoreNode(n)) {
     roleItems.push({
       label: (n.excludeFromContext ? '✓ ' : '') + ctx.t('node.ctxExcludeFromContext'),
       action: () => ctx.actions.toggleExclude(),

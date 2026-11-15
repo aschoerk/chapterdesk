@@ -13,7 +13,7 @@ import { LlmFlowRunner, isFlowUsecase } from './flows';
 import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
 import { LlmLogService } from '../llm-log.service';
-import { buildLoreNodeContent, isChatLoreNode } from '../../chat/chat.service';
+import { buildLoreNodeContent, isChatLoreNode, loreTextOf } from '../../chat/chat.service';
 import {
   chapterPlanRecord,
   isChapterPlanRecordAttachment,
@@ -1688,6 +1688,17 @@ it('inlines a text attachment on the current question into the final user messag
     expect(buildLoreNodeContent(undefined, '')).toBe('');
   });
 
+  it('isChatLoreNode and loreTextOf accept the dedicated lore role (and legacy markers)', () => {
+    expect(isChatLoreNode({ role: 'lore', content: 'Ashley is married.' })).toBe(true);
+    expect(isChatLoreNode({ role: 'user', content: 'Ashley is married.' })).toBe(false);
+    expect(isChatLoreNode({ role: 'user', content: loreText() })).toBe(true);
+    expect(isChatLoreNode({ role: 'assistant', content: loreText() })).toBe(false);
+    // loreTextOf: role-lore raw content, and marker-wrapped content.
+    expect(loreTextOf({ role: 'lore', content: 'Ashley is married.' })).toBe('Ashley is married.');
+    expect(loreTextOf({ role: 'lore', content: loreText() })).toBe('Ashley is married to Dr. Harvey.');
+    expect(loreTextOf({ role: 'user', content: 'Ashley is married.' })).toBe('');
+  });
+
   it('ensureLoreNodeBefore carries the temporary plan slice into the ONE lore node only', async () => {
     const chatService = await openChat([
       makeNode({ id: 'a0', role: 'assistant', content: 'The air smells of rain.', isCurrent: true }),
@@ -1741,15 +1752,20 @@ it('inlines a text attachment on the current question into the final user messag
     let d1 = chatService.nodes().find(n => n.id === 'd1')!;
     const lore1 = chatService.nodes().find(n => n.id === d1.parentId)!;
     expect(isChatLoreNode(lore1)).toBe(true);
+    // The node gets the dedicated `lore` role (not `user`).
+    expect(lore1.role).toBe('lore');
     expect(lore1.excludeAfterSend).toBe(true);
     expect(lore1.excludeFromContext).toBe(false);
     expect(lore1.content).toContain('[Current chat-lore');
     expect(lore1.content).toContain('[/End of chat-lore]');
     expect(lore1.content).toContain('Ashley is married to Dr. Harvey.');
 
-    // The lore is included in the message stream for that direction.
-    expect(textOf(factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'd1' })))
-      .toContain('Ashley is married to Dr. Harvey.');
+    // The lore is included in the message stream for that direction, emitted
+    // as a USER message (the LLM API has no lore role).
+    const beforeMessages = factory.buildSendMessagesEx({ chatId: CHAT_ID, nodeId: 'd1' });
+    expect(textOf(beforeMessages)).toContain('Ashley is married to Dr. Harvey.');
+    const loreMsg = beforeMessages.find(m => textOf([m]).includes('Ashley is married to Dr. Harvey.'));
+    expect(loreMsg?.role).toBe('user');
 
     // A real send of that direction completes → the lore node is deactivated.
     const runner = TestBed.inject(LlmFlowRunner);

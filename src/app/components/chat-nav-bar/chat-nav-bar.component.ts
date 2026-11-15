@@ -11,6 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ChatNode } from '../../models/chat';
 import { ChatService } from '../../core/chat/chat.service';
+import { isChatLoreNode, loreTextOf } from '../../core/chat/chat-lore.service';
 import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -61,6 +62,28 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
    *  UNLESS they sit in a branch (have siblings) — same filter as the page's
    *  `navPath()`. */
   readonly visibleNavPath = computed(() => this.activePath().filter(n => this.isNavVisible(n)));
+
+  /**
+   * The nav-bar's render list. Lore milestones are always visible (see
+   * `isNavVisible`), but IDENTICAL lore repeats are hidden: only the FIRST
+   * appearance of each distinct lore text is shown, and repeats stay hidden
+   * until the lore content changes. The bar therefore reads as the canon's
+   * evolution — one ⟡ pill per change — instead of a lore pill per send.
+   */
+  readonly navPathEntries = computed<ChatNode[]>(() => {
+    const out: ChatNode[] = [];
+    let lastLoreText: string | null = null;
+    for (const n of this.visibleNavPath()) {
+      if (isChatLoreNode(n)) {
+        const text = loreTextOf(n);
+        if (text === lastLoreText) continue;
+        lastLoreText = text;
+      }
+      out.push(n);
+    }
+    return out;
+  });
+
   /** Node whose block sits nearest the top of the tree (page's `visibleNodeId`). */
   readonly visibleNodeId = input<string | null>(null);
   /** Node currently open in the editor (page's edit session). */
@@ -158,9 +181,43 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
   }
 
   /** A node appears in the navbar when it is included in the model context,
-   *  or when it is excluded but has siblings. */
+   *  or when it is excluded but has siblings. Lore milestones are the path's
+   *  anatomy, not the model context: they stay in the bar even after they were
+   *  sent (excluded) — that transparency is the point of the lore pill. */
   private isNavVisible(n: ChatNode): boolean {
+    if (isChatLoreNode(n)) return true;
     return !n.excludeFromContext || this.getChildren(n.parentId ?? null).length > 1;
+  }
+
+  /** True for a materialized chat-lore node. */
+  isLoreNode(node: ChatNode): boolean {
+    return isChatLoreNode(node);
+  }
+
+  /** Lore node still armed: it ships with the next direction. */
+  isLoreArmed(node: ChatNode): boolean {
+    return isChatLoreNode(node) && !node.excludeFromContext;
+  }
+
+  /** Lore node already sent / deactivated: documented, no longer shipped. */
+  isLoreDocumented(node: ChatNode): boolean {
+    return isChatLoreNode(node) && !!node.excludeFromContext;
+  }
+
+  /** The nav badge of a node (⟡ for lore, else D/C/S). */
+  navBadge(node: ChatNode): string {
+    if (isChatLoreNode(node)) return '⟡';
+    return node.role === 'user' ? 'D' : node.role === 'assistant' ? 'C' : 'S';
+  }
+
+  /** Hover title: lore states in words, other nodes their text. */
+  navNodeTitle(node: ChatNode): string {
+    if (isChatLoreNode(node)) {
+      return node.excludeFromContext
+        ? this.i18n.t('node.loreDocumentedTitle')
+        : this.i18n.t('node.loreArmedTitle');
+    }
+    return node.content ?? '';
   }
 
   /** True when the node's block sits nearest the top of the tree. */

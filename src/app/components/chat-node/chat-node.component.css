@@ -222,6 +222,11 @@
   border-left-color: var(--accent, #3b82f6);
 }
 
+.lore-node {
+  border-left-color: #d97706;
+  background: color-mix(in srgb, #fef3c7 30%, transparent);
+}
+
 .answer-node {
   border-left-color: var(--color-badge-a-text, #22c55e);
   background: var(--bg-answer, #f8fafc);
@@ -928,6 +933,11 @@
 .badge.answer {
   background: var(--color-badge-a-bg, #dcfce7);
   color: var(--color-badge-a-text, #15803d);
+}
+
+.badge.lore {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 

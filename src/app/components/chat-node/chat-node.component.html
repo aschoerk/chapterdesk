@@ -1,8 +1,9 @@
 <div
   class="node"
-  [class.question-node]="node().role === 'user'"
+  [class.question-node]="node().role === 'user' && !isLoreNode()"
   [class.answer-node]="node().role === 'assistant'"
   [class.structural-node]="node().role === 'structural'"
+  [class.lore-node]="isLoreNode()"
   [class.excluded]="node().excludeFromContext === true"
   [class.editing]="isEditing()"
   [class.draft]="isUnsentQuestion()"
@@ -14,10 +15,11 @@
        ================================================================== -->
   <div class="node-header">
     <span class="badge"
-          [class.question]="node().role === 'user'"
+          [class.question]="node().role === 'user' && !isLoreNode()"
           [class.answer]="node().role === 'assistant'"
-          [class.structural]="node().role === 'structural'">
-          {{ node().role === 'user' ? i18n.t('node.dir') : node().role === 'assistant' ? i18n.t('node.ch') : i18n.t('node.structure') }}
+          [class.structural]="node().role === 'structural'"
+          [class.lore]="isLoreNode()">
+          {{ isLoreNode() ? i18n.t('node.lore') : node().role === 'user' ? i18n.t('node.dir') : node().role === 'assistant' ? i18n.t('node.ch') : i18n.t('node.structure') }}
     </span>
 
     @if (node().excludeFromContext) {
