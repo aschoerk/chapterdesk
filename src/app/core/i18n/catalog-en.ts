@@ -107,6 +107,8 @@ export const EN = {
     collapseSidebar: 'Hide sidebar',
     expandSidebar: 'Show sidebar',
     resizeNavBar: 'Drag to resize the nav bar vertically · double-click to reset',
+    toolbarScrollLeft: 'Show hidden toolbar buttons (scroll left)',
+    toolbarScrollRight: 'Show hidden toolbar buttons (scroll right)',
     trash: 'Trash',
     trashTitle: 'Deleted continuations',
     trashLoading: 'Loading…',

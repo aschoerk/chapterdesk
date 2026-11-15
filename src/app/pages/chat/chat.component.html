@@ -155,109 +155,184 @@
               <span class="paced-read-hint">{{ i18n.t('chat.pacedReadKeys') }}</span>
             </div>
           }
-          <!-- Chat params / structure / lore / search / trash toolbar -->
+<!-- Chat params / structure / lore / search / trash toolbar.
+               When the window is too narrow the row scrolls horizontally
+               (single line, never stacks) and the ◀/▶ buttons page through it.
+               Below a width the action buttons fall back to icon-only — decided
+               purely in CSS via a container query on the row (no JS feedback
+               loop, so the switch never flickers); the full label is always in
+               the button's title tooltip. -->
           <div class="params-bar">
-            <button class="btn small" type="button" (click)="toggleChatParams()">
-              {{ i18n.t('chat.params') }}
+            <button class="btn small params-scroll-btn" type="button"
+                    [disabled]="!toolbarCanScrollBack()"
+                    (click)="scrollToolbarBy(-1)"
+                    [title]="i18n.t('chat.toolbarScrollLeft')">
+              ‹
             </button>
-            <span class="params-summary">{{ chatParamsSummary() }}</span>
-            @if (bookReadTimeLabel(); as readTime) {
-              <span class="book-read-time" [title]="i18n.t('chat.bookReadTimeTitle')">
-                {{ i18n.t('chat.bookReadTime', { time: readTime }) }}
-              </span>
-            }
-            <button class="btn small" type="button"
-                    (click)="openLoreDialog()"
-                    [title]="i18n.t('chat.loreTitle')">
-              {{ currentChat()?.lore ? i18n.t('chat.lore') + ' ✓' : i18n.t('chat.lore') }}
-            </button>
-            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
-                    (click)="generateTitle()"
-                    [title]="i18n.t('chat.titleTitle')">
-              {{ isGeneratingStructure() && pendingStructure() === 'title' ? i18n.t('chat.generating') : i18n.t('chat.title') }}
-            </button>
-            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
-                    (click)="generateIntroduction()"
-                    [title]="i18n.t('chat.introductionTitle')">
-              {{ isGeneratingStructure() && pendingStructure() === 'overview' ? i18n.t('chat.generating') : i18n.t('chat.introduction') }}
-            </button>
-            <button class="btn small" type="button" [disabled]="isGeneratingStructure()"
-                    (click)="generateHeadings()"
-                    [title]="i18n.t('chat.headingsTitle')">
-              {{ isGeneratingStructure() && pendingStructure() === 'headings' ? i18n.t('chat.generating') : i18n.t('chat.headings') }}
-            </button>
-            <button class="btn small" type="button"
-                    [disabled]="isGeneratingStructure() || isElaborating()"
-                    (click)="openElaborateDialog()"
-                    [title]="i18n.t('chat.elaborateTitle')">
-              {{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}
-            </button>
-
-            <button class="btn small" type="button"
-                    (click)="openSearch()"
-                    [title]="i18n.t('search.openTitle')">
-              {{ i18n.t('search.open') }}
-            </button>
-
-            <button class="btn small" type="button"
-                    (click)="openNameReplace()"
-                    [title]="i18n.t('nameReplace.openTitle')">
-              {{ i18n.t('nameReplace.open') }}
-            </button>
-
-            <button class="btn small" type="button"
-                    (click)="openNameList()"
-                    [title]="i18n.t('nameList.openTitle')">
-              {{ i18n.t('nameList.open') }}
-            </button>
-
-            @if (clipboard.hasContent()) {
-              <button class="btn small" type="button"
-                      (click)="pasteAtTop()"
-                      [title]="i18n.t('chat.pasteAtTopTitle')">
-                {{ i18n.t('chat.pasteAtTop') }}
+            <div class="params-tools" #paramsTools (scroll)="updateToolbarScroll()">
+              <button class="btn small toolbar-action" type="button"
+                      (click)="toggleChatParams()"
+                      [title]="i18n.t('chat.params')">
+                <!-- gear -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('chat.params') }}</span>
               </button>
-            }
-
-            <button class="btn small" type="button"
-                    [class.active]="showMarks()"
-                    (click)="showMarks.set(!showMarks())"
-                    [title]="i18n.t('chat.marksTitle')">
-              {{ i18n.t('chat.marks') }}@if (readingMarks.count() > 0) { ({{ readingMarks.count() }}) }
-            </button>
-
-            <button class="btn small" type="button"
-                    [class.danger]="trashCount() > 0"
-                    (click)="toggleTrash()"
-                    [title]="i18n.t('chat.trashTitle')">
-              {{ i18n.t('chat.trash') }}@if (trashCount() > 0) { ({{ trashCount() }}) }
-            </button>
-
-            @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId() || chatService.isIllustrating() || chatService.batchProgress() !== null) {
-              <button class="btn small danger" type="button"
-                      (click)="stopGeneration()"
-                      [title]="i18n.t('node.stopTitle')">
-                <span>{{ i18n.t('node.stop') }}</span>
-              </button>
-              <button class="btn small stop-soft" type="button"
-                      [class.stopping]="chatService.gracefulStop()"
-                      [disabled]="chatService.gracefulStop()"
-                      [title]="chatService.gracefulStop() ? i18n.t('node.stopSoftFinishingTitle') : i18n.t('node.stopSoftTitle')"
-                      (click)="gracefulStop()">
-                <span>{{ chatService.gracefulStop() ? i18n.t('node.stopSoftFinishing') : i18n.t('node.stopSoft') }}</span>
-              </button>
-              @if (chatService.batchProgress(); as bp) {
-                <span class="batch-progress-toolbar"
-                      [title]="bp.unit === 'chapter'
-                        ? i18n.t('chat.elaborateProgressTitle', { current: bp.current, total: bp.total })
-                        : i18n.t('node.batchProgressTitle')">
-                  <span class="spinner"></span>
-                  <span>{{ bp.unit === 'chapter'
-                    ? i18n.t('chat.elaborateProgress', { current: bp.current, total: bp.total })
-                    : i18n.t('node.batchProgress', { current: bp.current, total: bp.total }) }}</span>
+              <span class="params-summary">{{ chatParamsSummary() }}</span>
+              @if (bookReadTimeLabel(); as readTime) {
+                <span class="book-read-time" [title]="i18n.t('chat.bookReadTimeTitle')">
+                  {{ i18n.t('chat.bookReadTime', { time: readTime }) }}
                 </span>
               }
-            }
+              <button class="btn small toolbar-action" type="button"
+                      (click)="openLoreDialog()"
+                      [title]="i18n.t('chat.loreTitle')">
+                <!-- scroll (lore) -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"/>
+                  <path d="M19 17V5a2 2 0 0 0-2-2H4"/>
+                  <path d="M15 8h-5"/><path d="M15 12h-5"/>
+                </svg>
+                <span class="btn-label">{{ currentChat()?.lore ? i18n.t('chat.lore') + ' ✓' : i18n.t('chat.lore') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      [disabled]="isGeneratingStructure()"
+                      (click)="generateTitle()"
+                      [title]="i18n.t('chat.titleTitle')">
+                <!-- crown (title) -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 17h18l-2-9-4 4-5-6-5 6-2-4z"/>
+                  <line x1="3" y1="20" x2="21" y2="20"/>
+                </svg>
+                <span class="btn-label">{{ isGeneratingStructure() && pendingStructure() === 'title' ? i18n.t('chat.generating') : i18n.t('chat.title') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      [disabled]="isGeneratingStructure()"
+                      (click)="generateIntroduction()"
+                      [title]="i18n.t('chat.introductionTitle')">
+                <!-- book-open (introduction) -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span class="btn-label">{{ isGeneratingStructure() && pendingStructure() === 'overview' ? i18n.t('chat.generating') : i18n.t('chat.introduction') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      [disabled]="isGeneratingStructure()"
+                      (click)="generateHeadings()"
+                      [title]="i18n.t('chat.headingsTitle')">
+                <!-- heading (H1) -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 4v16"/><path d="M18 4v16"/><path d="M6 12h12"/>
+                </svg>
+                <span class="btn-label">{{ isGeneratingStructure() && pendingStructure() === 'headings' ? i18n.t('chat.generating') : i18n.t('chat.headings') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      [disabled]="isGeneratingStructure() || isElaborating()"
+                      (click)="openElaborateDialog()"
+                      [title]="i18n.t('chat.elaborateTitle')">
+                <!-- sparkle (elaborate) -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/>
+                  <path d="M18 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>
+                </svg>
+                <span class="btn-label">{{ isElaborating() ? i18n.t('chat.generating') : i18n.t('chat.elaborate') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      (click)="openSearch()"
+                      [title]="i18n.t('search.openTitle')">
+                <!-- search -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('search.open') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      (click)="openNameReplace()"
+                      [title]="i18n.t('nameReplace.openTitle')">
+                <!-- replace -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 7h11"/><path d="M15 4l3 3-3 3"/>
+                  <path d="M20 17H9"/><path d="M9 14l-3 3 3 3"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('nameReplace.open') }}</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      (click)="openNameList()"
+                      [title]="i18n.t('nameList.openTitle')">
+                <!-- list -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/>
+                  <circle cx="5" cy="6" r="1"/><circle cx="5" cy="12" r="1"/><circle cx="5" cy="18" r="1"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('nameList.open') }}</span>
+              </button>
+              @if (clipboard.hasContent()) {
+                <button class="btn small toolbar-action" type="button"
+                        (click)="pasteAtTop()"
+                        [title]="i18n.t('chat.pasteAtTopTitle')">
+                  <!-- clipboard -->
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                  </svg>
+                  <span class="btn-label">{{ i18n.t('chat.pasteAtTop') }}</span>
+                </button>
+              }
+              <button class="btn small toolbar-action" type="button"
+                      [class.active]="showMarks()"
+                      (click)="showMarks.set(!showMarks())"
+                      [title]="i18n.t('chat.marksTitle')">
+                <!-- bookmark -->
+                <svg width="16" height="16" viewBox="0 0 24 24" [attr.fill]="showMarks() ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M6 3h12v18l-6-4.5L6 21z"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('chat.marks') }}@if (readingMarks.count() > 0) { ({{ readingMarks.count() }}) }</span>
+              </button>
+              <button class="btn small toolbar-action" type="button"
+                      [class.danger]="trashCount() > 0"
+                      (click)="toggleTrash()"
+                      [title]="i18n.t('chat.trashTitle')">
+                <!-- trash -->
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/>
+                </svg>
+                <span class="btn-label">{{ i18n.t('chat.trash') }}@if (trashCount() > 0) { ({{ trashCount() }}) }</span>
+              </button>
+
+              @if (isGeneratingStructure() || isElaborating() || chatService.generatingNodeId() || chatService.isIllustrating() || chatService.batchProgress() !== null) {
+                <button class="btn small danger" type="button"
+                        (click)="stopGeneration()"
+                        [title]="i18n.t('node.stopTitle')">
+                  <span>{{ i18n.t('node.stop') }}</span>
+                </button>
+                <button class="btn small stop-soft" type="button"
+                        [class.stopping]="chatService.gracefulStop()"
+                        [disabled]="chatService.gracefulStop()"
+                        [title]="chatService.gracefulStop() ? i18n.t('node.stopSoftFinishingTitle') : i18n.t('node.stopSoftTitle')"
+                        (click)="gracefulStop()">
+                  <span>{{ chatService.gracefulStop() ? i18n.t('node.stopSoftFinishing') : i18n.t('node.stopSoft') }}</span>
+                </button>
+                @if (chatService.batchProgress(); as bp) {
+                  <span class="batch-progress-toolbar"
+                        [title]="bp.unit === 'chapter'
+                          ? i18n.t('chat.elaborateProgressTitle', { current: bp.current, total: bp.total })
+                          : i18n.t('node.batchProgressTitle')">
+                    <span class="spinner"></span>
+                    <span>{{ bp.unit === 'chapter'
+                      ? i18n.t('chat.elaborateProgress', { current: bp.current, total: bp.total })
+                      : i18n.t('node.batchProgress', { current: bp.current, total: bp.total }) }}</span>
+                  </span>
+                }
+              }
+            </div>
+            <button class="btn small params-scroll-btn" type="button"
+                    [disabled]="!toolbarCanScrollForward()"
+                    (click)="scrollToolbarBy(1)"
+                    [title]="i18n.t('chat.toolbarScrollRight')">
+              ›
+            </button>
           </div>
           <!-- Chat parameters popover -->
           @if (showChatParams()) {
@@ -552,9 +627,7 @@
             [activePath]="getActivePath()"
             [visibleNodeId]="visibleNodeId()"
             [editingNodeId]="editingNodeId()"
-            [hasChat]="!!currentChatId()"
             (scrollToNode)="scrollToNode($event)"
-            (openReader)="openReader()"
             (copySelection)="copyNavSelection()"
             (cutSelection)="cutNavSelection()"
             (extractSelection)="extractNavSelection($event)"

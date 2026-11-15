@@ -132,11 +132,54 @@ export class ChatComponent implements OnInit {
 
   private readonly tree = viewChild<ElementRef<HTMLElement>>('tree');
 
+  /** The horizontal scroller of the toolbar (params-bar buttons). */
+  private readonly paramsTools = viewChild<ElementRef<HTMLElement>>('paramsTools');
+
+  /** Toolbar scroll arrows follow the viewport — the template can toggle
+   *  Stop/Finish buttons, which changes the scroll width without a resize. */
+  private toolbarResizeObserver?: ResizeObserver;
+
   /** Rendered chat-node components, used to push search replacements into an open editor. */
   private readonly nodeComps = viewChildren<ChatNodeComponent>(ChatNodeComponent);
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
+
+  // ------------------------------------------------------------------
+  // Toolbar (params-bar) horizontal paging — the buttons stay on ONE line
+  // and scroll in place when the window is too narrow; the ◀/▶ arrows only
+  // show up while there is anything hidden in that direction.
+  // ------------------------------------------------------------------
+
+  readonly toolbarCanScrollBack = signal(false);
+  readonly toolbarCanScrollForward = signal(false);
+
+  /** Page the hidden toolbar buttons into view (dir = -1 ‹ / +1 ›). */
+  scrollToolbarBy(dir: -1 | 1): void {
+    const el = this.paramsTools()?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' });
+  }
+
+  /** Recompute the arrow states (scroll, resize, content change). */
+  updateToolbarScroll(): void {
+    this.updateToolbarScrollState();
+  }
+
+  /** The arrows enable only while something is hidden in that direction. */
+  updateToolbarScrollState(): void {
+    const el = this.paramsTools()?.nativeElement;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    this.toolbarCanScrollBack.set(el.scrollLeft > 1);
+    this.toolbarCanScrollForward.set(el.scrollLeft < max - 1);
+  }
+
+  /** Window-size changes (plus the ResizeObserver above) re-measure the bar. */
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    this.updateToolbarScroll();
+  }
 
   /** Node currently open in the editor — re-exported for `app-chat-nav-bar`. */
   readonly editingNodeId = this.editSession.editingNodeId;
@@ -623,6 +666,7 @@ export class ChatComponent implements OnInit {
   }
 
   ngOnDestroy() {
+    this.toolbarResizeObserver?.disconnect();
     this.pacedRead.unregisterHost(this.pacedReadHost);
     this.layoutPrefs.endSidebarResize();
     // Leaving the chat page must not leave a stale edit session behind —
@@ -876,6 +920,21 @@ export class ChatComponent implements OnInit {
     // `ChatNavBarComponent`; their actions are emitted onto this page's
     // handlers (selection + tree mutation) below.
     this.pacedRead.registerHost(this.pacedReadHost);
+    // Toolbar: .params-tools only exists while a story is open, so a one-shot
+    // afterNextRender at construction would run too early and never attach.
+    // This effect re-runs whenever the element appears/disappears (story
+    // opened/closed, sidebar redrawn) and (re)attaches the ResizeObserver —
+    // which covers window resizes AND content changes (Stop buttons
+    // appearing, summaries growing) without polling.
+    effect(() => {
+      this.toolbarResizeObserver?.disconnect();
+      this.toolbarResizeObserver = undefined;
+      const el = this.paramsTools()?.nativeElement;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      this.toolbarResizeObserver = new ResizeObserver(() => this.updateToolbarScroll());
+      this.toolbarResizeObserver.observe(el);
+      this.updateToolbarScroll();
+    });
     console.log('ChatComponent constructed', Date.now());
     effect(() => {
       const chatId = this.currentChatId();

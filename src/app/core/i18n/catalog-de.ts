@@ -109,6 +109,8 @@ export const DE: typeof EN = {
     collapseSidebar: 'Seitenleiste ausblenden',
     expandSidebar: 'Seitenleiste einblenden',
     resizeNavBar: 'Ziehen, um die Größe der Navigationsleiste zu ändern · Doppelklick zum Zurücksetzen',
+    toolbarScrollLeft: 'Ausgeblendete Symbolleisten-Schaltflächen anzeigen (nach links blättern)',
+    toolbarScrollRight: 'Ausgeblendete Symbolleisten-Schaltflächen anzeigen (nach rechts blättern)',
     trash: 'Papierkorb',
     trashTitle: 'Gelöschte Fortsetzungen',
     trashLoading: 'Wird geladen…',

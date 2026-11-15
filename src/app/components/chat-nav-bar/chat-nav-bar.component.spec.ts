@@ -65,7 +65,6 @@ describe('ChatNavBarComponent', () => {
     fixture.componentRef.setInput('activePath', path);
     fixture.componentRef.setInput('visibleNodeId', opts.visibleNodeId ?? null);
     fixture.componentRef.setInput('editingNodeId', opts.editingNodeId ?? null);
-    fixture.componentRef.setInput('hasChat', true);
     fixture.detectChanges();
   }
 

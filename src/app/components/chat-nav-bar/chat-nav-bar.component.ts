@@ -65,8 +65,6 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
   readonly visibleNodeId = input<string | null>(null);
   /** Node currently open in the editor (page's edit session). */
   readonly editingNodeId = input<string | null>(null);
-  /** Whether the page has a current chat (enables the Book view button). */
-  readonly hasChat = input(false);
 
   // ------------------------------------------------------------------
   // Outputs — actions the page owns (tree mutation + navigation)
@@ -74,8 +72,6 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
 
   /** Plain click on a nav node → scroll the tree to it. */
   readonly scrollToNode = output<string>();
-  /** "Open Book view" button. */
-  readonly openReader = output<void>();
   /** Copy the selected chain to the node clipboard. */
   readonly copySelection = output<void>();
   /** Cut the selected chain (page confirms + mutates). */

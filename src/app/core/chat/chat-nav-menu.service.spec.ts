@@ -153,9 +153,14 @@ describe('ChatNavMenuService', () => {
     const path = chatService.getActivePath();
     const host = hostStub(path, ['a1']);
     service.bind(host);
-    clipboard.copySequence([path[0]]);
+    // Look nodes up BY ID: the active path may also carry the auto-created
+    // draft leaf (timestamp race in the newestChild pick), so `path[1]` is
+    // not reliably `a1` — and the selection/host assertions need a1.
+    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
+    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
+    clipboard.copySequence([q1]);
 
-    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, path[1]);
+    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, a1);
     const items = service.nodeMenuItems();
     const labels = items.filter(i => !i.divider).map(i => i.label);
 

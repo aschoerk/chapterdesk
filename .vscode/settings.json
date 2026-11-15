@@ -18,5 +18,12 @@
     "plantuml.server": "http://localhost:9999/plantuml",
     "plantuml.render": "PlantUMLServer",
     "plantuml.exportFormat": "svg",
-    "plantuml.exportOutDir": "${workspaceFolder}/docs"
+    "plantuml.exportOutDir": "${workspaceFolder}/docs",
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "chat.tools.terminal.terminalProfile.linux": {
+        "path": "/bin/bash"
+    },
+    "terminal.integrated.automationProfile.linux": {
+        "path": "/bin/bash"
+    }
 }

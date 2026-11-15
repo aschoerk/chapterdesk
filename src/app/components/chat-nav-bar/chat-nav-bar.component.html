@@ -42,19 +42,6 @@
   }
 
   <div class="nav-path">
-    <button class="btn-icon" type="button"
-            (click)="openReader.emit()"
-            [disabled]="!hasChat()"
-            [title]="i18n.t('chat.bookViewTitle')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round"
-           aria-hidden="true">
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-        <path d="M4 4.5A2.5 2.5 0 0 1 6.5 7H20v13H6.5A2.5 2.5 0 0 0 4 22.5z"/>
-        <path d="M12 7v13"/>
-      </svg>
-    </button>
     @for (node of visibleNavPath(); track node.id; let i = $index) {
       <button
         class="nav-node"

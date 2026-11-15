@@ -271,11 +271,12 @@ export function navPasteButtonAfter(page: Page, index: number): ReturnType<Page[
   );
 }
 
-/** Open the read-only reader view for the current chat via the nav-bar book
- *  button (the `.node-nav-bar` is part of the chat page, so call this while a
- *  chat is open). */
+/** Open the read-only reader view for the current chat via the Ctrl+B
+ *  shortcut (the nav-bar book button was removed — the keyboard shortcut
+ *  still routes to the same page action). */
 export async function openReader(page: Page): Promise<void> {
-  await page.locator('.node-nav-bar button[title="Open reader view (Ctrl-B)"]').click();
+  await page.locator('.node-nav-bar').first().click(); // focus the chat page
+  await page.keyboard.press('Control+b');
   await expect(page.locator('.reader-shell')).toBeVisible();
 }
 

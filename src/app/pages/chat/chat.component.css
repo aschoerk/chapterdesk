@@ -272,9 +272,84 @@ body.sidebar-resizing * {
 .params-bar {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.35rem;
   padding: 0.25rem 0.75rem 0.5rem;
   font-size: 0.8rem;
+}
+
+/* The toolbar buttons live in ONE scrolling row (never stacked): when the
+   window is too narrow they scroll in place, the ◀/▶ arrows page through
+   them. The scrollbar itself is hidden — the arrows replace it. */
+.params-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.params-tools::-webkit-scrollbar {
+  display: none;
+}
+
+.params-tools > * {
+  flex: 0 0 auto;
+}
+
+/* The toolbar row is its OWN query container: below a comfortable width the
+   action buttons drop their .btn-label text and show only the glyph. This is
+   a pure CSS decision on the row width (a stable flex input) — no JS width
+   feedback, so the icon/text switch can never flicker at the boundary width.
+   The full label stays available as the button's title tooltip. The label
+   width is content-dependent (stop/paste buttons, summary, read time
+   appear/disappear), so the threshold is generous and the arrows continue to
+   page anything that still overflows after the switch. */
+.params-tools {
+  container-type: inline-size;
+}
+
+.params-tools .toolbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+@container (max-width: 600px) {
+  .params-tools .toolbar-action .btn-label {
+    display: none;
+  }
+  .params-tools .params-summary,
+  .params-tools .book-read-time {
+    display: none;
+  }
+}
+
+.params-scroll-btn {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.45rem;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text-muted);
+}
+
+.params-scroll-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Both arrows keep their slot at all times (a sudden jump when they appear
+   would push the whole toolbar around) — a direction with nothing to scroll
+   dims instead of disappearing. */
+.params-scroll-btn:disabled {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .params-summary {
