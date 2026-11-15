@@ -15,7 +15,7 @@ import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.serv
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
-import { ChatNavMenuService, type NavMenuEntry } from '../../core/chat/chat-nav-menu.service';
+import { ChatNavMenuService, type ChatNavMenuHost, type NavMenuEntry } from '../../core/chat/chat-nav-menu.service';
 
 /**
  * The chat page's node-nav-bar: active path + multi-select tools.
@@ -38,7 +38,7 @@ import { ChatNavMenuService, type NavMenuEntry } from '../../core/chat/chat-nav-
   templateUrl: './chat-nav-bar.component.html',
   styleUrl: './chat-nav-bar.component.css',
 })
-export class ChatNavBarComponent {
+export class ChatNavBarComponent implements ChatNavMenuHost {
   private readonly chatService = inject(ChatService);
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly layoutPrefs = inject(ChatLayoutPrefsService);
@@ -90,6 +90,9 @@ export class ChatNavBarComponent {
   readonly pasteAfter = output<string>();
   /** Paste the clipboard chain before `nodeId` in the active path. */
   readonly pasteBefore = output<string>();
+  /** Splice (`insert`) or branch (`append`) the clipboard chain between the two
+   *  visible nodes around a paste button (paste-menu action). */
+  readonly pasteChain = output<{ mode: 'insert' | 'append'; leftId: string; rightId: string | null }>();
   /** Start a parallel branch at `node`. */
   readonly startBranch = output<ChatNode>();
   /** Switch the active continuation of `node.parentId` by `dir`. */
@@ -121,6 +124,12 @@ export class ChatNavBarComponent {
 
   readonly navPasteMenu = this.navMenu.navPasteMenu;
   readonly navNodeMenu = this.navMenu.navNodeMenu;
+
+  constructor() {
+    // This bar is the menu's HOST: the selection ops run here, the tree
+    // mutations are emitted to the page (see `ChatNavMenuHost` below).
+    this.navMenu.bind(this);
+  }
 
   // ------------------------------------------------------------------
   // Selection helpers
@@ -255,8 +264,44 @@ export class ChatNavBarComponent {
     this.pasteAfter.emit(nodeId);
   }
 
+  /** Also a `ChatNavMenuHost` action (node-menu "paste in front"). */
   pasteNavSelectionBefore(node: ChatNode): void {
     this.pasteBefore.emit(node.id);
+  }
+
+  // ------------------------------------------------------------------
+  // `ChatNavMenuHost` — the remaining menu actions. Selection ops
+  // (toggle/clear) run locally; every tree mutation is emitted upward,
+  // the PAGE performs it (chat service / clipboard / dialogs).
+  // ------------------------------------------------------------------
+
+  /** The menu only ever sees the VISIBLE navbar nodes. */
+  navPath(): ChatNode[] {
+    return this.visibleNavPath();
+  }
+
+  startBranchAt(node: ChatNode): void {
+    this.startBranch.emit(node);
+  }
+
+  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
+    this.switchSibling.emit({ node, dir });
+  }
+
+  copyNavNodes(node: ChatNode): void {
+    this.copyNode.emit(node);
+  }
+
+  cutNavNodes(node: ChatNode): void {
+    this.cutNode.emit(node);
+  }
+
+  deleteNavNodes(node: ChatNode): void {
+    this.deleteNode.emit(node);
+  }
+
+  pasteChainInto(mode: 'insert' | 'append', leftId: string, rightId: string | null): void {
+    this.pasteChain.emit({ mode, leftId, rightId });
   }
 
   // ------------------------------------------------------------------

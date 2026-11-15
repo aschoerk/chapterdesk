@@ -47,7 +47,6 @@ import { isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../../core/util/h
 import type { NameTextUnit, NameOccurrence } from '../../core/names/name-replace';
 import {
   ChatNavMenuService,
-  type ChatNavMenuHost,
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
@@ -179,12 +178,6 @@ export class ChatComponent implements OnInit {
       if (this.isNavVisible(path[k])) return path[k].id;
     }
     return null;
-  }
-
-  /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
-  onNavNodeClick(event: MouseEvent, node: ChatNode): void {
-    if (event.ctrlKey || event.metaKey) return;
-    this.scrollToNode(node.id);
   }
 
   private navNodeIndex(nodeId: string): number {
@@ -391,8 +384,9 @@ export class ChatComponent implements OnInit {
 
   // ------------------------------------------------------------------
   // Nodebar context menus — DELEGATES to `ChatNavMenuService`
-  // (popover state, row building, viewport clamping). The ACTIONS stay here:
-  // they mutate the selection / the tree, which this page owns.
+  // (popover state, row building, viewport clamping). The service is hosted
+  // by `ChatNavBarComponent`; its actions land on the handlers below (they
+  // mutate the selection / the tree, which this page owns).
   // ------------------------------------------------------------------
 
   private readonly navMenu = inject(ChatNavMenuService);
@@ -401,10 +395,6 @@ export class ChatComponent implements OnInit {
   readonly navPasteMenu = this.navMenu.navPasteMenu;
   /** Right-clicked nav node for the inline context menu. */
   readonly navNodeMenu = this.navMenu.navNodeMenu;
-
-  private navMenuHost(): ChatNavMenuHost {
-    return this as unknown as ChatNavMenuHost;
-  }
 
   openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
     this.navMenu.openPasteMenu(event, node);
@@ -424,10 +414,6 @@ export class ChatComponent implements OnInit {
 
   navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
     return this.navMenu.pasteMenuItems(menu);
-  }
-
-  runNavPasteAction(item: NavMenuEntry): void {
-    this.navMenu.runPasteAction(item);
   }
 
   openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
@@ -455,11 +441,8 @@ export class ChatComponent implements OnInit {
     return this.navMenu.runNodeAction(item);
   }
 
-  /**
-   * Markup / host plumbing for the extracted nav menu: the page acts as the
-   * menu's host (its actions live here). `pasteChainInto` is the shared
-   * insert-vs-append splice.
-   */
+  /** The `pasteChain` output handler: the shared insert-vs-append splice used
+   *  by the paste menu (via the nav bar's `ChatNavMenuHost`). */
   pasteChainInto(
     mode: 'insert' | 'append',
     leftId: string,
@@ -578,26 +561,6 @@ export class ChatComponent implements OnInit {
   async pasteNavSelectionBeforeId(nodeId: string): Promise<void> {
     const node = this.getActivePath().find(n => n.id === nodeId);
     if (node) await this.pasteNavSelectionBefore(node);
-  }
-
-  @HostListener('window:resize')
-  onNavNodeMenuResize(): void {
-    this.closeNavNodeMenu();
-  }
-
-  @HostListener('document:scroll')
-  onNavNodeMenuScroll(): void {
-    this.closeNavNodeMenu();
-  }
-
-  @HostListener('window:resize')
-  onNavPasteResize(): void {
-    this.closeNavPasteMenu();
-  }
-
-  @HostListener('document:scroll')
-  onNavPasteScroll(): void {
-    this.closeNavPasteMenu();
   }
 
   private readonly router = inject(Router);
@@ -1005,10 +968,9 @@ export class ChatComponent implements OnInit {
   }
 
   constructor() {
-    // The navbar context menus live in ChatNavMenuService; their ACTIONS are
-    // methods of this page (selection + tree mutation), so the page acts as
-    // the service's host.
-    this.navMenu.bind(this as unknown as ChatNavMenuHost);
+    // The navbar context menus live in ChatNavMenuService, hosted by
+    // `ChatNavBarComponent`; their actions are emitted onto this page's
+    // handlers (selection + tree mutation) below.
     this.pacedRead.registerHost(this.pacedReadHost);
     console.log('ChatComponent constructed', Date.now());
     effect(() => {
@@ -1454,13 +1416,6 @@ export class ChatComponent implements OnInit {
 
 // just delegate
   getActivePath()          { return this.chatService.getActivePath(); }
-
-  /** The navbar shows the active path. Nodes excluded from the model context
-   *  are hidden UNLESS they sit in a branch (have siblings) — a hidden branch
-   *  point would conceal the parallel continuations. */
-  navPath(): ChatNode[] {
-    return this.chatService.getActivePath().filter(n => this.isNavVisible(n));
-  }
 
   /** A node appears in the navbar when it is included in the model context,
    *  or when it is excluded but has siblings — hiding the latter would make

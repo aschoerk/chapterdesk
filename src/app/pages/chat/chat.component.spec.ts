@@ -1895,6 +1895,7 @@ describe('Chat', () => {
 
   it('does not paste left of the empty terminal direction node', async () => {
     await openStory(); // path: q1 → a1 → [empty draft direction]
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
@@ -1912,6 +1913,7 @@ describe('Chat', () => {
 
   it('pastes a copied chain at the very end, behind the empty terminal direction node', async () => {
     await openStory(); // path: q1 → a1 → [empty draft direction]
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
@@ -1935,6 +1937,7 @@ describe('Chat', () => {
 
   it('pastes a copied chain between the two visible navbar nodes around the paste button', async () => {
     await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
@@ -1966,6 +1969,7 @@ describe('Chat', () => {
 
   it('opens the paste-button context menu offering Insert and Append', async () => {
     await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     clipboard.copySequence([chatService.nodes().find(n => n.id === 'q1')!]);
 
@@ -1992,6 +1996,7 @@ describe('Chat', () => {
 
   it('appending from the paste-button menu keeps the chain invisible: root under the left node, sibling of the right node', async () => {
     await openChapteredStory(); // path: q1 → a1 → q2 → a2
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
@@ -2021,6 +2026,7 @@ describe('Chat', () => {
 
   it('appending at the end makes the pasted chain visible', async () => {
     await openChapteredStory(); // path: q1 → a1 → q2 → a2 → [draft]
+    fixture.detectChanges(); // render the nav bar — the paste targets need its host
     const clipboard = TestBed.inject(NodeClipboardService);
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
@@ -2143,8 +2149,13 @@ describe('Chat', () => {
     return { clientX: x, clientY: y, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as MouseEvent;
   }
 
+  /** Menu actions are emitted from the nav bar up to the page's ASYNC handlers
+   *  (fire-and-forget) — yield a macrotask so their promise chains settle. */
+  const flushAsync = () => new Promise<void>(resolve => setTimeout(resolve));
+
   it('opens the navbar-node context menu (sibling switch + selection + copy/cut/delete)', async () => {
     await openStory(); // a1 and a2 are siblings under q1; active = a1
+    fixture.detectChanges(); // render the nav bar — it is the menu's host
     TestBed.inject(NodeClipboardService).clear(); // this assertion expects an EMPTY clipboard
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
     component.openNavNodeMenu(navMenuEvent(120, 80), a1);
@@ -2187,6 +2198,7 @@ describe('Chat', () => {
     component.openNavNodeMenu(navMenuEvent(), a1);
 
     await component.runNavNodeAction(nodeMenuItem('Start branch here'));
+    await flushAsync();
 
     // A new EMPTY direction leaf hangs beside a1 under the same parent (q1).
     const siblings = chatService.getChildren('q1');
@@ -2208,6 +2220,7 @@ describe('Chat', () => {
     component.openNavNodeMenu(navMenuEvent(), a1);
 
     await component.runNavNodeAction(nodeMenuItem('Start branch here'));
+    await flushAsync();
 
     const draft = chatService
       .getChildren('q1')
@@ -2239,6 +2252,7 @@ describe('Chat', () => {
 
   it('copies a single navbar node from its context menu', async () => {
     await openStory();
+    fixture.detectChanges(); // render the nav bar — it is the menu's host
     const clipboard = TestBed.inject(NodeClipboardService);
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
     component.openNavNodeMenu(navMenuEvent(), a1);
@@ -2250,6 +2264,7 @@ describe('Chat', () => {
 
   it('cuts a single navbar node from its context menu (following text stays)', async () => {
     await openStory();
+    fixture.detectChanges(); // render the nav bar — it is the menu's host
     const clipboard = TestBed.inject(NodeClipboardService);
     const confirm = TestBed.inject(ConfirmService);
     vi.spyOn(confirm, 'ask').mockResolvedValue(true);
@@ -2257,6 +2272,7 @@ describe('Chat', () => {
     component.openNavNodeMenu(navMenuEvent(), a1);
 
     await component.runNavNodeAction(nodeMenuItem('Cut'));
+    await flushAsync();
 
     expect(clipboard.clipboard()!.nodes.map(n => n.content)).toEqual(['Answer one']);
     expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
@@ -2265,12 +2281,14 @@ describe('Chat', () => {
 
   it('deletes a single navbar node from its context menu (following text stays)', async () => {
     await openStory();
+    fixture.detectChanges(); // render the nav bar — it is the menu's host
     const confirm = TestBed.inject(ConfirmService);
     vi.spyOn(confirm, 'ask').mockResolvedValue(true);
     const a1 = chatService.nodes().find(n => n.id === 'a1')!;
     component.openNavNodeMenu(navMenuEvent(), a1);
 
     await component.runNavNodeAction(nodeMenuItem('Delete'));
+    await flushAsync();
 
     expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
     expect(chatService.deletedNodes().some(n => n.id === 'a1')).toBe(true);
@@ -2291,6 +2309,7 @@ describe('Chat', () => {
     const before = nodeMenuItem('Paste in front');
     expect(before.disabled).toBe(false);
     await component.runNavNodeAction(before);
+    await flushAsync();
 
     const byContent = (c: string) =>
       chatService.nodes().filter(n => n.content === c && n.isCurrent);
@@ -2320,6 +2339,7 @@ describe('Chat', () => {
     const after = nodeMenuItem('Paste behind');
     expect(after.disabled).toBe(false);
     await component.runNavNodeAction(after);
+    await flushAsync();
 
     const byContent = (c: string) =>
       chatService.nodes().filter(n => n.content === c && n.isCurrent);

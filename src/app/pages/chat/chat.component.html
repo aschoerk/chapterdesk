@@ -562,6 +562,7 @@
             (pasteAtTop)="pasteAtTop()"
             (pasteAfter)="pasteNavSelectionAfter($event)"
             (pasteBefore)="pasteNavSelectionBeforeId($event)"
+            (pasteChain)="pasteChainInto($event.mode, $event.leftId, $event.rightId)"
             (startBranch)="startBranchAt($event)"
             (switchSibling)="switchNavSibling($event.node, $event.dir)"
             (copyNode)="copyNavNodes($event)"
