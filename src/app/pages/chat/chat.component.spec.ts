@@ -190,114 +190,6 @@ describe('Chat', () => {
     metricsSpy.mockRestore();
   });
 
-  it('marks the node being edited with a dot in the node navbar', async () => {
-    await openStory();
-    fixture.detectChanges();
-    const editSession = TestBed.inject(NodeEditSession);
-    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
-    fixture.detectChanges();
-
-    const edited = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    const other = fixture.nativeElement.querySelector('[data-nav-id="q1"]') as HTMLElement;
-    expect(edited.querySelector('.nav-edit-dot')).not.toBeNull();
-    expect(edited.classList.contains('editing')).toBe(true);
-    expect(other.querySelector('.nav-edit-dot')).toBeNull();
-  });
-
-  it('falls back to the next visible navbar node when the frame node is excluded', async () => {
-    await openStory();
-    fixture.detectChanges();
-    await chatService.patchNode('chat-1', 'q1', { excludeFromContext: true, excludeAfterSend: false });
-    component.visibleNodeId.set('q1');
-    fixture.detectChanges();
-
-    // q1 is excluded → hidden from the navbar; the "current" frame falls to
-    // the next visible node (a1) instead of disappearing.
-    expect((component as any).isNearViewport('a1')).toBe(true);
-    expect((component as any).isNearViewport('q1')).toBe(false);
-    const frame = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    expect(frame.classList.contains('active')).toBe(true);
-    expect(fixture.nativeElement.querySelector('[data-nav-id="q1"]')).toBeNull();
-  });
-
-  it('marks the edited node as the current (frame) node in the navbar', async () => {
-    await openStory();
-    fixture.detectChanges();
-    const editSession = TestBed.inject(NodeEditSession);
-    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
-    fixture.detectChanges();
-
-    const edited = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    expect((component as any).isNearViewport('a1')).toBe(true);
-    expect(edited.classList.contains('active')).toBe(true);
-    expect(edited.querySelector('.nav-edit-dot')).not.toBeNull();
-    expect(edited.classList.contains('editing')).toBe(true);
-  });
-
-  it('falls back to the next visible navbar node while the edited node is excluded', async () => {
-    await openStory();
-    fixture.detectChanges();
-    await chatService.patchNode('chat-1', 'q1', { excludeFromContext: true, excludeAfterSend: false });
-    const editSession = TestBed.inject(NodeEditSession);
-    await editSession.begin({ chatId: 'chat-1', nodeId: 'q1', text: 'Question', attachments: [] });
-    fixture.detectChanges();
-
-    // The excluded edited node carries no mark in the navbar — both the frame
-    // and the edit point fall to the next visible node (a1).
-    expect((component as any).isNavNodeBeingEdited('a1')).toBe(true);
-    expect((component as any).isNavNodeBeingEdited('q1')).toBe(false);
-    expect((component as any).isNearViewport('a1')).toBe(true);
-
-    const next = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    expect(next.querySelector('.nav-edit-dot')).not.toBeNull();
-    expect(next.classList.contains('editing')).toBe(true);
-    expect(next.classList.contains('active')).toBe(true);
-  });
-
-  it('keeps excluded nodes that have siblings in the navbar so branches stay visible', async () => {
-    await openStory(); // q1 → a1 (active), a2 is a sibling of a1
-    fixture.detectChanges();
-    await chatService.patchNode('chat-1', 'a1', { excludeFromContext: true, excludeAfterSend: false });
-    component.visibleNodeId.set('a1');
-    fixture.detectChanges();
-
-    // a1 is excluded but has a sibling (a2) → it STAYS a visible nav node and
-    // carries the "current" frame itself (no fallback to the next node).
-    const a1 = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    expect(a1).not.toBeNull();
-    expect((component as any).isNearViewport('a1')).toBe(true);
-    expect((component as any).isNearViewport('a2')).toBe(false);
-    expect(a1.classList.contains('active')).toBe(true);
-    // The branch indicator stays visible on the active nav node (1/2), so the
-    // branch structure is not concealed by the exclusion.
-    const badge = a1.querySelector('.nav-branch-count');
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent).toContain('1');
-    expect(badge!.textContent).toContain('2');
-    // a2 is a NON-active sibling: it is not a nav node itself.
-    expect(fixture.nativeElement.querySelector('[data-nav-id="a2"]')).toBeNull();
-  });
-
-  it('keeps the mark on an excluded node that has siblings while it is edited', async () => {
-    await openStory(); // a1 has sibling a2
-    fixture.detectChanges();
-    await chatService.patchNode('chat-1', 'a1', { excludeFromContext: true, excludeAfterSend: false });
-    const editSession = TestBed.inject(NodeEditSession);
-    await editSession.begin({ chatId: 'chat-1', nodeId: 'a1', text: 'Answer one', attachments: [] });
-    fixture.detectChanges();
-
-    // a1 is visible in the navbar (has siblings) → both the edit point and the
-    // frame stay ON a1 instead of falling to a2.
-    const a1 = fixture.nativeElement.querySelector('[data-nav-id="a1"]') as HTMLElement;
-    expect(a1).not.toBeNull();
-    expect((component as any).isNavNodeBeingEdited('a1')).toBe(true);
-    expect((component as any).isNavNodeBeingEdited('a2')).toBe(false);
-    expect((component as any).isNearViewport('a1')).toBe(true);
-    expect(a1.querySelector('.nav-edit-dot')).not.toBeNull();
-    expect(a1.classList.contains('editing')).toBe(true);
-    expect(a1.classList.contains('active')).toBe(true);
-  });
-
   /** Seed a story with two assistant answers and make it the active chat.
    *  Explicit EQUAL timestamps keep `newestChild` deterministic (a1): with
    *  `now()`-derived stamps the millisecond can tick between the a1/a2 seeds,
@@ -1597,73 +1489,6 @@ describe('Chat', () => {
   // Navbar multi-selection (Ctrl+click / Ctrl+drag / copy-cut-delete / paste-after)
   // ----------------------------------------------------------------------
 
-  function ctrlPointerEvent(overrides: Partial<PointerEvent> = {}): PointerEvent {
-    return {
-      ctrlKey: true,
-      metaKey: false,
-      shiftKey: false,
-      altKey: false,
-      button: 0,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-      ...overrides
-    } as unknown as PointerEvent;
-  }
-
-  it('toggles navbar selection on plain Ctrl+click', async () => {
-    await openStory(); // active path ids: q1, a1
-    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-
-    component.onNavPointerDown(ctrlPointerEvent(), a1);
-    expect(component.isNavNodeSelected('a1')).toBe(false); // decided on pointer-up
-    component.onNavDocumentPointerUp(ctrlPointerEvent());
-    expect(component.isNavNodeSelected('a1')).toBe(true);
-
-    // second Ctrl+click deselects
-    component.onNavPointerDown(ctrlPointerEvent(), a1);
-    component.onNavDocumentPointerUp(ctrlPointerEvent());
-    expect(component.isNavNodeSelected('a1')).toBe(false);
-  });
-
-  it('selects a range with Ctrl+drag in navbar order', async () => {
-    await openStory();
-    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
-    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-
-    component.onNavPointerDown(ctrlPointerEvent(), q1);
-    component.onNavPointerEnter(a1); // drag continues onto the next nav node
-    expect(component.isNavNodeSelected('q1')).toBe(true);
-    expect(component.isNavNodeSelected('a1')).toBe(true);
-    component.onNavDocumentPointerUp(ctrlPointerEvent());
-    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
-  });
-
-  it('never selects the empty terminal direction node in the navbar', async () => {
-    await openStory(); // path: q1 → a1 → [empty draft direction]
-    const q1 = chatService.nodes().find(n => n.id === 'q1')!;
-    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-    const draft = chatService.getActivePath().at(-1)!;
-    expect(chatService.isDraftQuestion(draft)).toBe(true);
-
-    // plain toggle on the empty terminal direction → ignored
-    component.toggleNavSelection(draft.id);
-    expect(component.navSelectedIds()).toEqual([]);
-
-    // Ctrl+click on it → no selection starts either
-    component.onNavPointerDown(ctrlPointerEvent(), draft);
-    expect(component.navSelectedIds()).toEqual([]);
-    component.onNavDocumentPointerUp(ctrlPointerEvent());
-    expect(component.navSelectedIds()).toEqual([]);
-
-    // Ctrl+drag down to the draft excludes the draft from the range
-    component.onNavPointerDown(ctrlPointerEvent(), q1);
-    component.onNavPointerEnter(draft);
-    expect(component.isNavNodeSelected(draft.id)).toBe(false);
-    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
-    component.onNavDocumentPointerUp(ctrlPointerEvent());
-    expect(component.navSelectedIds()).toEqual(['q1', 'a1']);
-  });
-
   it('copies the selected nodes as an ordered sequence', async () => {
     await openStory();
     const clipboard = TestBed.inject(NodeClipboardService);
@@ -2153,30 +1978,6 @@ describe('Chat', () => {
    *  (fire-and-forget) — yield a macrotask so their promise chains settle. */
   const flushAsync = () => new Promise<void>(resolve => setTimeout(resolve));
 
-  it('opens the navbar-node context menu (sibling switch + selection + copy/cut/delete)', async () => {
-    await openStory(); // a1 and a2 are siblings under q1; active = a1
-    fixture.detectChanges(); // render the nav bar — it is the menu's host
-    TestBed.inject(NodeClipboardService).clear(); // this assertion expects an EMPTY clipboard
-    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-    component.openNavNodeMenu(navMenuEvent(120, 80), a1);
-
-    expect(component.navNodeMenu()).not.toBeNull();
-    expect(component.navNodeMenu()!.nodeId).toBe('a1');
-    expect(component.navNodeMenuLeftPx()).toBeGreaterThanOrEqual(8);
-    expect(component.navNodeMenuTopPx()).toBeGreaterThanOrEqual(8);
-
-    const items = nodeMenuItems();
-    expect(nodeMenuItem('Previous continuation')).toBeDefined();
-    expect(nodeMenuItem('Next continuation')).toBeDefined();
-    expect(nodeMenuItem('Select')).toBeDefined();
-    // clipboard empty → no paste group
-    expect(items.some(i => i.label.includes('Paste'))).toBe(false);
-    // destructive last
-    const deleteIdx = items.findIndex(i => i.label === 'Delete');
-    const copyIdx = items.findIndex(i => i.label === 'Copy');
-    expect(deleteIdx).toBeGreaterThan(copyIdx);
-  });
-
   it('switches to a sibling continuation from the navbar-node menu', async () => {
     await openStory(); // siblings under q1: a1 (active), a2
     fixture.detectChanges();
@@ -2229,25 +2030,6 @@ describe('Chat', () => {
     // same parent as a1 → branch sits in parallel, and the path picks it up
     expect(draft!.parentId).toBe(a1.parentId);
     expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', draft!.id]);
-  });
-
-  it('selects / unselects a navbar node from its context menu', async () => {
-    await openStory();
-    fixture.detectChanges();
-    const a1 = chatService.nodes().find(n => n.id === 'a1')!;
-    const open = () => component.openNavNodeMenu(navMenuEvent(), a1);
-
-    open();
-    expect(nodeMenuItems().some(i => i.label === 'Select')).toBe(true);
-    expect(nodeMenuItems().some(i => i.label === 'Unselect')).toBe(false);
-    component.runNavNodeAction(nodeMenuItem('Select'));
-    expect(component.isNavNodeSelected('a1')).toBe(true);
-
-    open();
-    expect(nodeMenuItems().some(i => i.label === 'Select')).toBe(false);
-    expect(nodeMenuItems().some(i => i.label === 'Unselect')).toBe(true);
-    component.runNavNodeAction(nodeMenuItem('Unselect'));
-    expect(component.isNavNodeSelected('a1')).toBe(false);
   });
 
   it('copies a single navbar node from its context menu', async () => {
@@ -2380,64 +2162,6 @@ describe('Chat', () => {
   // ----------------------------------------------------------------------
   // Node-nav-bar vertical separator (resizable height)
   // ----------------------------------------------------------------------
-
-  it('renders a vertical separator between the node-nav-bar and the tree', async () => {
-    await openChapteredStory();
-    fixture.detectChanges();
-
-    const resizer = fixture.nativeElement.querySelector('.nav-resizer') as HTMLElement;
-    expect(resizer).not.toBeNull();
-    expect(resizer.getAttribute('title')).toContain('resize');
-    // The nav bar itself is above the separator which is above the tree.
-    const nav = fixture.nativeElement.querySelector('.node-nav-bar') as HTMLElement;
-    const tree = fixture.nativeElement.querySelector('.tree') as HTMLElement;
-    expect(nav.compareDocumentPosition(resizer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(resizer.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('grows the node-nav-bar when the separator is dragged down', async () => {
-    await openChapteredStory();
-    fixture.detectChanges();
-    localStorage.removeItem('chat-client.navbar.height.chat-1');
-
-    expect(component.navBarHeight()).toBeNull(); // default height by default
-    component.startNavResize({
-      button: 0, clientX: 0, clientY: 100, preventDefault: vi.fn(), stopPropagation: vi.fn(),
-    } as unknown as PointerEvent);
-    expect(component.isNavResizing()).toBe(true);
-
-    // move down by 60px → the height grows beyond the min of 40
-    (component as unknown as { onNavResizePointerMove: (e: { clientY: number; preventDefault: () => void }) => void })
-      .onNavResizePointerMove({ clientY: 160, preventDefault: vi.fn() });
-
-    const grown = component.navBarHeight();
-    expect(grown).toBeGreaterThan(40);
-
-    (component as unknown as { onNavResizePointerUp: () => void }).onNavResizePointerUp();
-    expect(component.isNavResizing()).toBe(false);
-    // the applied height is persisted PER-CHAT (the current chat is chat-1)
-    expect(Number(localStorage.getItem('chat-client.navbar.height.chat-1'))).toBe(grown);
-  });
-
-  it('clamps the nav-bar height and restores auto height on double-click', async () => {
-    await openChapteredStory();
-    fixture.detectChanges();
-
-    // Drag far down → clamped to the max (320).
-    component.startNavResize({
-      button: 0, clientX: 0, clientY: 100, preventDefault: vi.fn(), stopPropagation: vi.fn(),
-    } as unknown as PointerEvent);
-    const move = (component as unknown as { onNavResizePointerMove: (e: { clientY: number; preventDefault: () => void }) => void })
-      .onNavResizePointerMove;
-    move({ clientY: 10000, preventDefault: vi.fn() });
-    expect(component.navBarHeight()).toBeLessThanOrEqual(320);
-
-    // Double-click on the separator → automatic (content-sized) height.
-    component.resetNavBarHeight();
-    expect(component.navBarHeight()).toBeNull();
-    // the per-chat override is removed (default handling restored)
-    expect(localStorage.getItem('chat-client.navbar.height.chat-1')).toBeNull();
-  });
 
   it('re-applies the per-chat nav-bar height on chat switch (no empty lines across chats)', async () => {
     seedApi(api, {

@@ -149,39 +149,11 @@ export class ChatComponent implements OnInit {
    *  path). Owned by ChatNavSelectionService — re-exported so the template /
    *  tests keep reading `component.navSelectedIds()`. */
   readonly navSelectedIds = this.navSelection.selectedIds;
-  readonly navHasSelection = this.navSelection.hasSelection;
   /** Navbar node currently under the pointer — target for Ctrl+V paste. */
   readonly navClipboardTargetId = this.navSelection.clipboardTargetId;
 
   isNavNodeSelected(id: string): boolean {
     return this.navSelection.isSelected(id);
-  }
-
-  isNavNodeBeingEdited(id: string): boolean {
-    const editingId = this.editSession.editingNodeId();
-    if (editingId === null) return false;
-    return this.navMarkFallback(editingId) === id;
-  }
-
-  /** Map a target node id to the VISIBLE navbar node that should carry its
-   *  mark. Hidden nodes (excluded from context AND not part of a branch) are
-   *  absent from the navbar, so their mark (the "being edited" point, the
-   *  "current" frame) falls to the next visible node — or is dropped when
-   *  there is none. Excluded nodes with siblings stay visible and keep their
-   *  own mark. */
-  private navMarkFallback(id: string | null): string | null {
-    if (!id) return null;
-    const path = this.getActivePath();
-    const i = path.findIndex(n => n.id === id);
-    if (i < 0) return null;
-    for (let k = i; k < path.length; k++) {
-      if (this.isNavVisible(path[k])) return path[k].id;
-    }
-    return null;
-  }
-
-  private navNodeIndex(nodeId: string): number {
-    return this.getActivePath().findIndex(n => n.id === nodeId);
   }
 
   /** The empty "direction" node at the very end of the active path — the
@@ -190,36 +162,6 @@ export class ChatComponent implements OnInit {
    *  `ChatNavMenuService` (which needs the same predicate for the menus). */
   private isLastEmptyDirection(nodeId: string): boolean {
     return this.navMenu.isLastEmptyDirection(nodeId);
-  }
-
-  onNavPointerDown(event: PointerEvent, node: ChatNode): void {
-    if (!(event.ctrlKey || event.metaKey)) return;
-    if (this.isLastEmptyDirection(node.id)) return;
-    event.preventDefault();
-    this.navSelection.beginDrag();
-    this.navSelection.setDragAnchor(this.navNodeIndex(node.id));
-  }
-
-  /** Fires on pointer-entering a nav node — extends a ctrl+drag and tracks hover. */
-  onNavPointerEnter(node: ChatNode): void {
-    this.navSelection.enterNode(
-      node,
-      this.navNodeIndex(node.id),
-      this.getActivePath(),
-      (id) => this.isLastEmptyDirection(id)
-    );
-  }
-
-  onNavPointerLeave(): void {
-    this.navSelection.leaveNode();
-  }
-
-  @HostListener('document:pointerup', ['$event'])
-  onNavDocumentPointerUp(_event: PointerEvent): void {
-    this.navSelection.endDrag(
-      this.getActivePath(),
-      (id) => this.isLastEmptyDirection(id)
-    );
   }
 
   toggleNavSelection(id: string): void {
@@ -424,14 +366,6 @@ export class ChatComponent implements OnInit {
     this.navMenu.closeNodeMenu();
   }
 
-  navNodeMenuLeftPx(): number {
-    return this.navMenu.nodeMenuLeftPx();
-  }
-
-  navNodeMenuTopPx(): number {
-    return this.navMenu.nodeMenuTopPx();
-  }
-
   navNodeMenuItems(): NavMenuEntry[] {
     return this.navMenu.nodeMenuItems();
   }
@@ -572,7 +506,6 @@ export class ChatComponent implements OnInit {
   readonly isResizing = this.layoutPrefs.isResizing;
   readonly sidebarCollapsed = this.layoutPrefs.sidebarCollapsed;
   readonly navBarHeight = this.layoutPrefs.navBarHeight;
-  readonly isNavResizing = this.layoutPrefs.isNavResizing;
   readonly showChatParams = signal(false);
   readonly chatParamsOverride = signal(false);
   readonly chatParamsDraft = signal<ChatParametersDraft>(emptyParametersDraft());
@@ -639,35 +572,6 @@ export class ChatComponent implements OnInit {
   /** The extracted nav bar — it owns the bar element now; the page forwards
    *  the resizer drag and the auto-scroll to it (stage 1 of the extraction). */
   private readonly navBar = viewChild(ChatNavBarComponent);
-
-  /** Nav-bar pointer-move delegate — a property so the resize specs can drive
-   *  it directly (like the pre-extraction component). */
-  private readonly onNavResizePointerMove =
-    (e: { clientY: number; preventDefault: () => void }) => this.layoutPrefs.onNavResizePointerMove(e);
-
-  private readonly onNavResizePointerUp = () => this.layoutPrefs.endNavResize();
-
-  startNavResize(event: PointerEvent) {
-    // The bar element (and its baseline height) live in the extracted component.
-    this.navBar()?.startNavResize(event);
-  }
-
-  endNavResize() {
-    this.layoutPrefs.endNavResize();
-  }
-
-  /** Double-click on the separator → restore the DEFAULT handling for the
-   *  current chat (auto height: content-sized, max 4 lines, scroll to marked). */
-  resetNavBarHeight() {
-    this.layoutPrefs.resetNavBarHeight();
-  }
-
-  /** Default handling — keep the marked node's line visible inside the nav
-   *  bar's OWN scroll area (the 4-line cap). The bar lives in the extracted
-   *  component now — forward to it. */
-  private scrollNavBarToMarked(markedId: string | null): void {
-    this.navBar()?.scrollNavBarToMarked(markedId);
-  }
 
   // ------------------------------------------- paced reading: position host
 
@@ -1013,7 +917,7 @@ export class ChatComponent implements OnInit {
       const markedId = this.visibleNodeId();
       this.getActivePath();
       this.navBarHeight();
-      this.scrollNavBarToMarked(markedId);
+      this.navBar()?.scrollNavBarToMarked(markedId);
     });
   }
 
@@ -1052,18 +956,6 @@ export class ChatComponent implements OnInit {
 
     const saved = this.chatService.getSavedScroll(chatId);
     tree.scrollTop = saved ?? 0;
-  }
-
-  protected isNearViewport(id: string): boolean {
-    // While a node is being edited it is the "current" node: its frame is
-    // shown in the navbar even when it was excluded (the flag is cleared as
-    // soon as editing starts, but this also covers the instant before the
-    // patch lands). Otherwise the frame follows the node scrolled to top.
-    const editingId = this.editSession.editingNodeId();
-    if (editingId !== null) {
-      return this.navMarkFallback(editingId) === id;
-    }
-    return this.navMarkFallback(this.visibleNodeId()) === id;
   }
 
   private syncVisibleNode(): void {
@@ -1282,13 +1174,6 @@ export class ChatComponent implements OnInit {
     this.showMarks.set(false);
   }
 
-  getSiblingIndex(node: ChatNode): number {
-    const siblings = this.getChildren(node.parentId);
-    const idx = siblings.findIndex(s => s.id === node.id);
-    return idx >= 0 ? idx + 1 : 1;
-  }
-
-
   @HostListener('window:keydown', ['$event'])
   onKey(event: KeyboardEvent) {
     // Escape closes the elaborate dialog (same as its Cancel button).
@@ -1416,13 +1301,6 @@ export class ChatComponent implements OnInit {
 
 // just delegate
   getActivePath()          { return this.chatService.getActivePath(); }
-
-  /** A node appears in the navbar when it is included in the model context,
-   *  or when it is excluded but has siblings — hiding the latter would make
-   *  the branch structure unclear. */
-  private isNavVisible(n: ChatNode): boolean {
-    return !n.excludeFromContext || this.getChildren(n.parentId ?? null).length > 1;
-  }
 
   getActiveChildId(pid: string | null)    { return this.chatService.getActiveChildId(pid); }
   setActiveChild(pid: string | null, cid: string) { this.chatService.setActiveChild(pid, cid); }
