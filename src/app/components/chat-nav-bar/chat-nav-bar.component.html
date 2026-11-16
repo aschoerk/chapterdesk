@@ -6,7 +6,7 @@
   @if (navHasSelection()) {
     <div class="nav-tools">
       <span class="nav-selection-info">
-        {{ i18n.t('node.selectedCount', { n: navSelectedIds().length }) }}
+        {{ i18n.t('node.selectedCount', { n: navSelectedIds().length, chapters: selectedAssistantCount() }) }}
       </span>
       <button class="btn small" type="button" (click)="copyNavSelection()"
               [title]="i18n.t('node.copySelectedTitle')">
@@ -37,6 +37,15 @@
                 [title]="i18n.t('chat.pasteAtTopTitle')">
           {{ i18n.t('chat.pasteAtTop') }}
         </button>
+      }
+      @if (selectionWords().subtree > 0) {
+        <span class="nav-selection-words">
+          @if (isSingleSelection()) {
+            {{ i18n.t('node.selectedWordsNodeSubtree', { node: selectionWords().node, subtree: selectionWords().subtree }) }}
+          } @else {
+            {{ i18n.t('node.selectedWordsChain', { words: selectionWords().subtree }) }}
+          }
+        </span>
       }
     </div>
   }

@@ -444,7 +444,7 @@ describe('ChatNavBarComponent', () => {
 
     const tools = fixture.nativeElement.querySelector('.nav-tools') as HTMLElement;
     expect(tools).not.toBeNull();
-    expect(tools.textContent).toContain(i18n.t('node.selectedCount', { n: 2 }));
+    expect(tools.textContent).toContain(i18n.t('node.selectedCount', { n: 2, chapters: 1 }));
 
     const copies: number[] = [];
     const cuts: number[] = [];
@@ -460,6 +460,95 @@ describe('ChatNavBarComponent', () => {
     expect(copies).toHaveLength(1);
     expect(cuts).toHaveLength(1);
     expect(deletes).toHaveLength(1);
+  });
+
+  // ------------------------------------------------------------------
+  // Selection word counts (single node vs. chain)
+  // ------------------------------------------------------------------
+
+  describe('selection word counts', () => {
+    /** Seed q1 → a1 → q2 → a2, each with distinct word counts. */
+    async function seedStory(): Promise<void> {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'one two three' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'alpha beta' }),
+        node({ id: 'q2', parentId: 'a1', role: 'user', content: 'gamma delta epsilon' }),
+        node({ id: 'a2', parentId: 'q2', role: 'assistant', content: 'zeta' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'q2');
+      chatService.setActiveChild('q2', 'a2');
+      createBar(chatService.getActivePath());
+    }
+
+    function wordsEl(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.nav-selection-words') as HTMLElement | null;
+    }
+
+    it('single node: shows the node words and its whole subtree words (assistant-only)', async () => {
+      await seedStory();
+      component.toggleNavSelection('q2');
+      fixture.detectChanges();
+
+      // q2 is a direction → its own count is 0; its subtree's only assistant
+      // (a2) = 1 word.
+      expect(component.selectedAssistantCount()).toBe(0);
+      expect(component.selectionWords()).toEqual({ node: 0, subtree: 1 });
+      expect(wordsEl()).not.toBeNull();
+      expect(wordsEl()!.textContent).toContain(
+        i18n.t('node.selectedWordsNodeSubtree', { node: 0, subtree: 1 }),
+      );
+
+      // A single CHAPTER selection counts its own words + subtree chapters.
+      component.toggleNavSelection('q2');
+      component.toggleNavSelection('a2');
+      fixture.detectChanges();
+      expect(component.selectedAssistantCount()).toBe(1);
+      expect(component.selectionWords()).toEqual({ node: 1, subtree: 1 });
+    });
+
+    it('chain (multi-select): counts only the assistant nodes WITHIN the selected chain', async () => {
+      await seedStory();
+      component.toggleNavSelection('q1');
+      component.toggleNavSelection('a1');
+      component.toggleNavSelection('q2');
+      component.toggleNavSelection('a2');
+      fixture.detectChanges();
+
+      // The selected chain contains 2 assistant nodes (a1=2, a2=1) = 3 words;
+      // directions do not count and deeper subtrees are NOT included.
+      expect(component.selectedAssistantCount()).toBe(2);
+      expect(component.isSingleSelection()).toBe(false);
+      expect(component.selectionWords()).toEqual({ node: 0, subtree: 3 });
+      expect(wordsEl()).not.toBeNull();
+      expect(wordsEl()!.textContent).toContain(
+        i18n.t('node.selectedWordsChain', { words: 3 }),
+      );
+    });
+
+    it('chain stopping short of the first node subtree: counts only the selected assistants', async () => {
+      await seedStory();
+      // Select q1 → a1 only. a1 HAS a child subtree (q2 → a2, with assistant
+      // a2=1 word) but it is NOT part of the selection — only a1's own words
+      // (2) may count.
+      component.toggleNavSelection('q1');
+      component.toggleNavSelection('a1');
+      fixture.detectChanges();
+
+      expect(component.isSingleSelection()).toBe(false);
+      expect(component.selectedAssistantCount()).toBe(1);
+      expect(component.selectionWords()).toEqual({ node: 0, subtree: 2 });
+      expect(wordsEl()).not.toBeNull();
+      expect(wordsEl()!.textContent).toContain(
+        i18n.t('node.selectedWordsChain', { words: 2 }),
+      );
+    });
+
+    it('shows no word-count element when the selection is empty', async () => {
+      await seedStory();
+      fixture.detectChanges();
+      expect(wordsEl()).toBeNull();
+    });
   });
 
   // ------------------------------------------------------------------

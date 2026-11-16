@@ -82,7 +82,6 @@ nav:
     - LLM Orchestration Test Plans: llm-orchestration/test-plans.md
     - LLM Orchestration Manual Testing: llm-orchestration/manual-testing.md
     - UX Playbooks: ux-playbooks.md
-    - Prompt Ideas: ideas/ideas.md
     - Spec Documentation:
       - Overview: specs/README.md
       - What the Specs Assert: specs/assertions.md

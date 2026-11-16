@@ -164,6 +164,13 @@ body.nav-resizing * {
   white-space: nowrap;
 }
 
+.nav-selection-words {
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}
+
 .nav-node.question .nav-badge { background: #dbeafe; color: #1e40af; }
 .nav-node.answer .nav-badge   { background: #dcfce7; color: #166534; }
 

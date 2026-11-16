@@ -503,6 +503,75 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
     return this.activePath().findIndex(n => n.id === nodeId);
   }
 
+  // ------------------------------------------------------------------
+  // Selection word counts (single node vs. whole selected chain)
+  // ------------------------------------------------------------------
+
+  /** Count words in a node's own content IF it is an assistant (chapter) node;
+   *  directions, structure and lore nodes do not count toward the story word
+   *  count. */
+  private wordsOfAssistant(node: ChatNode): number {
+    if (node.role !== 'assistant') return 0;
+    const t = (node.content ?? '').trim();
+    if (!t) return 0;
+    return t.split(/\s+/).filter(Boolean).length;
+  }
+
+  /** All current nodes in the subtree rooted at `rootId` (including root). */
+  private subtreeOf(rootId: string): ChatNode[] {
+    const all = this.chatService.nodes();
+    const out: ChatNode[] = [];
+    const walk = (id: string) => {
+      const n = all.find(x => x.id === id);
+      if (!n) return;
+      out.push(n);
+      all.filter(x => x.parentId === id).forEach(child => walk(child.id));
+    };
+    walk(rootId);
+    return out;
+  }
+
+  /** The selected nodes in active-path (top-first) order. */
+  private selectedOrderedNodes(): ChatNode[] {
+    const selected = new Set(this.navSelectedIds());
+    return this.activePath().filter(n => selected.has(n.id));
+  }
+
+  /**
+   * Word-count summary for the current selection, shown in the nav tools row.
+   * Counts ONLY assistant (chapter) nodes — directions, structure and lore do
+   * not contribute words.
+   *   - single node → its own words (0 unless it is a chapter) AND its whole
+   *     subtree's chapter words.
+   *   - a chain (multi-select) → ONLY the chapter words of the assistant nodes
+   *     WITHIN the selected chain itself (the selected nodes), NOT the words
+   *     of their deeper subtrees.
+   * Reactive: re-reads the selection ids and the active path.
+   */
+  readonly selectionWords = computed<{ node: number; subtree: number }>(() => {
+    this.navSelectedIds();
+    this.activePath();
+    const path = this.selectedOrderedNodes();
+    if (path.length === 0) return { node: 0, subtree: 0 };
+    if (path.length === 1) {
+      const root = path[0];
+      const subtree = this.subtreeOf(root.id);
+      const words = subtree.reduce((sum, n) => sum + this.wordsOfAssistant(n), 0);
+      return { node: this.wordsOfAssistant(root), subtree: words };
+    }
+    // Chain: words of the assistant nodes within the SELECTED chain only.
+    const words = path.reduce((sum, n) => sum + this.wordsOfAssistant(n), 0);
+    return { node: 0, subtree: words };
+  });
+
+  /** True when exactly one nav node is selected (single-node display). */
+  readonly isSingleSelection = computed(() => this.selectedOrderedNodes().length === 1);
+
+  /** Number of assistant (chapter) nodes among the selected nodes. */
+  readonly selectedAssistantCount = computed(() =>
+    this.selectedOrderedNodes().filter(n => n.role === 'assistant').length,
+  );
+
   /** The empty "direction" node at the very end of the active path. */
   private isLastEmptyDirection(nodeId: string): boolean {
     return this.navMenu.isLastEmptyDirection(nodeId);
