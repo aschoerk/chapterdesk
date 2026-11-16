@@ -58,6 +58,8 @@ nav:
   - User Manual:
     - Manuals: manuals/index.md
     - Getting Started: manuals/manual-welcome.md
+    - From Microsoft Word to ChapterDesk: manuals/manual-from-word.md
+    - Making ChapterDesk Easier to Explain: manuals/manual-from-word-proposals.md
     - Write Your First Chapter: manuals/manual-new-story.md
     - Read Your Story as a Book: manuals/manual-reader.md
     - Books (Environments) and Moving Stories: manuals/manual-environments.md
