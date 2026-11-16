@@ -6,14 +6,14 @@
 
 ## Playbook Index
 
-1. [Onboarding & Time-to-First-Chapter](#1-onboarding--time-to-first-chapter)
+1. [Onboarding & Time-to-First-Chapter](#1-onboarding-time-to-first-chapter)
 2. [Core Story Steering Loop](#2-core-story-steering-loop)
 3. [Organization: Topics, Environments, Personas](#3-organization-topics-environments-personas)
-4. [Settings, Providers & Trust](#4-settings-providers--trust)
-5. [Navigation, Continuity & Book View](#5-navigation-continuity--book-view)
-6. [Illustration & Multimodal Moments](#6-illustration--multimodal-moments)
-7. [Accessibility, Language & Appearance](#7-accessibility-language--appearance)
-8. [Error Recovery & Confidence](#8-error-recovery--confidence)
+4. [Settings, Providers & Trust](#4-settings-providers-trust)
+5. [Navigation, Continuity & Book View](#5-navigation-continuity-book-view)
+6. [Illustration & Multimodal Moments](#6-illustration-multimodal-moments)
+7. [Accessibility, Language & Appearance](#7-accessibility-language-appearance)
+8. [Error Recovery & Confidence](#8-error-recovery-confidence)
 
 ---
 
