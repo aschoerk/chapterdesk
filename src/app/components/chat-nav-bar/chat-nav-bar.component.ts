@@ -33,12 +33,6 @@ import { ChatNavMenuService, type ChatNavMenuActions, type ChatNavMenuHost, type
  * paste) because they touch the chat service, clipboard and dialogs — the
  * component emits them upward instead of performing them.
  */
-/**
- * How long a manual scroll gesture over the nav bar suppresses the auto-scroll
- * (`scrollNavBarToMarked`). While the user wheels / touches the bar itself
- * (which then spills over to the tree), the auto-scroll must not fight them.
- */
-const NAV_SCROLL_SUPPRESS_MS = 400;
 
 @Component({
   selector: 'app-chat-nav-bar',
@@ -158,6 +152,17 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     // This bar is the menu's HOST: the selection ops run here, the tree
     // mutations are emitted to the page (see `ChatNavMenuHost` below).
     this.navMenu.bind(this);
+    // The user-scroll detector: a wheel/touch gesture ANYWHERE decides whether
+    // the user is scrolling the NAV BAR (event target inside it → suppress the
+    // auto-scroll) or the CHAT-NODE area / anything else (→ re-anchor, so the
+    // bar follows the tree again). Capture phase so it runs before the tree
+    // handles the event.
+    document.addEventListener('wheel', this.onDocumentUserGesture, { passive: true, capture: true });
+    document.addEventListener('touchmove', this.onDocumentUserGesture, { passive: true, capture: true });
+    this.documentGestureCleanup = () => {
+      document.removeEventListener('wheel', this.onDocumentUserGesture, { capture: true } as any);
+      document.removeEventListener('touchmove', this.onDocumentUserGesture, { capture: true } as any);
+    };
   }
 
   // ------------------------------------------------------------------
@@ -325,6 +330,9 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
   onNavNodeClick(event: MouseEvent, node: ChatNode): void {
     if (event.ctrlKey || event.metaKey) return;
+    // Clicking a nav node is a deliberate navigation — re-anchor the
+    // auto-scroll so the bar follows the clicked node.
+    this.navBarUserScrolled = false;
     this.scrollToNode.emit(node.id);
   }
 
@@ -556,17 +564,18 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    *
    * This is meant for the CHAT-NODE area: it runs when the TREE scrolls (or
    * the marks change), so the bar follows the story. It must NOT fight the
-   * user when they scroll the nav bar itself — a manual nav-bar scroll is
-   * suppressed for a short window so it is never immediately reverted.
+   * user when they scroll the nav bar itself — once the user manually scrolls
+   * the nav bar, the auto-scroll stays off until they scroll the tree again
+   * or click a nav node (a deliberate re-anchor).
    */
   scrollNavBarToMarked(): void {
     const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
     if (!bar) return;
     this.ensureNavBarGestureListener();
-    // The user just scrolled the nav bar by hand: don't fight them. The
-    // auto-scroll belongs to the chat-node area (the tree scroll), not to the
-    // nav bar's own scroll area.
-    if (Date.now() - this.lastUserNavGesture < NAV_SCROLL_SUPPRESS_MS) return;
+    // The user manually scrolled the nav bar: they have taken control of it.
+    // The auto-scroll belongs to the chat-node area (the tree scroll), not to
+    // the nav bar's own scroll area — so it stays off until re-anchored.
+    if (this.navBarUserScrolled) return;
     const els: HTMLElement[] = [];
     for (const navId of this.markedNavIds()) {
       let el: HTMLElement | null = null;
@@ -597,15 +606,29 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   // Manual nav-bar scroll suppression
   // ------------------------------------------------------------------
 
-  /** Timestamp of the last MANUAL scroll gesture over the nav bar. */
-  private lastUserNavGesture = 0;
+  /** True once the user manually scrolled the nav bar — the auto-scroll stays
+   *  off until the user scrolls the CHAT-NODE area (tree) or clicks a nav
+   *  node (re-anchor). */
+  private navBarUserScrolled = false;
   /** Cleanup for the nav-bar gesture listeners. */
   private navBarGestureCleanup: (() => void) | null = null;
+  /** Cleanup for the document-level gesture listeners. */
+  private documentGestureCleanup: (() => void) | null = null;
 
   /** The user is scrolling the nav bar by hand — remember it so the
-   *  auto-scroll does not immediately revert it. */
+   *  auto-scroll does not revert it. */
   private readonly onNavBarUserGesture = () => {
-    this.lastUserNavGesture = Date.now();
+    this.navBarUserScrolled = true;
+  };
+
+  /** Document-level gesture listener: decides whether the user is scrolling
+   *  the NAV BAR (event target inside it → suppress) or the CHAT-NODE area /
+   *  anything else (→ re-anchor the auto-scroll so the bar follows the tree
+   *  again). */
+  private readonly onDocumentUserGesture = (e: Event) => {
+    const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
+    const target = e.target as Node | null;
+    this.navBarUserScrolled = !!bar && !!target && bar.contains(target);
   };
 
   /** Attach ONE gesture listener to the nav bar's own scroll area. Gesture
@@ -627,6 +650,8 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   ngOnDestroy(): void {
     this.navBarGestureCleanup?.();
     this.navBarGestureCleanup = null;
+    this.documentGestureCleanup?.();
+    this.documentGestureCleanup = null;
   }
 
   // ------------------------------------------------------------------

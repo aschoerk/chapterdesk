@@ -476,7 +476,7 @@ describe('ChatNavBarComponent', () => {
       expect(bar.scrollTop).toBe(49); // moved up by 51 to bring the mark into view
     });
 
-    it('does NOT auto-scroll right after the user scrolled the nav bar', () => {
+    it('does NOT auto-scroll after the user scrolled the nav bar (persistent until re-anchor)', () => {
       const { bar } = barWithCutOffMark();
       // First call performs the auto-scroll AND attaches the gesture listener
       // (the page's effect calls it regularly, so it is always armed in the
@@ -484,12 +484,46 @@ describe('ChatNavBarComponent', () => {
       component.scrollNavBarToMarked();
       expect(bar.scrollTop).toBe(49);
 
-      // A manual wheel gesture over the bar suppresses the next auto-scroll.
+      // A manual wheel gesture over the bar suppresses the auto-scroll.
       bar.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }));
       const before = bar.scrollTop;
       component.scrollNavBarToMarked();
-
       expect(bar.scrollTop).toBe(before); // not reverted to the marked node
+
+      // It stays suppressed (no short window) — a later effect run still does
+      // not fight the user's manual position.
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(before);
+    });
+
+    it('re-anchors the auto-scroll when the user scrolls the tree (outside the bar)', () => {
+      const { bar } = barWithCutOffMark();
+      // Manual nav-bar scroll suppresses the auto-scroll.
+      bar.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }));
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(100); // suppressed — stays where the user left it
+
+      // A wheel gesture OUTSIDE the nav bar (the chat-node area) re-anchors.
+      const resizer = fixture.nativeElement.querySelector('.nav-resizer') as HTMLElement;
+      resizer.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }));
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(49); // follows the marked node again
+    });
+
+    it('re-anchors the auto-scroll when the user clicks a nav node', () => {
+      const { bar } = barWithCutOffMark();
+      // Manual nav-bar scroll suppresses the auto-scroll.
+      bar.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }));
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(100);
+
+      // Clicking a nav node is a deliberate navigation — re-anchor.
+      component.onNavNodeClick(
+        { ctrlKey: false, metaKey: false } as MouseEvent,
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+      );
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(49);
     });
   });
 
