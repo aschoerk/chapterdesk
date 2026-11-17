@@ -38,6 +38,7 @@ import {
 } from '../../core/chat/chat-nav-menu.service';
 import { ChatSearchService, type ChatSearchHost } from '../../core/chat/chat-search.service';
 import { ChatPacedReadService, type ChatPacedReadHost } from '../../core/chat/chat-paced-read.service';
+import { ChatNavActionsService } from '../../core/chat/chat-nav-actions.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -46,10 +47,10 @@ import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.
   imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent, ChatNavBarComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
-  // The navbar context menus + the search/name glue belong to THIS page
-  // (their actions touch its selection, tree and dialogs) — one instance per
-  // chat page, not app-wide.
-  providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService]
+  // The navbar context menus + the search/name glue + the navbar operations
+  // belong to THIS page (their actions touch its selection, tree and dialogs)
+  // — one instance per chat page, not app-wide.
+  providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService, ChatNavActionsService]
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
@@ -77,6 +78,8 @@ export class ChatComponent implements OnInit {
   private readonly elaborateDialog = inject(ChatElaborateDialogService);
   private readonly elaborateService = inject(ChatElaborateService);
   private readonly toast = inject(ToastService);
+  /** Navbar clipboard/branch operations — the page delegates to it below. */
+  private readonly navActions = inject(ChatNavActionsService);
   /** Search/replace + name dialogs glue — the page delegates to it below. */
   private readonly chatSearch = inject(ChatSearchService);
   /** Paced-reading glue (resume host, start-from-view, read-from-mark). */
@@ -210,44 +213,12 @@ export class ChatComponent implements OnInit {
     this.navSelection.clear();
   }
 
-  private selectedNavNodes(): ChatNode[] {
-    // Always derive in active-path (top-first) order so cut/delete reparent
-    // left-over children to the chain's topmost surviving ancestor.
-    return this.navSelection.selectedNodes(
-      this.getActivePath(),
-      (id) => this.isLastEmptyDirection(id)
-    );
-  }
-
   copyNavSelection(): void {
-    const nodes = this.selectedNavNodes();
-    if (!nodes.length) return;
-    this.clipboard.copySequence(nodes);
+    this.navActions.copyNavSelection();
   }
 
   async cutNavSelection(): Promise<void> {
-    const nodes = this.selectedNavNodes();
-    if (!nodes.length) return;
-    const hasPayload = nodes.some(
-      (n) => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
-    );
-    if (hasPayload) {
-      const ok = await this.confirm.ask({
-        title: this.i18n.t('node.cutSelectedAsk', { count: nodes.length }),
-        message: this.i18n.t('node.cutSelectedMsg', { count: nodes.length }),
-        confirmLabel: this.i18n.t('node.cutSelected'),
-        cancelLabel: this.i18n.t('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    try {
-      await this.clipboard.cutSequence(nodes);
-      this.clearNavSelection();
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.cutFailed', { error: err?.message || err }));
-    }
+    await this.navActions.cutNavSelection();
   }
 
   /**
@@ -266,49 +237,13 @@ export class ChatComponent implements OnInit {
    * subtree yields B → C → D in the new story and keeps A → B → C → E here.
    */
   async extractNavSelection(withVisibleSubtree = false): Promise<void> {
-    const nodes = this.selectedNavNodes();
-    if (!nodes.length) return;
-    const hasPayload = nodes.some(
-      (n) => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
-    );
-    if (hasPayload) {
-      const key = withVisibleSubtree ? 'extractSubtree' : 'extractSelected';
-      const ok = await this.confirm.ask({
-        title: this.i18n.t(`node.${key}Ask`, { count: nodes.length }),
-        message: this.i18n.t(`node.${key}Msg`, { count: nodes.length }),
-        confirmLabel: this.i18n.t(`node.${key}`),
-        cancelLabel: this.i18n.t('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    try {
-      const chat = await this.clipboard.extractSequence(nodes, { withVisibleSubtree });
-      this.clearNavSelection();
-      if (chat) {
-        this.toast.success(this.i18n.t('node.extractSelectedDone'));
-        await this.chatService.selectChat(chat.id);
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.extractFailed', { error: err?.message || err }));
-    }
+    await this.navActions.extractNavSelection(withVisibleSubtree);
   }
 
   /** Remove the selected chain (top-first) — left-over children are
    *  reparented to the chain's topmost surviving ancestor. */
   async deleteNavSelection(): Promise<void> {
-    const nodes = this.selectedNavNodes();
-    if (!nodes.length) return;
-    try {
-      for (const node of nodes) {
-        await this.chatService.deleteNode(node.chatId, node.id, { keepChildren: true });
-      }
-      this.clearNavSelection();
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.deleteSelectedFailed', { error: err?.message || err }));
-    }
+    await this.navActions.deleteNavSelection();
   }
 
   /** Paste the clipboard chain into the active path right between the node
@@ -317,49 +252,20 @@ export class ChatComponent implements OnInit {
    *  Ctrl+V on the hovered node). If the button belongs to the last visible
    *  node, the chain is appended behind it. */
   async pasteNavSelectionAfter(nodeId: string): Promise<void> {
-    const targets = this.navPasteTargets(nodeId);
-    if (!targets) return;
-    await this.pasteChain('insert', targets.leftId, targets.rightId);
+    await this.navActions.pasteNavSelectionAfter(nodeId);
   }
 
   /** The navbar paste button appears after this node only when pasting there
    *  is allowed (never left of the empty terminal direction node). */
   canPasteAfter(node: ChatNode): boolean {
-    return this.navPasteTargets(node.id) !== null;
+    return this.navActions.canPasteAfter(node);
   }
 
   /** Append the clipboard chain as a PARALLEL BRANCH under the left visible
    *  node (sibling of the right visible node) instead of splicing it into the
    *  visible chain. Only made visible when pasted at the very end. */
   async appendNavSelectionAfter(nodeId: string): Promise<void> {
-    const targets = this.navPasteTargets(nodeId);
-    if (!targets) return;
-    await this.pasteChain('append', targets.leftId, targets.rightId);
-  }
-
-  /** The two visible navbar nodes around a paste button: the node itself
-   *  (left) and the next visible node (right, or null when pasting at the end).
-   *  Excluded-from-context nodes are skipped — they are not shown in the nav-bar.
-   *  A delegate over `ChatNavMenuService` (it owns the paste-menu geometry). */
-  private navPasteTargets(nodeId: string): { leftId: string; rightId: string | null } | null {
-    return this.navMenu.pasteTargets(nodeId);
-  }
-
-  private async pasteChain(
-    mode: 'insert' | 'append',
-    leftId: string,
-    rightId: string | null,
-  ): Promise<void> {
-    try {
-      if (mode === 'insert') {
-        await this.clipboard.insertIntoPath(leftId, rightId);
-      } else {
-        await this.clipboard.appendIntoPath(leftId, rightId);
-      }
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.pasteFailed', { error: err?.message || err }));
-    }
+    await this.navActions.appendNavSelectionAfter(nodeId);
   }
 
   // ------------------------------------------------------------------
@@ -420,19 +326,13 @@ export class ChatComponent implements OnInit {
     leftId: string,
     rightId: string | null,
   ): Promise<void> {
-    return this.pasteChain(mode, leftId, rightId);
+    return this.navActions.pasteChainInto(mode, leftId, rightId);
   }
 
   /** Switch the active continuation at `node.parentId` to the previous/next
    *  sibling — the navbar equivalent of the node's branch switcher. */
   switchNavSibling(node: ChatNode, dir: -1 | 1): void {
-    const siblings = this.getChildren(node.parentId);
-    if (siblings.length < 2) return;
-    const anchorId = this.getActiveChildId(node.parentId) ?? node.id;
-    const idx = siblings.findIndex(s => s.id === anchorId);
-    const target = siblings[(idx + dir + siblings.length) % siblings.length];
-    if (!target) return;
-    this.setActiveChild(node.parentId, target.id);
+    this.navActions.switchNavSibling(node, dir);
   }
 
   /** Start a branch next to `node`: materialize an empty direction leaf with
@@ -440,99 +340,29 @@ export class ChatComponent implements OnInit {
    *  then picks up the new leaf as its next node — the navbar equivalent of
    *  typing a fresh continuation beside the current one. */
   async startBranchAt(node: ChatNode): Promise<void> {
-    const chatId = this.currentChatId();
-    if (!chatId) return;
-    const draft = await this.chatService.addNode(chatId, {
-      parentId: node.parentId,
-      role: 'user',
-      content: '',
-      modelId: node.modelId || undefined,
-      providerId: node.providerId || undefined,
-    });
-    this.setActiveChild(node.parentId, draft.id);
-  }
-
-  /** The nodes a navbar clipboard action targets: the whole selection when
-   *  the right-clicked node is part of one, otherwise just that node. */
-  private navActionNodes(node: ChatNode): ChatNode[] {
-    if (this.navSelectedIds().includes(node.id)) {
-      return this.selectedNavNodes();
-    }
-    return [node];
+    await this.navActions.startBranchAt(node);
   }
 
   copyNavNodes(node: ChatNode): void {
-    const nodes = this.navActionNodes(node);
-    if (!nodes.length) return;
-    this.clipboard.copySequence(nodes);
+    this.navActions.copyNavNodes(node);
   }
 
   async cutNavNodes(node: ChatNode): Promise<void> {
-    const nodes = this.navActionNodes(node);
-    if (!nodes.length) return;
-    const hasPayload = nodes.some(
-      n => !!n.content?.trim() || !!(n.attachments && n.attachments.length),
-    );
-    if (hasPayload) {
-      const ok = await this.confirm.ask({
-        title: this.i18n.t('node.cutSelectedAsk', { count: nodes.length }),
-        message: this.i18n.t('node.cutSelectedMsg', { count: nodes.length }),
-        confirmLabel: this.i18n.t('node.cutSelected'),
-        cancelLabel: this.i18n.t('common.cancel'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    try {
-      await this.clipboard.cutSequence(nodes);
-      this.clearNavSelection();
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.cutFailed', { error: err?.message || err }));
-    }
+    await this.navActions.cutNavNodes(node);
   }
 
   async deleteNavNodes(node: ChatNode): Promise<void> {
-    const nodes = this.navActionNodes(node);
-    if (!nodes.length) return;
-    const ok = await this.confirm.ask({
-      title: this.i18n.t('node.navDeleteAsk', { count: nodes.length }),
-      message: this.i18n.t('node.navDeleteMsg', { count: nodes.length }),
-      confirmLabel: this.i18n.t('node.deleteSelected'),
-      cancelLabel: this.i18n.t('common.cancel'),
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      for (const n of nodes) {
-        await this.chatService.deleteNode(n.chatId, n.id, { keepChildren: true });
-      }
-      this.clearNavSelection();
-    } catch (err: any) {
-      console.error(err);
-      alert(this.i18n.t('node.deleteSelectedFailed', { error: err?.message || err }));
-    }
-  }
-
-  /** Targets for pasting the clipboard IN FRONT OF `node` (between its
-   *  predecessor and the node), or null when not possible — no predecessor
-   *  (first visible node) or left of the terminal empty direction. A delegate
-   *  over `ChatNavMenuService`. */
-  private navPasteBeforeTargets(node: ChatNode): { leftId: string; rightId: string | null } | null {
-    return this.navMenu.pasteBeforeTargets(node);
+    await this.navActions.deleteNavNodes(node);
   }
 
   /** Paste the clipboard chain immediately BEFORE `node` in the active path. */
   async pasteNavSelectionBefore(node: ChatNode): Promise<void> {
-    const targets = this.navPasteBeforeTargets(node);
-    if (!targets) return;
-    await this.pasteChain('insert', targets.leftId, targets.rightId);
+    await this.navActions.pasteNavSelectionBefore(node);
   }
 
   /** `app-chat-nav-bar` emits the node ID — resolve it to the path node. */
   async pasteNavSelectionBeforeId(nodeId: string): Promise<void> {
-    const node = this.getActivePath().find(n => n.id === nodeId);
-    if (node) await this.pasteNavSelectionBefore(node);
+    await this.navActions.pasteNavSelectionBeforeId(nodeId);
   }
 
   private readonly router = inject(Router);
@@ -1043,34 +873,11 @@ export class ChatComponent implements OnInit {
       return;
     }
 
-    // Navbar multi-selection shortcuts (only when something is selected).
-    if (this.navSelectedIds().length > 0) {
-      if (ctrl && (event.key === 'c' || event.key === 'C')) {
-        event.preventDefault();
-        this.copyNavSelection();
-        return;
-      }
-      if (ctrl && (event.key === 'x' || event.key === 'X')) {
-        event.preventDefault();
-        this.cutNavSelection();
-        return;
-      }
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        this.deleteNavSelection();
-        return;
-      }
-    }
-
-    // Paste behind the navbar node under the pointer.
-    if (ctrl && (event.key === 'v' || event.key === 'V')) {
-      const targetId = this.navClipboardTargetId();
-      if (this.clipboard.hasContent() && targetId) {
-        event.preventDefault();
-        void this.pasteNavSelectionAfter(targetId);
-        return;
-      }
-    }
+    // Navbar clipboard shortcuts (copy/cut/delete the selection or the
+    // hovered node, Ctrl+V paste behind the hovered node) — delegated to
+    // ChatNavActionsService. It returns true when it consumed the event, and
+    // the page must not process it further.
+    if (this.navActions.onKey(event)) return;
 
     if (event.key === 'b' || event.key === 'B') {
       if (!this.currentChatId()) return;

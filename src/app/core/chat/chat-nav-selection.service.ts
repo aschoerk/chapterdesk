@@ -3,12 +3,12 @@ import type { ChatNode } from '../../models/chat';
 
 /**
  * Owns the navbar multi-selection state of the chat page (Ctrl+click /
- * Ctrl+drag over the active path plus the copy / cut / delete / paste of the
- * selected chain). Mirrors the small injectable state services
+ * Ctrl+drag over the active path). Mirrors the small injectable state services
  * (AttachmentClipboardService / LightboxService): the pure selection state and
- * the drag flow live here; the component feeds in the ACTIVE PATH (via
- * ChatService) and keeps the tree-modifying actions (copy / cut / delete /
- * paste) that operate on that state.
+ * the drag flow live here. The tree-modifying actions that operate on this
+ * state (copy / cut / delete / extract / paste, branch ops, the node-menu
+ * variants and the keyboard dispatch) live in `ChatNavActionsService`
+ * (`core/chat/chat-nav-actions.service.ts`).
  *
  * The selection is kept as a CONTIGUOUS CHAIN of visible nodes on the active
  * path — whatever toggling / dragging produces is normalised to the minimal
