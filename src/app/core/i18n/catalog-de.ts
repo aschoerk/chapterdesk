@@ -610,6 +610,7 @@ export const DE: typeof EN = {
     excludedTitle: 'Dieser Abschnitt dient nur zum Nachlesen — er wird dem Modell NICHT als Kontext geschickt und ist in der Navigationsleiste ausgeblendet.',
     loreArmedTitle: 'Lore — wird mit Ihrer nächsten Anweisung gesendet',
     loreDocumentedTitle: 'Lore — an dieser Stelle dokumentiert, wird nicht mehr mitgesendet',
+    navNodeSummary: '#{{index}}/{{total}} · {{percent}}% · {{words}}/{{totalWords}} Wörter · {{pages}}/{{totalPages}} Seiten',
     ctxChapterDescriptions: 'Kapitelbeschreibungen…',
     ctxRemove: 'Abschnitt entfernen',
     ctxDelete: 'Abschnitt & Folgetexte löschen',

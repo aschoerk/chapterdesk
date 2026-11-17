@@ -214,7 +214,9 @@ describe('ChatNavBarComponent', () => {
       expect(lore.classList.contains('lore-documented')).toBe(true);
       expect(lore.classList.contains('lore-armed')).toBe(false);
       expect(badgeText('lore1')).toBe('⟡');
-      expect(lore.getAttribute('title')).toBe(i18n.t('node.loreDocumentedTitle'));
+      // Hover title = summary line (position/percent/words) + the lore state.
+      expect(lore.getAttribute('title')).toContain(i18n.t('node.loreDocumentedTitle'));
+      expect(lore.getAttribute('title')).toMatch(/^#\d+\/\d+ · \d+%/);
     });
 
     it('shows the armed lore node emphasized with the ⟡ badge', async () => {
@@ -239,7 +241,8 @@ describe('ChatNavBarComponent', () => {
       expect(lore.classList.contains('lore-armed')).toBe(true);
       expect(lore.classList.contains('lore-documented')).toBe(false);
       expect(badgeText('lore1')).toBe('⟡');
-      expect(lore.getAttribute('title')).toBe(i18n.t('node.loreArmedTitle'));
+      expect(lore.getAttribute('title')).toContain(i18n.t('node.loreArmedTitle'));
+      expect(lore.getAttribute('title')).toMatch(/^#\d+\/\d+ · \d+%/);
     });
 
     it('hides identical lore repeats — only the first appearance is shown', async () => {
@@ -391,6 +394,56 @@ describe('ChatNavBarComponent', () => {
       expect(navNode('x').querySelector('.nav-edit-dot')).not.toBeNull();
       expect(navNode('x').classList.contains('active')).toBe(true);
       expect(navNode('b')).toBeNull(); // the non-active sibling is not a nav node
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Hover summary (position in the visible chain, percent, words/pages)
+  // ------------------------------------------------------------------
+
+  describe('hover summary', () => {
+    it('shows index, document percent and words/pages as the tooltip first line', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'one two three' }),
+        node({ id: 'q2', parentId: 'a1', role: 'user', content: 'Q2' }),
+        node({ id: 'a2', parentId: 'q2', role: 'assistant', content: 'four five six seven eight nine ten' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'q2');
+      chatService.setActiveChild('q2', 'a2');
+      createBar(chatService.getActivePath());
+
+      // Whole document = 10 chapter words (a1=3, a2=7). The visible chain
+      // also ends in the auto-created draft leaf (a 0-word direction), so it
+      // has 5 entries. a1 sits at 30% into the document, a2 at 100%.
+      const a1Title = navNode('a1').getAttribute('title');
+      expect(a1Title).toContain(i18n.t('node.navNodeSummary', {
+        index: 2, total: 5, percent: 30, words: 3, totalWords: 10, pages: 1, totalPages: 1,
+      }));
+      expect(a1Title).toContain('one two three');
+
+      const a2Title = navNode('a2').getAttribute('title');
+      expect(a2Title).toContain(i18n.t('node.navNodeSummary', {
+        index: 4, total: 5, percent: 100, words: 7, totalWords: 10, pages: 1, totalPages: 1,
+      }));
+      expect(a2Title).toContain('four five six seven eight nine ten');
+    });
+
+    it('counts only chapter words — directions do not move the document percent', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'one two' }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      createBar(chatService.getActivePath());
+
+      // q1 is a direction: 0 words, sits at 0% (nothing before it). The
+      // visible chain ends in the auto-created draft leaf → 3 entries.
+      const q1Title = navNode('q1').getAttribute('title');
+      expect(q1Title).toContain(i18n.t('node.navNodeSummary', {
+        index: 1, total: 3, percent: 0, words: 0, totalWords: 2, pages: 1, totalPages: 1,
+      }));
     });
   });
 

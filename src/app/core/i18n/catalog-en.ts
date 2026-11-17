@@ -605,6 +605,7 @@ export const EN = {
     excludedTitle: 'This section is kept for reading only — it is NOT sent to the model as context and is hidden from the navigation bar.',
     loreArmedTitle: 'Lore — will be sent with your next direction',
     loreDocumentedTitle: 'Lore — documented at this point, no longer sent with directions',
+    navNodeSummary: '#{{index}}/{{total}} · {{percent}}% · {{words}}/{{totalWords}} words · {{pages}}/{{totalPages}} pages',
     ctxChapterDescriptions: 'Chapter descriptions…',
     ctxRemove: 'Remove section',
     ctxDelete: 'Delete section & following',

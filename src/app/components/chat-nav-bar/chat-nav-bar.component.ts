@@ -220,14 +220,78 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     return node.role === 'user' ? 'D' : node.role === 'assistant' ? 'C' : 'S';
   }
 
-  /** Hover title: lore states in words, other nodes their text. */
-  navNodeTitle(node: ChatNode): string {
-    if (isChatLoreNode(node)) {
-      return node.excludeFromContext
-        ? this.i18n.t('node.loreDocumentedTitle')
-        : this.i18n.t('node.loreArmedTitle');
+  /** Approximate words per printed page — used by the hover summary's page
+   *  estimate (a standard ~250-word book page). */
+  private static readonly WORDS_PER_PAGE = 250;
+
+  /**
+   * Word totals over the assistant (chapter) nodes of the active path, plus
+   * the cumulative word offset BEFORE each path position. Shared by every
+   * nav-node hover summary so a long story does not re-scan the whole path
+   * once per node (that would be O(n²) per render).
+   */
+  private readonly navWordStats = computed(() => {
+    const path = this.activePath();
+    const words: number[] = [];
+    const before: number[] = [];
+    let total = 0;
+    let acc = 0;
+    for (const n of path) {
+      const w = this.wordsOfAssistant(n);
+      words.push(w);
+      before.push(acc);
+      acc += w;
+      total += w;
     }
-    return node.content ?? '';
+    return { path, words, before, total };
+  });
+
+  /**
+   * Per-nav-node hover summary (the tooltip's FIRST line), keyed by node id —
+   * built once per path / word-stats / locale change: the node's index in the
+   * visible chain, its percent into the document (by words) and its
+   * words/pages out of the whole document's words/pages.
+   */
+  private readonly navNodeSummaries = computed<Map<string, string>>(() => {
+    const entries = this.navPathEntries();
+    const { path, words, before, total: totalWords } = this.navWordStats();
+    const total = entries.length;
+    const byId = new Map<string, { words: number; before: number }>();
+    path.forEach((n, i) => byId.set(n.id, { words: words[i], before: before[i] }));
+
+    const map = new Map<string, string>();
+    entries.forEach((n, i) => {
+      const stats = byId.get(n.id);
+      const nodeWords = stats?.words ?? 0;
+      // How far into the document (by words) this node sits — cumulative
+      // through the node, so the last chapter reads 100%.
+      const through = (stats?.before ?? 0) + nodeWords;
+      const percent = totalWords > 0 ? Math.round((through / totalWords) * 100) : 0;
+      const nodePages = Math.max(1, Math.ceil(nodeWords / ChatNavBarComponent.WORDS_PER_PAGE));
+      const totalPages = Math.max(1, Math.ceil(totalWords / ChatNavBarComponent.WORDS_PER_PAGE));
+      map.set(n.id, this.i18n.t('node.navNodeSummary', {
+        index: i + 1,
+        total,
+        percent,
+        words: nodeWords,
+        totalWords,
+        pages: nodePages,
+        totalPages,
+      }));
+    });
+    return map;
+  });
+
+  /** Hover title: the summary line first, then the node's content (or lore
+   *  state). The native tooltip renders the newline as a line break. */
+  navNodeTitle(node: ChatNode): string {
+    const summary = this.navNodeSummaries().get(node.id) ?? '';
+    const body = isChatLoreNode(node)
+      ? (node.excludeFromContext
+          ? this.i18n.t('node.loreDocumentedTitle')
+          : this.i18n.t('node.loreArmedTitle'))
+      : (node.content ?? '');
+    return body ? `${summary}\n${body}` : summary;
   }
 
   /** The nav nodes that currently carry the "current" frame: the fallback of
