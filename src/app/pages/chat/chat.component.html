@@ -625,7 +625,7 @@
                actions stay on the page: the component emits, the page performs. -->
           <app-chat-nav-bar
             [activePath]="getActivePath()"
-            [visibleNodeId]="visibleNodeId()"
+            [visibleNodeIds]="visibleNodeIds()"
             [editingNodeId]="editingNodeId()"
             (scrollToNode)="scrollToNode($event)"
             (copySelection)="copyNavSelection()"

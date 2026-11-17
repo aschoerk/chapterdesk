@@ -84,8 +84,10 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
     return out;
   });
 
-  /** Node whose block sits nearest the top of the tree (page's `visibleNodeId`). */
-  readonly visibleNodeId = input<string | null>(null);
+  /** Nodes whose blocks are currently visible in the tree viewport (page's
+   *  `visibleNodeIds`). Each of them carries the "current" frame — a long
+   *  chapter sharing the viewport with the next node keeps BOTH marked. */
+  readonly visibleNodeIds = input<string[]>([]);
   /** Node currently open in the editor (page's edit session). */
   readonly editingNodeId = input<string | null>(null);
 
@@ -220,11 +222,28 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
     return node.content ?? '';
   }
 
-  /** True when the node's block sits nearest the top of the tree. */
-  isNearViewport(id: string): boolean {
+  /** The nav nodes that currently carry the "current" frame: the fallback of
+   *  every node visible in the tree viewport (plus the edited node while one
+   *  is open). Hidden nodes fall to the next visible nav node, so several
+   *  visible nodes can share one frame. */
+  readonly markedNavIds = computed<string[]>(() => {
+    const out: string[] = [];
+    const add = (id: string | null) => {
+      const fb = this.navMarkFallback(id);
+      if (fb && !out.includes(fb)) out.push(fb);
+    };
     const editingId = this.editingNodeId();
-    if (editingId !== null) return this.navMarkFallback(editingId) === id;
-    return this.navMarkFallback(this.visibleNodeId()) === id;
+    if (editingId !== null) {
+      add(editingId);
+    } else {
+      for (const vid of this.visibleNodeIds()) add(vid);
+    }
+    return out;
+  });
+
+  /** True when the node's block is currently visible in the tree viewport. */
+  isNearViewport(id: string): boolean {
+    return this.markedNavIds().includes(id);
   }
 
   // ------------------------------------------------------------------
@@ -459,25 +478,31 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
   }
 
   /**
-   * Default handling — keep the marked node's line visible inside the nav
-   * bar's OWN scroll area (the 4-line cap).
+   * Default handling — keep every marked node's line visible inside the nav
+   * bar's OWN scroll area (the 4-line cap): scroll up when the topmost mark
+   * is cut off above, down when the bottommost mark is cut off below.
    */
-  scrollNavBarToMarked(markedId: string | null): void {
+  scrollNavBarToMarked(): void {
     const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
-    if (!bar || !markedId) return;
-    let el: HTMLElement | null = null;
-    try {
-      el = bar.querySelector(`[data-nav-id="${CSS.escape(markedId)}"]`);
-    } catch {
-      el = bar.querySelector(`[data-nav-id="${markedId}"]`);
+    if (!bar) return;
+    const els: HTMLElement[] = [];
+    for (const navId of this.markedNavIds()) {
+      let el: HTMLElement | null = null;
+      try {
+        el = bar.querySelector(`[data-nav-id="${CSS.escape(navId)}"]`);
+      } catch {
+        el = bar.querySelector(`[data-nav-id="${navId}"]`);
+      }
+      if (el) els.push(el);
     }
-    if (!el) return;
+    if (els.length === 0) return;
     const barRect = bar.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    if (elRect.top < barRect.top) {
-      bar.scrollTop += elRect.top - barRect.top - 1;
-    } else if (elRect.bottom > barRect.bottom) {
-      bar.scrollTop += elRect.bottom - barRect.bottom + 1;
+    const first = els[0].getBoundingClientRect();
+    const last = els[els.length - 1].getBoundingClientRect();
+    if (first.top < barRect.top) {
+      bar.scrollTop += first.top - barRect.top - 1;
+    } else if (last.bottom > barRect.bottom) {
+      bar.scrollTop += last.bottom - barRect.bottom + 1;
     }
   }
 

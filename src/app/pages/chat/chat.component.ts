@@ -144,6 +144,10 @@ export class ChatComponent implements OnInit {
 
   /** Node whose block sits nearest the top of .tree */
   readonly visibleNodeId = signal<string | null>(null);
+  /** All nodes whose blocks are currently visible in the tree viewport — the
+   *  nav-bar shows a frame on each of them, so a long chapter sharing the
+   *  viewport with the next node keeps BOTH marked. */
+  readonly visibleNodeIds = signal<string[]>([]);
 
   // ------------------------------------------------------------------
   // Toolbar (params-bar) horizontal paging — the buttons stay on ONE line
@@ -658,6 +662,7 @@ export class ChatComponent implements OnInit {
       }
       this.positionedChatId = point.chatId;
       this.visibleNodeId.set(point.nodeId ?? null);
+      this.visibleNodeIds.set(point.nodeId ? [point.nodeId] : []);
     };
     // The tree may still be rendering right after a chat switch.
     apply();
@@ -969,14 +974,16 @@ export class ChatComponent implements OnInit {
     effect(() => {
       this.layoutPrefs.applyChat(this.chatService.currentChatId());
     });
-    // Default handling — keep the marked node's line visible inside the
+    // Default handling — keep every marked node's line visible inside the
     // nav bar while it is capped at 4 lines with a scrollbar. Dependencies:
-    // the marked node, the active path and the (manual) bar height.
+    // the visible nodes, the edited node, the active path and the (manual)
+    // bar height.
     effect(() => {
-      const markedId = this.visibleNodeId();
+      this.visibleNodeIds();
+      this.editingNodeId();
       this.getActivePath();
       this.navBarHeight();
-      this.navBar()?.scrollNavBarToMarked(markedId);
+      this.navBar()?.scrollNavBarToMarked();
     });
   }
 
@@ -1021,17 +1028,27 @@ export class ChatComponent implements OnInit {
     const root = this.tree()?.nativeElement;
     if (!root) {
       this.visibleNodeId.set(null);
+      this.visibleNodeIds.set([]);
       return;
     }
 
     const top = root.getBoundingClientRect().top;
+    const bottom = top + root.clientHeight;
+    const visible: string[] = [];
     let bestId: string | null = null;
     let bestDist = Number.POSITIVE_INFINITY;
 
     for (const node of this.getActivePath()) {
       const el = root.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
       if (!el) continue;
-      const dist = Math.abs(el.getBoundingClientRect().top - top);
+      const rect = el.getBoundingClientRect();
+      // A node is "visible" when any part of it lies inside the tree viewport
+      // — the nav-bar frames every such node, so a long chapter sharing the
+      // viewport with the next node keeps BOTH marked.
+      if (rect.bottom > top && rect.top < bottom) {
+        visible.push(node.id);
+      }
+      const dist = Math.abs(rect.top - top);
       if (dist < bestDist) {
         bestDist = dist;
         bestId = node.id;
@@ -1039,6 +1056,7 @@ export class ChatComponent implements OnInit {
     }
 
     this.visibleNodeId.set(bestId);
+    this.visibleNodeIds.set(visible);
   }
 
   // ------------------------------------------------------------------

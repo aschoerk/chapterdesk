@@ -59,12 +59,12 @@ describe('ChatNavBarComponent', () => {
   /** Render the bar over an explicit active path (the page's getActivePath()). */
   function createBar(
     path: ChatNode[],
-    opts: { visibleNodeId?: string | null; editingNodeId?: string | null } = {},
+    opts: { visibleNodeIds?: string[]; editingNodeId?: string | null } = {},
   ): void {
     fixture = TestBed.createComponent(ChatNavBarComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('activePath', path);
-    fixture.componentRef.setInput('visibleNodeId', opts.visibleNodeId ?? null);
+    fixture.componentRef.setInput('visibleNodeIds', opts.visibleNodeIds ?? []);
     fixture.componentRef.setInput('editingNodeId', opts.editingNodeId ?? null);
     fixture.detectChanges();
   }
@@ -339,7 +339,40 @@ describe('ChatNavBarComponent', () => {
       chatService.setActiveChild('q1', 'x');
       chatService.setActiveChild('x', 'a1');
 
-      createBar(chatService.getActivePath(), { visibleNodeId: 'x' });
+      createBar(chatService.getActivePath(), { visibleNodeIds: ['x'] });
+
+      expect(navNode('x')).toBeNull();
+      expect(navNode('a1').classList.contains('active')).toBe(true);
+    });
+
+    it('frames EVERY node currently visible in the viewport (long chapter sharing the view)', () => {
+      createBar(path(), { visibleNodeIds: ['q1', 'a1'] });
+
+      expect(navNode('q1').classList.contains('active')).toBe(true);
+      expect(navNode('a1').classList.contains('active')).toBe(true);
+    });
+
+    it('does not frame a node that is not visible in the viewport', () => {
+      createBar(path(), { visibleNodeIds: ['q1'] });
+
+      expect(navNode('q1').classList.contains('active')).toBe(true);
+      expect(navNode('a1').classList.contains('active')).toBe(false);
+    });
+
+    it('deduplicates the frame when several visible nodes fall back to one nav node', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'x', parentId: 'q1', role: 'user', content: 'excluded', excludeFromContext: true }),
+        node({ id: 'y', parentId: 'x', role: 'user', content: 'excluded', excludeFromContext: true }),
+        node({ id: 'a1', parentId: 'y', role: 'assistant', content: 'A' }),
+      ]);
+      chatService.setActiveChild('q1', 'x');
+      chatService.setActiveChild('x', 'y');
+      chatService.setActiveChild('y', 'a1');
+
+      // Both hidden nodes are visible in the tree viewport — both fall back
+      // to the SAME next visible nav node, so it carries exactly one frame.
+      createBar(chatService.getActivePath(), { visibleNodeIds: ['x', 'y'] });
 
       expect(navNode('x')).toBeNull();
       expect(navNode('a1').classList.contains('active')).toBe(true);
