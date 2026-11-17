@@ -395,6 +395,52 @@ describe('ChatNavBarComponent', () => {
   });
 
   // ------------------------------------------------------------------
+  // Manual nav-bar scroll suppression (auto-scroll only follows the tree)
+  // ------------------------------------------------------------------
+
+  describe('manual nav-bar scroll suppression', () => {
+    /** Render a bar whose marked node sits ABOVE the bar's viewport (cut off
+     *  at the top), so a genuine auto-scroll would move the bar up. */
+    function barWithCutOffMark(): { bar: HTMLElement; marked: HTMLElement } {
+      createBar([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+      ], { visibleNodeIds: ['a1'] });
+
+      const bar = fixture.nativeElement.querySelector('.node-nav-bar') as HTMLElement;
+      vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 100 } as DOMRect);
+      const marked = bar.querySelector('[data-nav-id="a1"]') as HTMLElement;
+      vi.spyOn(marked, 'getBoundingClientRect').mockReturnValue({ top: -50, bottom: 0 } as DOMRect);
+      bar.scrollTop = 100;
+      return { bar, marked };
+    }
+
+    it('auto-scrolls the bar to reveal a cut-off mark (tree-driven)', () => {
+      const { bar } = barWithCutOffMark();
+
+      component.scrollNavBarToMarked();
+
+      expect(bar.scrollTop).toBe(49); // moved up by 51 to bring the mark into view
+    });
+
+    it('does NOT auto-scroll right after the user scrolled the nav bar', () => {
+      const { bar } = barWithCutOffMark();
+      // First call performs the auto-scroll AND attaches the gesture listener
+      // (the page's effect calls it regularly, so it is always armed in the
+      // real app).
+      component.scrollNavBarToMarked();
+      expect(bar.scrollTop).toBe(49);
+
+      // A manual wheel gesture over the bar suppresses the next auto-scroll.
+      bar.dispatchEvent(new Event('wheel', { bubbles: true, cancelable: true }));
+      const before = bar.scrollTop;
+      component.scrollNavBarToMarked();
+
+      expect(bar.scrollTop).toBe(before); // not reverted to the marked node
+    });
+  });
+
+  // ------------------------------------------------------------------
   // Multi-selection (Ctrl+click / Ctrl+drag)
   // ------------------------------------------------------------------
 

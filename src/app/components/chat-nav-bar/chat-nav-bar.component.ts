@@ -1,6 +1,7 @@
 import {
   Component,
   ElementRef,
+  OnDestroy,
   computed,
   input,
   output,
@@ -32,6 +33,13 @@ import { ChatNavMenuService, type ChatNavMenuActions, type ChatNavMenuHost, type
  * paste) because they touch the chat service, clipboard and dialogs — the
  * component emits them upward instead of performing them.
  */
+/**
+ * How long a manual scroll gesture over the nav bar suppresses the auto-scroll
+ * (`scrollNavBarToMarked`). While the user wheels / touches the bar itself
+ * (which then spills over to the tree), the auto-scroll must not fight them.
+ */
+const NAV_SCROLL_SUPPRESS_MS = 400;
+
 @Component({
   selector: 'app-chat-nav-bar',
   standalone: true,
@@ -39,7 +47,7 @@ import { ChatNavMenuService, type ChatNavMenuActions, type ChatNavMenuHost, type
   templateUrl: './chat-nav-bar.component.html',
   styleUrl: './chat-nav-bar.component.css',
 })
-export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions {
+export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions, OnDestroy {
   private readonly chatService = inject(ChatService);
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly layoutPrefs = inject(ChatLayoutPrefsService);
@@ -481,10 +489,20 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions 
    * Default handling — keep every marked node's line visible inside the nav
    * bar's OWN scroll area (the 4-line cap): scroll up when the topmost mark
    * is cut off above, down when the bottommost mark is cut off below.
+   *
+   * This is meant for the CHAT-NODE area: it runs when the TREE scrolls (or
+   * the marks change), so the bar follows the story. It must NOT fight the
+   * user when they scroll the nav bar itself — a manual nav-bar scroll is
+   * suppressed for a short window so it is never immediately reverted.
    */
   scrollNavBarToMarked(): void {
     const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
     if (!bar) return;
+    this.ensureNavBarGestureListener();
+    // The user just scrolled the nav bar by hand: don't fight them. The
+    // auto-scroll belongs to the chat-node area (the tree scroll), not to the
+    // nav bar's own scroll area.
+    if (Date.now() - this.lastUserNavGesture < NAV_SCROLL_SUPPRESS_MS) return;
     const els: HTMLElement[] = [];
     for (const navId of this.markedNavIds()) {
       let el: HTMLElement | null = null;
@@ -504,6 +522,42 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions 
     } else if (last.bottom > barRect.bottom) {
       bar.scrollTop += last.bottom - barRect.bottom + 1;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Manual nav-bar scroll suppression
+  // ------------------------------------------------------------------
+
+  /** Timestamp of the last MANUAL scroll gesture over the nav bar. */
+  private lastUserNavGesture = 0;
+  /** Cleanup for the nav-bar gesture listeners. */
+  private navBarGestureCleanup: (() => void) | null = null;
+
+  /** The user is scrolling the nav bar by hand — remember it so the
+   *  auto-scroll does not immediately revert it. */
+  private readonly onNavBarUserGesture = () => {
+    this.lastUserNavGesture = Date.now();
+  };
+
+  /** Attach ONE gesture listener to the nav bar's own scroll area. Gesture
+   *  events (wheel/touchmove) are used because programmatic `scrollTop`
+   *  assignment never fires them — so there is no ambiguity with our own
+   *  auto-scroll. */
+  private ensureNavBarGestureListener(): void {
+    if (this.navBarGestureCleanup) return;
+    const bar = this.nodeNavBar()?.nativeElement as HTMLElement | null;
+    if (!bar) return;
+    bar.addEventListener('wheel', this.onNavBarUserGesture, { passive: true });
+    bar.addEventListener('touchmove', this.onNavBarUserGesture, { passive: true });
+    this.navBarGestureCleanup = () => {
+      bar.removeEventListener('wheel', this.onNavBarUserGesture);
+      bar.removeEventListener('touchmove', this.onNavBarUserGesture);
+    };
+  }
+
+  ngOnDestroy(): void {
+    this.navBarGestureCleanup?.();
+    this.navBarGestureCleanup = null;
   }
 
   // ------------------------------------------------------------------
