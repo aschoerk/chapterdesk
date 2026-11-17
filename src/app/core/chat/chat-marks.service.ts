@@ -24,6 +24,22 @@ import { I18nService } from '../i18n/i18n.service';
 import { ChatPacedReadService } from './chat-paced-read.service';
 import type { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 
+/**
+ * The reading-marks panel operations the chat page exposes to its template
+ * and specs. Implemented by `ChatMarksService` (the real logic) and by
+ * `ChatComponent` (thin delegates that forward to the service).
+ */
+export interface ChatMarksActions {
+  markPreview(mark: ReadingMark): string;
+  markNodeLabel(mark: ReadingMark): string;
+  jumpToMark(mark: ReadingMark): void;
+  readFromMark(mark: ReadingMark): void;
+  deleteMark(mark: ReadingMark): Promise<void>;
+  editMarkNote(mark: ReadingMark): Promise<void>;
+  markAtCursor(): void;
+  clearMarks(): Promise<void>;
+}
+
 /** What the chat-page marks handling needs from the page. */
 export interface ChatMarksHost {
   /** Rendered chat-node components — to find the section a mark belongs to. */
@@ -45,7 +61,7 @@ export interface ChatMarksHost {
  * host in its constructor, exactly like the other extracted chat-page services.
  */
 @Injectable()
-export class ChatMarksService {
+export class ChatMarksService implements ChatMarksActions {
   private readonly readingMarks = inject(ReadingMarksService);
   private readonly chatService = inject(ChatService);
   private readonly markNoteDialog = inject(MarkNoteDialogService);

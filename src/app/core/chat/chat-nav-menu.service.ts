@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import { ChatNode } from '../../models/chat';
 import { ChatService } from './chat.service';
 import { NodeClipboardService } from '../clipboard/node-clipboard.service';
@@ -49,6 +49,26 @@ const NODE_MENU_MAX_HEIGHT = 300;
 const EDGE = 8;
 
 /**
+ * The navbar context-menu surface the chat page exposes to its template and
+ * specs. Implemented by `ChatNavMenuService` (the real logic) and by
+ * `ChatComponent` (thin delegates that forward to the service);
+ * `ChatNavBarComponent` also satisfies it.
+ */
+export interface ChatNavMenuActions {
+  readonly navPasteMenu: Signal<{ x: number; y: number; leftId: string; rightId: string | null } | null>;
+  readonly navNodeMenu: Signal<{ x: number; y: number; nodeId: string } | null>;
+  openNavPasteMenu(event: MouseEvent, node: ChatNode): void;
+  closeNavPasteMenu(): void;
+  navPasteMenuLeftPx(): number;
+  navPasteMenuTopPx(): number;
+  navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[];
+  openNavNodeMenu(event: MouseEvent, node: ChatNode): void;
+  closeNavNodeMenu(): void;
+  navNodeMenuItems(): NavMenuEntry[];
+  runNavNodeAction(item: NavMenuEntry): void | Promise<void>;
+}
+
+/**
  * The two context menus of the node navbar:
  *
  *  - **paste menu** — right-click on a node's ⤵ button: Insert (splice into the
@@ -65,7 +85,7 @@ const EDGE = 8;
  * Both menus are mutually exclusive: opening one closes the other.
  */
 @Injectable()
-export class ChatNavMenuService {
+export class ChatNavMenuService implements ChatNavMenuActions {
   private readonly chatService = inject(ChatService);
   private readonly clipboard = inject(NodeClipboardService);
   private readonly i18n = inject(I18nService);
@@ -118,32 +138,32 @@ export class ChatNavMenuService {
   // Paste menu (right-click on the ⤵ button)
   // ------------------------------------------------------------------
 
-  openPasteMenu(event: MouseEvent, node: ChatNode): void {
+  openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
     const targets = this.pasteTargets(node.id);
     if (!targets) return;
     event.preventDefault();
     event.stopPropagation();
-    this.closeNodeMenu();
+    this.closeNavNodeMenu();
     this.navPasteMenu.set({ x: event.clientX, y: event.clientY, ...targets });
   }
 
-  closePasteMenu(): void {
+  closeNavPasteMenu(): void {
     this.navPasteMenu.set(null);
   }
 
-  pasteMenuLeftPx(): number {
+  navPasteMenuLeftPx(): number {
     const m = this.navPasteMenu();
     if (!m) return 0;
     return Math.max(EDGE, Math.min(m.x, window.innerWidth - MENU_WIDTH - EDGE));
   }
 
-  pasteMenuTopPx(): number {
+  navPasteMenuTopPx(): number {
     const m = this.navPasteMenu();
     if (!m) return 0;
     return Math.max(EDGE, Math.min(m.y, window.innerHeight - PASTE_MENU_MAX_HEIGHT - EDGE));
   }
 
-  pasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
+  navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
     return [
       {
         label: this.i18n.t('node.pasteInsert'),
@@ -158,8 +178,8 @@ export class ChatNavMenuService {
     ];
   }
 
-  runPasteAction(item: NavMenuEntry): void {
-    this.closePasteMenu();
+  runNavPasteAction(item: NavMenuEntry): void {
+    this.closeNavPasteMenu();
     void item.action();
   }
 
@@ -169,25 +189,25 @@ export class ChatNavMenuService {
 
   /** Open the node menu at the pointer position. The browser native menu is
    *  suppressed for nav nodes; the terminal empty direction gets no menu. */
-  openNodeMenu(event: MouseEvent, node: ChatNode): void {
+  openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
     if (this.isLastEmptyDirection(node.id)) return;
     event.preventDefault();
     event.stopPropagation();
-    this.closePasteMenu();
+    this.closeNavPasteMenu();
     this.navNodeMenu.set({ x: event.clientX, y: event.clientY, nodeId: node.id });
   }
 
-  closeNodeMenu(): void {
+  closeNavNodeMenu(): void {
     this.navNodeMenu.set(null);
   }
 
-  nodeMenuLeftPx(): number {
+  navNodeMenuLeftPx(): number {
     const m = this.navNodeMenu();
     if (!m) return 0;
     return Math.max(EDGE, Math.min(m.x, window.innerWidth - MENU_WIDTH - EDGE));
   }
 
-  nodeMenuTopPx(): number {
+  navNodeMenuTopPx(): number {
     const m = this.navNodeMenu();
     if (!m) return 0;
     return Math.max(EDGE, Math.min(m.y, window.innerHeight - NODE_MENU_MAX_HEIGHT - EDGE));
@@ -202,7 +222,7 @@ export class ChatNavMenuService {
    *     part of one, otherwise just this node)
    *  5. paste in front / behind (insert into the active path)
    */
-  nodeMenuItems(): NavMenuEntry[] {
+  navNodeMenuItems(): NavMenuEntry[] {
     const menu = this.navNodeMenu();
     const host = this.host;
     if (!menu || !host) return [];
@@ -314,15 +334,15 @@ export class ChatNavMenuService {
   }
 
   /** Close the menu, then run the chosen action (if it is enabled). */
-  runNodeAction(item: NavMenuEntry): void | Promise<void> {
+  runNavNodeAction(item: NavMenuEntry): void | Promise<void> {
     if (item.divider || item.disabled) return;
-    this.closeNodeMenu();
+    this.closeNavNodeMenu();
     return item.action();
   }
 
   /** Dismiss both menus (viewport resize / scroll). */
   dismissAll(): void {
-    this.closeNodeMenu();
-    this.closePasteMenu();
+    this.closeNavNodeMenu();
+    this.closeNavPasteMenu();
   }
 }

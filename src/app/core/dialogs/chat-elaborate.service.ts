@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, type Signal } from '@angular/core';
 import { ChatNode } from '../../models/chat';
 import { ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ChatService } from '../chat/chat.service';
@@ -15,6 +15,20 @@ import { isSentenceComplete, MAX_COMPLETION_DIRECTIONS } from '../util/helpers';
 import { ChatElaborateDialogService } from './chat-elaborate-dialog.service';
 
 /**
+ * The elaborate-dialog entry points the chat page exposes to its template and
+ * specs. Implemented by `ChatElaborateService` (the real logic) and by
+ * `ChatComponent` (thin delegates that forward to the service).
+ */
+export interface ChatElaborateActions {
+  openElaborateDialog(): void;
+  cancelElaborate(): void;
+  setPlanChapters(value: number | string): void;
+  onStickLastToggle(checked: boolean): void;
+  confirmElaborate(): Promise<void>;
+  readonly isElaborating: Signal<boolean>;
+}
+
+/**
  * Owns the Elaborate ORCHESTRATION (open/cancel/confirm + the sequential
  * per-chapter LLM chain) that used to live inside ChatComponent. The dialog
  * STATE and its per-chat persistence stay in `ChatElaborateDialogService`;
@@ -22,7 +36,7 @@ import { ChatElaborateDialogService } from './chat-elaborate-dialog.service';
  * delegate (it only adds the structure-generation guard on open).
  */
 @Injectable({ providedIn: 'root' })
-export class ChatElaborateService {
+export class ChatElaborateService implements ChatElaborateActions {
   private readonly dialog = inject(ChatElaborateDialogService);
   private readonly chatService = inject(ChatService);
   private readonly llmRunner = inject(LlmUseCaseRunner);
@@ -41,7 +55,7 @@ export class ChatElaborateService {
 
   /** Open the dialog, continuing where the last elaboration for THIS chat
    *  left off (First = previous Last + 1, characters = last used). */
-  open(): void {
+  openElaborateDialog(): void {
     const chatId = this.chatService.currentChatId();
     if (!chatId || this.isElaborating()) return;
     const anchor = this.activeTreeAssistantNode();
@@ -75,7 +89,7 @@ export class ChatElaborateService {
   }
 
   /** Close the dialog (used by Cancel and Escape). */
-  cancel(): void {
+  cancelElaborate(): void {
     this.dialog.close();
   }
 
@@ -139,7 +153,7 @@ export class ChatElaborateService {
   // ------------------------------------------------------------------
 
   /** Confirm the dialog and run the sequential elaborations. */
-  async confirm(): Promise<void> {
+  async confirmElaborate(): Promise<void> {
     const chatId = this.chatService.currentChatId();
     this.dialog.show.set(false);
     if (!chatId) return;

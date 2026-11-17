@@ -29,16 +29,17 @@ import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-me
 import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { ChatElaborateDialogService } from '../../core/dialogs/chat-elaborate-dialog.service';
-import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
+import { ChatElaborateService, type ChatElaborateActions } from '../../core/dialogs/chat-elaborate.service';
 import { ToastService } from '../../core/toast/toast.service';
 import {
   ChatNavMenuService,
+  type ChatNavMenuActions,
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
-import { ChatSearchService, type ChatSearchHost } from '../../core/chat/chat-search.service';
+import { ChatSearchService, type ChatSearchActions, type ChatSearchHost } from '../../core/chat/chat-search.service';
 import { ChatPacedReadService, type ChatPacedReadHost } from '../../core/chat/chat-paced-read.service';
-import { ChatNavActionsService } from '../../core/chat/chat-nav-actions.service';
-import { ChatMarksService, type ChatMarksHost } from '../../core/chat/chat-marks.service';
+import { ChatNavActionsService, type ChatNavActions } from '../../core/chat/chat-nav-actions.service';
+import { ChatMarksService, type ChatMarksActions, type ChatMarksHost } from '../../core/chat/chat-marks.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -52,7 +53,17 @@ import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.
   // selection, tree and dialogs) — one instance per chat page, not app-wide.
   providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService, ChatNavActionsService, ChatMarksService]
 })
-export class ChatComponent implements OnInit {
+export class ChatComponent implements
+  OnInit,
+  // The shared public surface the page exposes to its template/specs and the
+  // services implement internally — both sides are compile-time checked to
+  // stay in lockstep.
+  ChatNavActions,
+  ChatNavMenuActions,
+  ChatSearchActions,
+  ChatMarksActions,
+  ChatElaborateActions
+{
   readonly chatService = inject(ChatService);
   readonly i18n = inject(I18nService);
   /** Paced reading of already-written text (started from a chapter's Read button). */
@@ -283,40 +294,40 @@ export class ChatComponent implements OnInit {
   readonly navNodeMenu = this.navMenu.navNodeMenu;
 
   openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
-    this.navMenu.openPasteMenu(event, node);
+    this.navMenu.openNavPasteMenu(event, node);
   }
 
   closeNavPasteMenu(): void {
-    this.navMenu.closePasteMenu();
+    this.navMenu.closeNavPasteMenu();
   }
 
   navPasteMenuLeftPx(): number {
-    return this.navMenu.pasteMenuLeftPx();
+    return this.navMenu.navPasteMenuLeftPx();
   }
 
   navPasteMenuTopPx(): number {
-    return this.navMenu.pasteMenuTopPx();
+    return this.navMenu.navPasteMenuTopPx();
   }
 
   navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
-    return this.navMenu.pasteMenuItems(menu);
+    return this.navMenu.navPasteMenuItems(menu);
   }
 
   openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
-    this.navMenu.openNodeMenu(event, node);
+    this.navMenu.openNavNodeMenu(event, node);
   }
 
   closeNavNodeMenu(): void {
-    this.navMenu.closeNodeMenu();
+    this.navMenu.closeNavNodeMenu();
   }
 
   navNodeMenuItems(): NavMenuEntry[] {
-    return this.navMenu.nodeMenuItems();
+    return this.navMenu.navNodeMenuItems();
   }
 
   /** Close the menu, then run the chosen action (if it is enabled). */
   runNavNodeAction(item: NavMenuEntry): void | Promise<void> {
-    return this.navMenu.runNodeAction(item);
+    return this.navMenu.runNavNodeAction(item);
   }
 
   /** The `pasteChain` output handler: the shared insert-vs-append splice used
@@ -1133,11 +1144,11 @@ export class ChatComponent implements OnInit {
   /** Open the elaborate dialog (blocked while structure generation runs). */
   openElaborateDialog(): void {
     if (this.isGeneratingStructure()) return;
-    this.elaborateService.open();
+    this.elaborateService.openElaborateDialog();
   }
 
   cancelElaborate(): void {
-    this.elaborateService.cancel();
+    this.elaborateService.cancelElaborate();
   }
 
   /** Clamp the "plan chapters" input (1..50) — templates cannot use Math. */
@@ -1152,7 +1163,7 @@ export class ChatComponent implements OnInit {
 
   /** Confirm the dialog and run the sequential elaborations. */
   confirmElaborate(): Promise<void> {
-    return this.elaborateService.confirm();
+    return this.elaborateService.confirmElaborate();
   }
 
   /** Resolve the model+provider for an authoring task, or null if unset/unknown. */

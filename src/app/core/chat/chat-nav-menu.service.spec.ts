@@ -96,12 +96,12 @@ describe('ChatNavMenuService', () => {
     clipboard.copySequence([path[1]]);
 
     // The paste menu opens on any node that has a successor.
-    service.openPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 10, clientY: 10 } as MouseEvent, path[0]);
+    service.openNavPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 10, clientY: 10 } as MouseEvent, path[0]);
     expect(service.navPasteMenu()?.leftId).toBe('q1');
     expect(service.navPasteMenu()?.rightId).toBe('a1');
     expect(service.isOpen()).toBe(true);
 
-    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 20, clientY: 20 } as MouseEvent, path[1]);
+    service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 20, clientY: 20 } as MouseEvent, path[1]);
     expect(service.navPasteMenu()).toBeNull(); // the paste menu was closed…
     expect(service.navNodeMenu()?.nodeId).toBe('a1'); // …and the node menu opened
   });
@@ -117,7 +117,7 @@ describe('ChatNavMenuService', () => {
     clipboard.copySequence([path[1]]);
 
     // Right-click on the draft: suppressed.
-    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5, clientY: 5 } as MouseEvent, path.at(-1)!);
+    service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5, clientY: 5 } as MouseEvent, path.at(-1)!);
     expect(service.navNodeMenu()).toBeNull();
 
     // Nothing may be pasted LEFT of the draft → the button after q2 is gone.
@@ -134,12 +134,12 @@ describe('ChatNavMenuService', () => {
     const host = hostStub(path);
     service.bind(host);
     clipboard.copySequence([path[1]]);
-    service.openPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, path[0]);
+    service.openNavPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, path[0]);
 
-    const items = service.pasteMenuItems(service.navPasteMenu()!);
+    const items = service.navPasteMenuItems(service.navPasteMenu()!);
     expect(items.map(i => i.label)).toEqual(['Insert', 'Append']);
 
-    service.runPasteAction(items[1]);
+    service.runNavPasteAction(items[1]);
     expect(service.navPasteMenu()).toBeNull(); // closed before running
     expect(host.calls).toContain('chain:append:q1:a1');
   });
@@ -160,8 +160,8 @@ describe('ChatNavMenuService', () => {
     const q1 = chatService.nodes().find(n => n.id === 'q1')!;
     clipboard.copySequence([q1]);
 
-    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, a1);
-    const items = service.nodeMenuItems();
+    service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, a1);
+    const items = service.navNodeMenuItems();
     const labels = items.filter(i => !i.divider).map(i => i.label);
 
     expect(labels).toContain('Start branch here');
@@ -179,11 +179,11 @@ describe('ChatNavMenuService', () => {
 
     // Dispatch: abort on a divider, close + run otherwise.
     const divider = items.find(i => i.divider)!;
-    service.runNodeAction(divider);
+    service.runNavNodeAction(divider);
     expect(service.navNodeMenu()).not.toBeNull(); // a divider does nothing
 
     const copy = items.find(i => i.label === 'Copy')!;
-    service.runNodeAction(copy);
+    service.runNavNodeAction(copy);
     expect(service.navNodeMenu()).toBeNull();
     expect(host.calls).toContain('copy');
   });
@@ -193,9 +193,9 @@ describe('ChatNavMenuService', () => {
     const path = chatService.getActivePath();
     service.bind(hostStub(path));
     // jsdom window is 1024×768; a click far right/bottom must be pulled in.
-    service.openNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5000, clientY: 5000 } as MouseEvent, path[1]);
-    expect(service.nodeMenuLeftPx()).toBe(1024 - 260 - 8);
-    expect(service.nodeMenuTopPx()).toBe(768 - 300 - 8);
+    service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5000, clientY: 5000 } as MouseEvent, path[1]);
+    expect(service.navNodeMenuLeftPx()).toBe(1024 - 260 - 8);
+    expect(service.navNodeMenuTopPx()).toBe(768 - 300 - 8);
   });
 
   it('dismissAll closes both menus', async () => {
@@ -203,7 +203,7 @@ describe('ChatNavMenuService', () => {
     const path = chatService.getActivePath();
     service.bind(hostStub(path));
     clipboard.copySequence([path[1]]);
-    service.openPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, path[0]);
+    service.openNavPasteMenu({ preventDefault() {}, stopPropagation() {}, clientX: 1, clientY: 1 } as MouseEvent, path[0]);
     service.dismissAll();
     expect(service.isOpen()).toBe(false);
   });

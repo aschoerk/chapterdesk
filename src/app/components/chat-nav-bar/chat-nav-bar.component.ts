@@ -16,7 +16,7 @@ import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.serv
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
-import { ChatNavMenuService, type ChatNavMenuHost, type NavMenuEntry } from '../../core/chat/chat-nav-menu.service';
+import { ChatNavMenuService, type ChatNavMenuActions, type ChatNavMenuHost, type NavMenuEntry } from '../../core/chat/chat-nav-menu.service';
 
 /**
  * The chat page's node-nav-bar: active path + multi-select tools.
@@ -39,7 +39,7 @@ import { ChatNavMenuService, type ChatNavMenuHost, type NavMenuEntry } from '../
   templateUrl: './chat-nav-bar.component.html',
   styleUrl: './chat-nav-bar.component.css',
 })
-export class ChatNavBarComponent implements ChatNavMenuHost {
+export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions {
   private readonly chatService = inject(ChatService);
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly layoutPrefs = inject(ChatLayoutPrefsService);
@@ -381,52 +381,52 @@ export class ChatNavBarComponent implements ChatNavMenuHost {
   // ------------------------------------------------------------------
 
   openNavPasteMenu(event: MouseEvent, node: ChatNode): void {
-    this.navMenu.openPasteMenu(event, node);
+    this.navMenu.openNavPasteMenu(event, node);
   }
 
   closeNavPasteMenu(): void {
-    this.navMenu.closePasteMenu();
+    this.navMenu.closeNavPasteMenu();
   }
 
   navPasteMenuLeftPx(): number {
-    return this.navMenu.pasteMenuLeftPx();
+    return this.navMenu.navPasteMenuLeftPx();
   }
 
   navPasteMenuTopPx(): number {
-    return this.navMenu.pasteMenuTopPx();
+    return this.navMenu.navPasteMenuTopPx();
   }
 
   navPasteMenuItems(menu: { leftId: string; rightId: string | null }): NavMenuEntry[] {
-    return this.navMenu.pasteMenuItems(menu);
+    return this.navMenu.navPasteMenuItems(menu);
   }
 
   openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
-    this.navMenu.openNodeMenu(event, node);
+    this.navMenu.openNavNodeMenu(event, node);
   }
 
   closeNavNodeMenu(): void {
-    this.navMenu.closeNodeMenu();
+    this.navMenu.closeNavNodeMenu();
   }
 
   navNodeMenuLeftPx(): number {
-    return this.navMenu.nodeMenuLeftPx();
+    return this.navMenu.navNodeMenuLeftPx();
   }
 
   navNodeMenuTopPx(): number {
-    return this.navMenu.nodeMenuTopPx();
+    return this.navMenu.navNodeMenuTopPx();
   }
 
   navNodeMenuItems(): NavMenuEntry[] {
-    return this.navMenu.nodeMenuItems();
+    return this.navMenu.navNodeMenuItems();
   }
 
   /** Close the menu, then run the chosen action (if it is enabled). */
   runNavNodeAction(item: NavMenuEntry): void | Promise<void> {
-    return this.navMenu.runNodeAction(item);
+    return this.navMenu.runNavNodeAction(item);
   }
 
   runNavPasteAction(item: NavMenuEntry): void {
-    this.navMenu.runPasteAction(item);
+    this.navMenu.runNavPasteAction(item);
   }
 
   @HostListener('window:resize')

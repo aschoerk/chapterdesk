@@ -46,12 +46,23 @@ export interface ChatSearchHost {
 }
 
 /**
+ * The search / name-dialog entry points the chat page exposes to its template
+ * and specs. Implemented by `ChatSearchService` (the real logic) and by
+ * `ChatComponent` (thin delegates that forward to the service).
+ */
+export interface ChatSearchActions {
+  openSearch(): void;
+  openNameReplace(): Promise<void>;
+  openNameList(): Promise<void>;
+}
+
+/**
  * Component-scoped (one instance per chat page). The page binds itself as the
  * host in its constructor and registers/unregisters the search session on
  * init/destroy, exactly like the other extracted chat-page services.
  */
 @Injectable()
-export class ChatSearchService {
+export class ChatSearchService implements ChatSearchActions {
   private readonly chatService = inject(ChatService);
   private readonly editSession = inject(NodeEditSession);
   private readonly search = inject(SearchReplaceService);

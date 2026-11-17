@@ -34,11 +34,35 @@ import { ChatNavSelectionService } from './chat-nav-selection.service';
 import { ChatNavMenuService } from './chat-nav-menu.service';
 
 /**
+ * The navbar clipboard / branch operations the chat page exposes to its
+ * template and specs. Implemented by `ChatNavActionsService` (the real logic)
+ * and by `ChatComponent` (thin delegates that forward to the service) — the
+ * two are compile-time checked to stay in lockstep.
+ */
+export interface ChatNavActions {
+  copyNavSelection(): void;
+  cutNavSelection(): Promise<void>;
+  deleteNavSelection(): Promise<void>;
+  extractNavSelection(withVisibleSubtree?: boolean): Promise<void>;
+  pasteNavSelectionAfter(nodeId: string): Promise<void>;
+  pasteNavSelectionBefore(node: ChatNode): Promise<void>;
+  pasteNavSelectionBeforeId(nodeId: string): Promise<void>;
+  pasteChainInto(mode: 'insert' | 'append', leftId: string, rightId: string | null): Promise<void>;
+  appendNavSelectionAfter(nodeId: string): Promise<void>;
+  canPasteAfter(node: ChatNode): boolean;
+  switchNavSibling(node: ChatNode, dir: -1 | 1): void;
+  startBranchAt(node: ChatNode): Promise<void>;
+  copyNavNodes(node: ChatNode): void;
+  cutNavNodes(node: ChatNode): Promise<void>;
+  deleteNavNodes(node: ChatNode): Promise<void>;
+}
+
+/**
  * Component-scoped (one instance per chat page) so it can inject the page's
  * `ChatNavMenuService`. The page binds nothing — the service is self-contained.
  */
 @Injectable()
-export class ChatNavActionsService {
+export class ChatNavActionsService implements ChatNavActions {
   private readonly chatService = inject(ChatService);
   private readonly clipboard = inject(NodeClipboardService);
   private readonly confirm = inject(ConfirmService);
