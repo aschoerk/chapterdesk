@@ -77,6 +77,7 @@ Invariants worth knowing before changing anything here:
 | `ChatNavSelectionService` | Navbar multi-select / drag-range / paste-target state | `core/chat/chat-nav-selection.service.ts` |
 | `ChatLayoutPrefsService` | Sidebar width + per-chat navbar height, resize handling | `core/chat/chat-layout-prefs.service.ts` |
 | `ChatElaborateDialogService` | Elaborate dialog state, per-chat persistence, plan candidates, prompt preview | `core/dialogs/chat-elaborate-dialog.service.ts` |
+| `ChatElaborateService` | Elaborate orchestration (open/confirm chain, anchor + model resolution) | `core/dialogs/chat-elaborate.service.ts` |
 | `ChatSearchService` *(planned)* | Find-in-story / name replace / name list — still inside the component | — |
 | `PacedReadService` + `ReadingMarksService` | Paced reading run and persistent marks | `core/llm/paced-read.service.ts`, `core/chat/reading-marks.service.ts` |
 | `ChatService` | Facade over the tree services — the only place that mutates chats/nodes | `core/chat/chat.service.ts` |
@@ -103,6 +104,7 @@ Invariants:
 | Add a node button or menu entry | template + `context-menu.ts` + a delegate in the component |
 | Change a dialog's fields | the dialog component + its `core/dialogs/*` service |
 | Change chapter-plan detection | `core/llm/chapter-plan.ts` + `ChatElaborateDialogService` |
+| Change the elaborate prompt chain / confirm flow | `ChatElaborateService` (`core/dialogs/chat-elaborate.service.ts`) |
 | Change what a send carries | `core/llm/orchestration/flows` / `usecases` |
 | Change the message stream | `core/llm/llm-message.ts` (`nodeToMessageContent`) |
 

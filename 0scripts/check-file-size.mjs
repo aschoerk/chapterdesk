@@ -18,7 +18,7 @@ const BUDGETS = {
   'src/app/components/chat-node/chat-node.component.ts': 2650,
   'src/app/components/chat-node/chat-node.component.html': 950,
   'src/app/components/chat-node/chat-node.component.css': 1100,
-  'src/app/pages/chat/chat.component.ts': 2120,
+  'src/app/pages/chat/chat.component.ts': 1750,
   'src/app/pages/chat/chat.component.html': 720,
   'src/app/pages/chat/chat.component.css': 1005,
 };
