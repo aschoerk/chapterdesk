@@ -892,15 +892,6 @@ export class ChatComponent implements OnInit {
     }
   }
 
-  /**
-   * Ctrl+R — reveal the chat at reading pace WITHOUT calling the LLM (starts at
-   * the editing node, else the visible node, else the first chapter; stops an
-   * active run). Delegate to `ChatPacedReadService`.
-   */
-  startPacedReadFromView(): void {
-    this.chatPacedRead.startPacedReadFromView();
-  }
-
   // ------------------------------------------- persistent reading marks
 
   /** One-line description of a mark for the panel (quote or position excerpt). */
@@ -1038,56 +1029,18 @@ export class ChatComponent implements OnInit {
     if (this.isTyping(event)) return;
     const ctrl = event.ctrlKey || event.metaKey;
 
-    // Ctrl+R — start paced reading of the chat (no LLM call) from the section
-    // at the top of the view. Ctrl+R is also the browser/Electron RELOAD
-    // shortcut, so it must be prevented here.
-    if (ctrl && (event.key === 'r' || event.key === 'R')) {
-      event.preventDefault();
-      this.startPacedReadFromView();
-      return;
-    }
+    // Paced reading owns Ctrl+R (start/stop — Ctrl+R is also the
+    // browser/Electron RELOAD shortcut, so it must be prevented) and, while a
+    // read runs, the arrow keys + Space/P (interrupt/resume) + Escape (stop).
+    // Delegated to ChatPacedReadService — it returns true when it consumed
+    // the event, and the page must not process it further.
+    if (this.chatPacedRead.onKey(event)) return;
 
     // Ctrl+M — mark the current position (or the marked text) with a notice.
     if (ctrl && (event.key === 'm' || event.key === 'M')) {
       event.preventDefault();
       this.markAtCursor();
       return;
-    }
-
-    // Paced reading owns the arrow keys while it runs:
-    //   ← repeat the last second's text   → skip a second's pensum ahead
-    //   ↑ one line back                    ↓ one line forward
-    //   Space pause/resume                 Esc stop
-    if (this.pacedRead.active()) {
-      switch (event.key) {
-        case 'ArrowLeft':
-          event.preventDefault();
-          this.pacedRead.skipSeconds(-1);
-          return;
-        case 'ArrowRight':
-          event.preventDefault();
-          this.pacedRead.skipSeconds(1);
-          return;
-        case 'ArrowUp':
-          event.preventDefault();
-          this.pacedRead.skipLines(-1);
-          return;
-        case 'ArrowDown':
-          event.preventDefault();
-          this.pacedRead.skipLines(1);
-          return;
-        case ' ':
-        case 'p':
-        case 'P':
-          // Space or P — interrupt / resume the pacing.
-          event.preventDefault();
-          this.pacedRead.toggle();
-          return;
-        case 'Escape':
-          event.preventDefault();
-          this.pacedRead.stop();
-          return;
-      }
     }
 
     // Navbar multi-selection shortcuts (only when something is selected).

@@ -213,4 +213,76 @@ describe('ChatPacedReadService', () => {
     pacedRead.stop();
     vi.restoreAllMocks();
   });
+
+  // ----------------------------------------------------------------------
+  // onKey — the pacing keyboard handling (Ctrl+R + the reveal arrows)
+  // ----------------------------------------------------------------------
+
+  it('onKey starts the read with Ctrl+R and returns true (consumed)', async () => {
+    await open(story());
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    service.bind(hostStub(chatService));
+
+    const prevent = vi.fn();
+    const handled = service.onKey({ key: 'r', ctrlKey: true, preventDefault: prevent } as unknown as KeyboardEvent);
+
+    expect(handled).toBe(true);
+    expect(prevent).toHaveBeenCalled(); // Ctrl+R must not reload the window.
+    expect(pacedRead.active()).toBe(true);
+    expect(pacedRead.currentKey()).toBe('a1');
+    pacedRead.stop();
+  });
+
+  it('onKey stops an active read when Ctrl+R is pressed again', async () => {
+    await open(story());
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    service.bind(hostStub(chatService));
+    void pacedRead.start([{ key: 'a1', text: 'Answer one' }]);
+    expect(pacedRead.active()).toBe(true);
+
+    const handled = service.onKey({ key: 'R', ctrlKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent);
+
+    expect(handled).toBe(true);
+    expect(pacedRead.active()).toBe(false);
+  });
+
+  it('onKey handles the pacing arrows + Space/P + Escape only while a read runs', async () => {
+    await open(story());
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    service.bind(hostStub(chatService));
+
+    // Idle: the pacing keys are NOT consumed.
+    const idle = service.onKey({ key: 'ArrowRight', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(idle).toBe(false);
+
+    void pacedRead.start([{ key: 'a1', text: 'Answer one' }]);
+
+    const skip = vi.spyOn(pacedRead, 'skipSeconds');
+    const handled = service.onKey({ key: 'ArrowRight', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(handled).toBe(true);
+    expect(skip).toHaveBeenCalledWith(1);
+
+    // Space = interrupt/resume.
+    const toggle = vi.spyOn(pacedRead, 'toggle');
+    expect(service.onKey({ key: ' ', preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(true);
+    expect(toggle).toHaveBeenCalled();
+
+    // Escape = stop.
+    service.onKey({ key: 'Escape', preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    expect(pacedRead.active()).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('onKey returns false for unrelated keys', async () => {
+    await open(story());
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    service.bind(hostStub(chatService));
+
+    expect(service.onKey({ key: 'b', preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false);
+    expect(service.onKey({ key: 'ArrowDown', ctrlKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false);
+  });
 });

@@ -173,4 +173,57 @@ export class ChatPacedReadService {
       .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
       .map(n => ({ key: n.id, text: n.content ?? '' }));
   }
+
+  /**
+   * Keyboard handling for the pacing features, called from the page's `onKey`
+   * AFTER the page's own Escape/menu handling and the `isTyping` guard.
+   *
+   * Owns:
+   *  - Ctrl+R — start/stop the read. Ctrl+R is also the browser/Electron
+   *    RELOAD shortcut, so it must be prevented here.
+   *  - while a read runs: ←/→ = repeat / skip one second's pensum, ↑/↓ = one
+   *    line back/forward, Space or P = interrupt/resume, Escape = stop.
+   *
+   * Returns true when the event was consumed — the page must not process it
+   * further.
+   */
+  onKey(event: KeyboardEvent): boolean {
+    const ctrl = event.ctrlKey || event.metaKey;
+    if (ctrl && (event.key === 'r' || event.key === 'R')) {
+      event.preventDefault();
+      this.startPacedReadFromView();
+      return true;
+    }
+    if (!this.pacedRead.active()) return false;
+    switch (event.key) {
+      case 'ArrowLeft':
+        event.preventDefault();
+        this.pacedRead.skipSeconds(-1);
+        return true;
+      case 'ArrowRight':
+        event.preventDefault();
+        this.pacedRead.skipSeconds(1);
+        return true;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.pacedRead.skipLines(-1);
+        return true;
+      case 'ArrowDown':
+        event.preventDefault();
+        this.pacedRead.skipLines(1);
+        return true;
+      case ' ':
+      case 'p':
+      case 'P':
+        // Space or P — interrupt / resume the pacing.
+        event.preventDefault();
+        this.pacedRead.toggle();
+        return true;
+      case 'Escape':
+        event.preventDefault();
+        this.pacedRead.stop();
+        return true;
+    }
+    return false;
+  }
 }
