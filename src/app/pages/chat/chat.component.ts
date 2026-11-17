@@ -21,11 +21,7 @@ import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { LlmUseCaseRunner } from '../../core/llm/orchestration';
-import {
-  PacedReadService,
-  type PacedReadHost,
-  type PacedReadResumePoint
-} from '../../core/llm/paced-read.service';
+import { PacedReadService } from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
 import { ReadingMarksService } from '../../core/chat/reading-marks.service';
 import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
@@ -41,6 +37,7 @@ import {
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
 import { ChatSearchService, type ChatSearchHost } from '../../core/chat/chat-search.service';
+import { ChatPacedReadService, type ChatPacedReadHost } from '../../core/chat/chat-paced-read.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -52,7 +49,7 @@ import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.
   // The navbar context menus + the search/name glue belong to THIS page
   // (their actions touch its selection, tree and dialogs) — one instance per
   // chat page, not app-wide.
-  providers: [ChatNavMenuService, ChatSearchService]
+  providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService]
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
@@ -82,6 +79,8 @@ export class ChatComponent implements OnInit {
   private readonly toast = inject(ToastService);
   /** Search/replace + name dialogs glue — the page delegates to it below. */
   private readonly chatSearch = inject(ChatSearchService);
+  /** Paced-reading glue (resume host, start-from-view, read-from-mark). */
+  private readonly chatPacedRead = inject(ChatPacedReadService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -616,56 +615,26 @@ export class ChatComponent implements OnInit {
   // ------------------------------------------- paced reading: position host
 
   /**
-   * Lets the paced read pause/resume remember the reading place: while paused
-   * the user may scroll, edit, switch chats or open another page — Resume
-   * returns to the chapter AND to the scroll position they left.
+   * ChatPacedReadHost — the DOM-bound pieces of the paced-read glue (the
+   * resume host, start-from-view and read-from-mark live in
+   * `ChatPacedReadService`, bound in the constructor). The tree scroller,
+   * active path and visible-node signals already exist as component members;
+   * only the three setters below are new.
    */
-  private readonly pacedReadHost: PacedReadHost = {
-    view: 'chat',
-    capture: (): PacedReadResumePoint => {
-      const tree = this.tree()?.nativeElement;
-      return {
-        view: 'chat',
-        chatId: this.chatService.currentChatId(),
-        nodeId: this.pacedRead.currentKey(),
-        scrollTop: tree?.scrollTop ?? 0
-      };
-    },
-    restore: (point: PacedReadResumePoint) => this.restorePacedPosition(point)
-  };
+  private setPositionedChatId(chatId: string | null): void {
+    this.positionedChatId = chatId;
+  }
 
-  /**
-   * Put the message tree back where the pacing was interrupted: the revealed
-   * chapter at the top of the view, follow re-armed so the reveal continues
-   * visibly. Falls back to the recorded scroll offset when the node is not
-   * rendered (e.g. it left the active path).
-   */
-  private restorePacedPosition(point: PacedReadResumePoint): void {
-    const apply = () => {
-      const tree = this.tree()?.nativeElement;
-      if (!tree) return;
-      const el = point.nodeId
-        ? tree.querySelector(`[data-node-id="${point.nodeId}"]`) as HTMLElement | null
-        : null;
-      if (el) {
-        const delta = el.getBoundingClientRect().top - tree.getBoundingClientRect().top;
-        tree.scrollTop = Math.max(0, tree.scrollTop + delta - 8);
-      } else {
-        tree.scrollTop = point.scrollTop ?? 0;
-      }
-      this.positionedChatId = point.chatId;
-      this.visibleNodeId.set(point.nodeId ?? null);
-      this.visibleNodeIds.set(point.nodeId ? [point.nodeId] : []);
-    };
-    // The tree may still be rendering right after a chat switch.
-    apply();
-    queueMicrotask(apply);
-    requestAnimationFrame(() => requestAnimationFrame(apply));
+  private setVisibleNodeId(id: string | null): void {
+    this.visibleNodeId.set(id);
+  }
+
+  private setVisibleNodeIds(ids: string[]): void {
+    this.visibleNodeIds.set(ids);
   }
 
   ngOnDestroy() {
     this.toolbarResizeObserver?.disconnect();
-    this.pacedRead.unregisterHost(this.pacedReadHost);
     this.layoutPrefs.endSidebarResize();
     // Leaving the chat page must not leave a stale edit session behind —
     // otherwise re-entering a node editor later would start out "dirty" even
@@ -673,6 +642,8 @@ export class ChatComponent implements OnInit {
     this.editSession.abandon();
     // Stop the shared search dialog from using this page's nodes.
     this.chatSearch.unregister();
+    // Unregister the paced-read resume host (auto-pauses a running reveal).
+    this.chatPacedRead.unregisterHost();
   }
 
   // ------------------------------------------------------------------
@@ -743,7 +714,11 @@ export class ChatComponent implements OnInit {
     // The navbar context menus live in ChatNavMenuService, hosted by
     // `ChatNavBarComponent`; their actions are emitted onto this page's
     // handlers (selection + tree mutation) below.
-    this.pacedRead.registerHost(this.pacedReadHost);
+    // The paced-read resume host + start/relocate logic live in
+    // ChatPacedReadService; it calls back into the page for the DOM-bound bits
+    // (tree scroller, visible-node signals) and registers its host here.
+    this.chatPacedRead.bind(this as unknown as ChatPacedReadHost);
+    this.chatPacedRead.registerHost();
     // The search/name glue lives in ChatSearchService; it calls back into the
     // page for the DOM-bound bits (tree scroller, node components, caret
     // measurement) and registers its session on init.
@@ -918,33 +893,12 @@ export class ChatComponent implements OnInit {
   }
 
   /**
-   * Ctrl+R — reveal the chat at reading pace WITHOUT calling the LLM, starting
-   * at the section currently at the top of the view (or in the open editor),
-   * falling back to the first chapter of the active path. Pressing it while a
-   * run is active stops it.
+   * Ctrl+R — reveal the chat at reading pace WITHOUT calling the LLM (starts at
+   * the editing node, else the visible node, else the first chapter; stops an
+   * active run). Delegate to `ChatPacedReadService`.
    */
   startPacedReadFromView(): void {
-    if (this.pacedRead.active()) {
-      this.pacedRead.stop();
-      return;
-    }
-    const path = this.getActivePath();
-    if (!path.length) return;
-
-    // A "next read position" set from a chapter's context menu wins over the
-    // section at the top of the view.
-    const anchorId = this.pacedRead.pendingStart()?.nodeId
-      ?? this.editSession.editingNodeId()
-      ?? this.visibleNodeId();
-    let startIdx = anchorId ? path.findIndex(n => n.id === anchorId) : -1;
-    if (startIdx < 0) {
-      startIdx = path.findIndex(n => n.role === 'assistant' && !!n.content?.trim());
-    }
-    if (startIdx < 0) return;
-
-    const items = this.pacedReadItemsFrom(path[startIdx].id);
-    if (!items.length) return;
-    void this.pacedRead.start(items);
+    this.chatPacedRead.startPacedReadFromView();
   }
 
   // ------------------------------------------- persistent reading marks
@@ -985,25 +939,11 @@ export class ChatComponent implements OnInit {
   /**
    * Read from a mark. When a read is already running/paused it RELOCATES to
    * the mark (keeping the paused state) instead of stopping the session — the
-   * panel is how you pick the next spot while the reading is paused.
+   * panel is how you pick the next spot while the reading is paused. Delegate
+   * to `ChatPacedReadService`.
    */
   readFromMark(mark: ReadingMark): void {
-    if (this.pacedRead.active()) {
-      void this.pacedRead.relocate(this.pacedReadItemsFrom(mark.nodeId), mark.nodeId, mark.start);
-      return;
-    }
-    this.pacedRead.setNextReadPosition(mark.nodeId, mark.start);
-    this.startPacedReadFromView();
-  }
-
-  /** Chapters to reveal when reading starts at `nodeId` (it + the followers). */
-  private pacedReadItemsFrom(nodeId: string): { key: string; text: string }[] {
-    const path = this.getActivePath();
-    const idx = path.findIndex(n => n.id === nodeId);
-    const from = idx >= 0 ? path.slice(idx) : [];
-    return from
-      .filter(n => n.role === 'assistant' && (n.content ?? '').trim().length > 0)
-      .map(n => ({ key: n.id, text: n.content ?? '' }));
+    this.chatPacedRead.readFromMark(mark);
   }
 
   async deleteMark(mark: ReadingMark): Promise<void> {
