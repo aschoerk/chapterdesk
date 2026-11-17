@@ -58,6 +58,45 @@ export class ChatTreeReaderService {
     return found ?? this.newestChild(parentId);
   }
 
+  /**
+   * Memoized per-parent child lists of the CURRENT chat's nodes, rebuilt only
+   * when `state.nodes()` changes. `getChildren()` (and everything built on it:
+   * the active path, the nav bar, branch counts, sibling switching) used to
+   * re-scan + re-sort the WHOLE node list on every call — O(depth × n) per
+   * path computation, so long stories slowed down super-linearly. With this
+   * map the lookups are O(1) (plus one sort per parent, done once here), so
+   * path computations are O(depth).
+   */
+  private readonly childrenByParent = computed<Map<string | null, ChatNode[]>>(() => {
+    const map = new Map<string | null, ChatNode[]>();
+    for (const n of this.state.nodes()) {
+      if (!n.isCurrent) continue;
+      const key = n.parentId ?? null;
+      let list = map.get(key);
+      if (!list) {
+        list = [];
+        map.set(key, list);
+      }
+      list.push(n);
+    }
+    // Sort each sibling list by position ONCE. The sort is stable, so equal
+    // positions keep their node-list order — identical to the old per-call
+    // filter+sort.
+    for (const list of map.values()) {
+      list.sort((a, b) => this.nodePosition(a) - this.nodePosition(b));
+    }
+    return map;
+  });
+
+  /** nodeId → node of the current chat, rebuilt only when `state.nodes()` changes. */
+  private readonly nodesById = computed<Map<string, ChatNode>>(() => {
+    const map = new Map<string, ChatNode>();
+    for (const n of this.state.nodes()) {
+      map.set(n.id, n);
+    }
+    return map;
+  });
+
   /** Linear path from root following the active-child map. */
   getActivePath(): ChatNode[] {
     const path: ChatNode[] = [];
@@ -71,7 +110,7 @@ export class ChatTreeReaderService {
 
   /** Path from root down to (and including) a given node. */
   getPathToNode(nodeId: string): ChatNode[] {
-    const map = new Map(this.state.nodes().map(n => [n.id, n]));
+    const map = this.nodesById();
     const path: ChatNode[] = [];
     let cur: ChatNode | undefined = map.get(nodeId);
     while (cur) {
@@ -85,13 +124,13 @@ export class ChatTreeReaderService {
     return typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
   }
 
+  /**
+   * Siblings of `parentId` (null = root level), only current nodes, ordered by
+   * position. Returns a fresh shallow copy so callers may freely reorder /
+   * filter the result without corrupting the shared memoized lists.
+   */
   getChildren(parentId: string | null): ChatNode[] {
-    return this.state.nodes()
-      .filter(n =>
-        (n.parentId ?? null) === (parentId ?? null) &&
-        n.isCurrent
-      )
-      .sort((a, b) => this.nodePosition(a) - this.nodePosition(b));
+    return [...(this.childrenByParent().get(parentId ?? null) ?? [])];
   }
 
   /** All siblings of a given node (including the node itself). */
@@ -104,7 +143,7 @@ export class ChatTreeReaderService {
    * These are not on getActivePath() and are not sent to the LLM.
    */
   getPriorVersions(node: ChatNode): ChatNode[] {
-    const byId = new Map(this.state.nodes().map(n => [n.id, n]));
+    const byId = this.nodesById();
     const out: ChatNode[] = [];
     const seen = new Set<string>([node.id]);
     let id = node.previousVersionId ?? null;
