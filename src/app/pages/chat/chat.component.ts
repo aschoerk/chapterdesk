@@ -24,7 +24,6 @@ import { LlmUseCaseRunner } from '../../core/llm/orchestration';
 import { PacedReadService } from '../../core/llm/paced-read.service';
 import { readingTimeLabel } from '../../core/llm/reading-time';
 import { ReadingMarksService } from '../../core/chat/reading-marks.service';
-import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
 import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-metrics';
 import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
@@ -39,6 +38,7 @@ import {
 import { ChatSearchService, type ChatSearchHost } from '../../core/chat/chat-search.service';
 import { ChatPacedReadService, type ChatPacedReadHost } from '../../core/chat/chat-paced-read.service';
 import { ChatNavActionsService } from '../../core/chat/chat-nav-actions.service';
+import { ChatMarksService, type ChatMarksHost } from '../../core/chat/chat-marks.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -48,9 +48,9 @@ import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
   // The navbar context menus + the search/name glue + the navbar operations
-  // belong to THIS page (their actions touch its selection, tree and dialogs)
-  // — one instance per chat page, not app-wide.
-  providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService, ChatNavActionsService]
+  // + the marks handling belong to THIS page (their actions touch its
+  // selection, tree and dialogs) — one instance per chat page, not app-wide.
+  providers: [ChatNavMenuService, ChatSearchService, ChatPacedReadService, ChatNavActionsService, ChatMarksService]
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
@@ -61,8 +61,6 @@ export class ChatComponent implements OnInit {
   readonly readingMarks = inject(ReadingMarksService);
   /** Marks panel open state. */
   readonly showMarks = signal(false);
-  /** Modal that collects a mark's notice. */
-  private readonly markNoteDialog = inject(MarkNoteDialogService);
   readonly projectService = inject(ProjectService);
   /** Client-side node clipboard; used here to paste a copied branch at the top. */
   readonly clipboard = inject(NodeClipboardService);
@@ -80,6 +78,8 @@ export class ChatComponent implements OnInit {
   private readonly toast = inject(ToastService);
   /** Navbar clipboard/branch operations — the page delegates to it below. */
   private readonly navActions = inject(ChatNavActionsService);
+  /** Persistent reading marks handling — the page delegates to it below. */
+  private readonly chatMarks = inject(ChatMarksService);
   /** Search/replace + name dialogs glue — the page delegates to it below. */
   private readonly chatSearch = inject(ChatSearchService);
   /** Paced-reading glue (resume host, start-from-view, read-from-mark). */
@@ -463,6 +463,11 @@ export class ChatComponent implements OnInit {
     this.visibleNodeIds.set(ids);
   }
 
+  /** ChatMarksHost — clearMarks closes the panel through this setter. */
+  private setShowMarks(open: boolean): void {
+    this.showMarks.set(open);
+  }
+
   ngOnDestroy() {
     this.toolbarResizeObserver?.disconnect();
     this.layoutPrefs.endSidebarResize();
@@ -553,6 +558,10 @@ export class ChatComponent implements OnInit {
     // page for the DOM-bound bits (tree scroller, node components, caret
     // measurement) and registers its session on init.
     this.chatSearch.bind(this as unknown as ChatSearchHost);
+    // The persistent-marks handling lives in ChatMarksService; it calls back
+    // into the page for the rendered node components, the visible node and the
+    // tree scroller.
+    this.chatMarks.bind(this as unknown as ChatMarksHost);
     // Toolbar: .params-tools only exists while a story is open, so a one-shot
     // afterNextRender at construction would run too early and never attach.
     // This effect re-runs whenever the element appears/disappears (story
@@ -726,17 +735,12 @@ export class ChatComponent implements OnInit {
 
   /** One-line description of a mark for the panel (quote or position excerpt). */
   markPreview(mark: ReadingMark): string {
-    return this.readingMarks.label(mark, this.chatService.currentNodes());
+    return this.chatMarks.markPreview(mark);
   }
 
   /** "chapter 3"-ish reference of the node a mark belongs to. */
   markNodeLabel(mark: ReadingMark): string {
-    const path = this.getActivePath();
-    const idx = path.findIndex(n => n.id === mark.nodeId);
-    if (idx < 0) return this.i18n.t('chat.marksOrphan');
-    const n = path[idx];
-    const role = n.role === 'user' ? this.i18n.t('node.roleUser') : this.i18n.t('node.roleAssistant');
-    return `${role} ${idx + 1}`;
+    return this.chatMarks.markNodeLabel(mark);
   }
 
   /**
@@ -746,40 +750,26 @@ export class ChatComponent implements OnInit {
    * section was edited after the mark was set).
    */
   jumpToMark(mark: ReadingMark): void {
-    const comp = this.nodeComps().find(c => c.node().id === mark.nodeId) ?? null;
-    // revealMark centres the exact line itself — scrolling the section first
-    // would fight its own scroll (both move the same scroller).
-    if (comp?.revealMark(mark)) return;
-    this.scrollToNode(mark.nodeId);
-    if (mark.quote?.trim()) {
-      // The mark was a text selection but that text is gone (edited section).
-      this.toast.info(this.i18n.t('chat.marksGone'));
-    }
+    this.chatMarks.jumpToMark(mark);
   }
 
   /**
    * Read from a mark. When a read is already running/paused it RELOCATES to
    * the mark (keeping the paused state) instead of stopping the session — the
    * panel is how you pick the next spot while the reading is paused. Delegate
-   * to `ChatPacedReadService`.
+   * to `ChatPacedReadService` (via `ChatMarksService`).
    */
   readFromMark(mark: ReadingMark): void {
-    this.chatPacedRead.readFromMark(mark);
+    this.chatMarks.readFromMark(mark);
   }
 
   async deleteMark(mark: ReadingMark): Promise<void> {
-    await this.readingMarks.remove(mark.id);
+    await this.chatMarks.deleteMark(mark);
   }
 
   /** Edit a mark's notice in the modal (Cancel keeps the old notice). */
   async editMarkNote(mark: ReadingMark): Promise<void> {
-    const note = await this.markNoteDialog.open({
-      note: mark.note ?? '',
-      quote: mark.quote ?? '',
-      isPosition: this.readingMarks.isPosition(mark)
-    });
-    if (note == null) return;
-    await this.readingMarks.setNote(mark.id, note);
+    await this.chatMarks.editMarkNote(mark);
   }
 
   /**
@@ -788,51 +778,11 @@ export class ChatComponent implements OnInit {
    * the top of the view.
    */
   markAtCursor(): void {
-    const node = this.nodeComponentAtSelection() ?? this.visibleNodeComponent();
-    if (!node) return;
-    if (node.hasContentSelection()) void node.markSelection();
-    else void node.markPosition();
-  }
-
-  /** The rendered node component whose content contains the DOM selection. */
-  private nodeComponentAtSelection(): ChatNodeComponent | null {
-    const selection = window.getSelection?.();
-    if (!selection || selection.rangeCount === 0) return null;
-    // `viewChildren` yields component instances; the owning section is found
-    // through the `data-node-id` wrapper of the selected text.
-    const id = this.nodeIdOfDomNode(selection.anchorNode)
-      ?? this.nodeIdOfDomNode(selection.focusNode);
-    if (!id) return null;
-    return this.nodeComps().find(c => c.node().id === id) ?? null;
-  }
-
-  /** The `data-node-id` of the chat-node element wrapping a DOM node. */
-  private nodeIdOfDomNode(domNode: Node | null): string | null {
-    if (!domNode) return null;
-    const el = domNode.nodeType === Node.ELEMENT_NODE
-      ? domNode as Element
-      : domNode.parentElement;
-    return el?.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null;
-  }
-
-  /** The rendered node component of the section at the top of the view. */
-  private visibleNodeComponent(): ChatNodeComponent | null {
-    const id = this.visibleNodeId() ?? this.getCurrentLeaf()?.id ?? null;
-    if (!id) return null;
-    return this.nodeComps().find(c => c.node().id === id) ?? this.nodeComps()[0] ?? null;
+    this.chatMarks.markAtCursor();
   }
 
   async clearMarks(): Promise<void> {
-    const ok = await this.confirm.ask({
-      title: this.i18n.t('chat.marksClearTitle'),
-      message: this.i18n.t('chat.marksClearMsg', { count: this.readingMarks.count() }),
-      confirmLabel: this.i18n.t('chat.marksClear'),
-      cancelLabel: this.i18n.t('common.cancel'),
-      danger: true
-    });
-    if (!ok) return;
-    await this.readingMarks.clear();
-    this.showMarks.set(false);
+    await this.chatMarks.clearMarks();
   }
 
   @HostListener('window:keydown', ['$event'])
