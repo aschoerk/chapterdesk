@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal, type Signal, type ElementRef } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
@@ -27,16 +27,14 @@ const CHAT_ID = 'chat-1';
 function hostStub(
   chatService: ChatService,
   overrides: Partial<ChatSearchHost> = {},
-): ChatSearchHost & { calls: string[] } {
-  const calls: string[] = [];
+): ChatSearchHost {
   return {
-    calls,
-    tree: () => undefined,
-    nodeComps: () => [],
+    tree: signal<ElementRef<HTMLElement> | undefined>(undefined),
+    nodeComps: signal<readonly ChatNodeComponent[]>([]),
     getActivePath: () => chatService.getActivePath(),
     getCurrentLeaf: () => currentLeaf(chatService),
-    visibleNodeId: () => null,
-    chats: () => chatService.chats(),
+    visibleNodeId: signal<string | null>(null),
+    chats: chatService.chats,
     measureSearchCaret: () => null,
     ...overrides,
   };
@@ -173,7 +171,7 @@ describe('ChatSearchService', () => {
     await open(story());
     chatService.setActiveChild(null, 'q1');
     chatService.setActiveChild('q1', 'a1');
-    service.bind(hostStub(chatService, { visibleNodeId: () => 'q1' }));
+    service.bind(hostStub(chatService, { visibleNodeId: signal('q1') }));
 
     expect(service.searchUnits('node')).toEqual([
       { key: 'q1', text: 'Question', role: 'user' },
@@ -227,7 +225,7 @@ describe('ChatSearchService', () => {
     } as DOMRect);
 
     service.bind(hostStub(chatService, {
-      tree: () => ({ nativeElement: tree }),
+      tree: signal({ nativeElement: tree }),
       measureSearchCaret: () => ({ contentTop: 500, paddingTop: 12, lineHeight: 16 }),
     }));
 
@@ -273,7 +271,7 @@ describe('ChatSearchService', () => {
     // The dialog's apply persists through the chat API and pushes the new
     // text into the open editor's node component.
     const comp = fakeNodeComp('a1');
-    service.bind(hostStub(chatService, { nodeComps: () => [comp as ChatNodeComponent] }));
+    service.bind(hostStub(chatService, { nodeComps: signal([comp as ChatNodeComponent]) }));
     await state.apply([{ key: 'a1', text: 'Answer one (replaced)' }]);
     expect(chatService.nodes().find(n => n.id === 'a1')?.content).toBe('Answer one (replaced)');
     expect((comp.setDraftFromSearch as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('Answer one (replaced)');

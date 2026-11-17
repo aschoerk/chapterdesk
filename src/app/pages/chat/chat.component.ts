@@ -36,10 +36,10 @@ import {
   type ChatNavMenuActions,
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
-import { ChatSearchService, type ChatSearchActions, type ChatSearchHost } from '../../core/chat/chat-search.service';
-import { ChatPacedReadService, type ChatPacedReadHost } from '../../core/chat/chat-paced-read.service';
+import { ChatSearchService, type ChatSearchActions } from '../../core/chat/chat-search.service';
+import { ChatPacedReadService } from '../../core/chat/chat-paced-read.service';
 import { ChatNavActionsService, type ChatNavActions } from '../../core/chat/chat-nav-actions.service';
-import { ChatMarksService, type ChatMarksActions, type ChatMarksHost } from '../../core/chat/chat-marks.service';
+import { ChatMarksService, type ChatMarksActions } from '../../core/chat/chat-marks.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -456,28 +456,11 @@ export class ChatComponent implements
   // ------------------------------------------- paced reading: position host
 
   /**
-   * ChatPacedReadHost — the DOM-bound pieces of the paced-read glue (the
-   * resume host, start-from-view and read-from-mark live in
-   * `ChatPacedReadService`, bound in the constructor). The tree scroller,
-   * active path and visible-node signals already exist as component members;
-   * only the three setters below are new.
+   * The paced-read / search / marks services receive the page's live view
+   * signals (tree scroller, node components, visible nodes, marks panel) as
+   * a bind-time contract — see the constructor. The signals stay private
+   * here; the services read them and write the writable ones directly.
    */
-  private setPositionedChatId(chatId: string | null): void {
-    this.positionedChatId = chatId;
-  }
-
-  private setVisibleNodeId(id: string | null): void {
-    this.visibleNodeId.set(id);
-  }
-
-  private setVisibleNodeIds(ids: string[]): void {
-    this.visibleNodeIds.set(ids);
-  }
-
-  /** ChatMarksHost — clearMarks closes the panel through this setter. */
-  private setShowMarks(open: boolean): void {
-    this.showMarks.set(open);
-  }
 
   ngOnDestroy() {
     this.toolbarResizeObserver?.disconnect();
@@ -560,19 +543,38 @@ export class ChatComponent implements
     // The navbar context menus live in ChatNavMenuService, hosted by
     // `ChatNavBarComponent`; their actions are emitted onto this page's
     // handlers (selection + tree mutation) below.
-    // The paced-read resume host + start/relocate logic live in
-    // ChatPacedReadService; it calls back into the page for the DOM-bound bits
-    // (tree scroller, visible-node signals) and registers its host here.
-    this.chatPacedRead.bind(this as unknown as ChatPacedReadHost);
+    // The paced-read / search / marks services receive the page's live view
+    // signals as a bind-time contract — the DOM stays private on the page and
+    // the services read/write the signals directly (no host casts).
+    this.chatPacedRead.bind({
+      tree: this.tree,
+      getActivePath: () => this.getActivePath(),
+      visibleNodeId: this.visibleNodeId,
+      visibleNodeIds: this.visibleNodeIds,
+    });
     this.chatPacedRead.registerHost();
     // The search/name glue lives in ChatSearchService; it calls back into the
     // page for the DOM-bound bits (tree scroller, node components, caret
     // measurement) and registers its session on init.
-    this.chatSearch.bind(this as unknown as ChatSearchHost);
+    this.chatSearch.bind({
+      tree: this.tree,
+      nodeComps: this.nodeComps,
+      getActivePath: () => this.getActivePath(),
+      getCurrentLeaf: () => this.getCurrentLeaf(),
+      visibleNodeId: this.visibleNodeId,
+      chats: this.chats,
+      measureSearchCaret: (ta, offset) => this.measureSearchCaret(ta, offset),
+    });
     // The persistent-marks handling lives in ChatMarksService; it calls back
     // into the page for the rendered node components, the visible node and the
     // tree scroller.
-    this.chatMarks.bind(this as unknown as ChatMarksHost);
+    this.chatMarks.bind({
+      nodeComps: this.nodeComps,
+      visibleNodeId: this.visibleNodeId,
+      getActivePath: () => this.getActivePath(),
+      getCurrentLeaf: () => this.getCurrentLeaf(),
+      showMarks: this.showMarks,
+    });
     // Toolbar: .params-tools only exists while a story is open, so a one-shot
     // afterNextRender at construction would run too early and never attach.
     // This effect re-runs whenever the element appears/disappears (story
@@ -635,29 +637,27 @@ export class ChatComponent implements
     });
   }
 
-  private positionedChatId: string | null = null;
-
   onTreeScroll(): void {
     this.syncVisibleNode();
     const tree = this.tree()?.nativeElement;
     const chatId = this.currentChatId();
-    if (tree && chatId && this.positionedChatId === chatId) {
+    if (tree && chatId && this.chatPacedRead.isPositionedFor(chatId)) {
       this.chatService.saveScroll(chatId, tree.scrollTop);
     }
   }
 
   private restoreOpenedChatPosition(chatId: string | null): void {
     if (!chatId) {
-      this.positionedChatId = null;
+      this.chatPacedRead.setPositionedChatId(null);
       return;
     }
-    if (this.positionedChatId === chatId) return;
+    if (this.chatPacedRead.isPositionedFor(chatId)) return;
 
     const tree = this.tree()?.nativeElement;
     const path = this.getActivePath();
     if (!tree || path.length === 0) return;
 
-    this.positionedChatId = chatId;
+    this.chatPacedRead.setPositionedChatId(chatId);
 
     if (this.chatService.alwaysOpenAtLeaf()) {
       const leaf = this.getCurrentLeaf();
@@ -735,11 +735,10 @@ export class ChatComponent implements
     return current;
   }
 
-  scrollToNode(nodeId: string) {
-    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+  /** Scroll the tree to a node — the nav-bar's scroll output and the marks
+   *  fallback. The DOM query lives in ChatMarksService. */
+  scrollToNode(nodeId: string): void {
+    this.chatMarks.scrollToNode(nodeId);
   }
 
   // ------------------------------------------- persistent reading marks

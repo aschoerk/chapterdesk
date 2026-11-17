@@ -1109,9 +1109,10 @@ describe('Chat', () => {
     component.jumpToMark(mark as any);
     expect(reveal).toHaveBeenCalledWith(mark);
 
-    // Stale mark: the section cannot reveal it → falls back to scrolling.
+    // Stale mark: the section cannot reveal it → the marks service falls back
+    // to scrolling (it owns the DOM query now).
     reveal.mockReturnValue(false);
-    const scroll = vi.spyOn(component, 'scrollToNode').mockImplementation(() => {});
+    const scroll = vi.spyOn((component as any).chatMarks, 'scrollToNode').mockImplementation(() => {});
     component.jumpToMark(mark as any);
     expect(scroll).toHaveBeenCalledWith(mark.nodeId);
     vi.restoreAllMocks();

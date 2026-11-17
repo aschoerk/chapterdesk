@@ -330,9 +330,9 @@ describe('ChatReaderComponent', () => {
       { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', version: 1, createdAt: t(2) },
       { id: 'a2', parentId: 'q1', role: 'assistant', content: 'A2', version: 1, createdAt: t(3) },
     ]);
-    expect(component.docLabel()).toBe('C v1 · continuation 2');
+    expect(component.docLabel()).toBe('C v1 · fork 2');
     component.nextDoc();
-    expect(component.docLabel()).toBe('C v1 · continuation 2');
+    expect(component.docLabel()).toBe('C v1 · fork 2');
   });
 
   it('walks the document pager within bounds', async () => {

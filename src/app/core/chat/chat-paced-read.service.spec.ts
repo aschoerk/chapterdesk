@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal, type Signal, type ElementRef } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
@@ -25,16 +25,12 @@ const CHAT_ID = 'chat-1';
 function hostStub(
   chatService: ChatService,
   overrides: Partial<ChatPacedReadHost> = {},
-): ChatPacedReadHost & { calls: string[] } {
-  const calls: string[] = [];
+): ChatPacedReadHost {
   return {
-    calls,
-    tree: () => undefined,
+    tree: signal<ElementRef<HTMLElement> | undefined>(undefined),
     getActivePath: () => chatService.getActivePath(),
-    visibleNodeId: () => null,
-    setPositionedChatId: (id) => calls.push(`pos:${id}`),
-    setVisibleNodeId: (id) => calls.push(`vis:${id}`),
-    setVisibleNodeIds: (ids) => calls.push(`viss:${ids.join(',')}`),
+    visibleNodeId: signal<string | null>(null),
+    visibleNodeIds: signal<string[]>([]),
     ...overrides,
   };
 }
@@ -115,7 +111,7 @@ describe('ChatPacedReadService', () => {
     await open(story());
     chatService.setActiveChild(null, 'q1');
     chatService.setActiveChild('q1', 'a1');
-    service.bind(hostStub(chatService, { visibleNodeId: () => 'a1' }));
+    service.bind(hostStub(chatService, { visibleNodeId: signal('a1') }));
     pacedRead.setNextReadPosition('a2', 0);
 
     service.startPacedReadFromView();
@@ -173,7 +169,7 @@ describe('ChatPacedReadService', () => {
       configurable: true,
     });
     const host = hostStub(chatService, {
-      tree: () => ({ nativeElement: tree }),
+      tree: signal({ nativeElement: tree }),
     });
     service.bind(host);
 
@@ -207,9 +203,11 @@ describe('ChatPacedReadService', () => {
 
     // delta = nodeEl.top(100) - tree.top(0) = 100 → scrollTop = max(0, 123 + 100 - 8).
     expect(capturedScrollTop).toBe(215);
-    // The restored position is recorded on the page (positioned chat + visible node).
-    expect(host.calls).toContain('vis:a1');
-    expect(host.calls).toContain('pos:chat-1');
+    // The restored position is recorded on the service (positioned chat) and
+    // written into the page's visible-node signals.
+    expect(host.visibleNodeId()).toBe('a1');
+    expect(host.visibleNodeIds()).toEqual(['a1']);
+    expect(service.isPositionedFor(CHAT_ID)).toBe(true);
     pacedRead.stop();
     vi.restoreAllMocks();
   });

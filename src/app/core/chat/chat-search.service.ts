@@ -13,7 +13,7 @@
  * page keeps thin delegates for every public member, so the template and the
  * specs are unchanged.
  */
-import { Injectable, inject, ElementRef } from '@angular/core';
+import { Injectable, inject, ElementRef, type Signal } from '@angular/core';
 import { Chat, ChatNode } from '../../models/chat';
 import { ChatService } from './chat.service';
 import { NodeEditSession } from './node-edit-session';
@@ -27,20 +27,22 @@ import { I18nService } from '../i18n/i18n.service';
 import type { NameTextUnit, NameOccurrence } from '../names/name-replace';
 import type { ChatNodeComponent } from '../../components/chat-node/chat-node.component';
 
-/** What the chat-page search glue needs from the page. */
+/** What the chat-page search glue needs from the page. The component hands
+ *  over its live view signals at bind time (they stay private on the page);
+ *  the service reads them through this contract. */
 export interface ChatSearchHost {
   /** The conversation tree scroller (.tree) — outer scroll reveal. */
-  tree(): ElementRef<HTMLElement> | undefined;
+  tree: Signal<ElementRef<HTMLElement> | undefined>;
   /** Rendered chat-node components — to push a replacement into an open editor. */
-  nodeComps(): ChatNodeComponent[];
+  nodeComps: Signal<readonly ChatNodeComponent[]>;
   /** Active-path nodes (the "chat" search scope). */
   getActivePath(): ChatNode[];
   /** Deepest node on the active branch (fallback "node" scope target). */
   getCurrentLeaf(): ChatNode | null;
   /** Node whose block sits nearest the top of the tree. */
-  visibleNodeId(): string | null;
+  visibleNodeId: Signal<string | null>;
   /** All chat records — to read the already-handled names. */
-  chats(): Chat[];
+  chats: Signal<Chat[]>;
   /** Mirror measurement of the caret in an editor textarea (spec-spied). */
   measureSearchCaret(ta: HTMLTextAreaElement, offset: number): TextareaCharMetrics | null;
 }

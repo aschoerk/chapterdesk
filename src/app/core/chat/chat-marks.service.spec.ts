@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
@@ -29,16 +29,13 @@ const CHAT_ID = 'chat-1';
 function hostStub(
   chatService: ChatService,
   overrides: Partial<ChatMarksHost> = {},
-): ChatMarksHost & { calls: string[] } {
-  const calls: string[] = [];
+): ChatMarksHost {
   return {
-    calls,
-    nodeComps: () => [],
-    visibleNodeId: () => null,
+    nodeComps: signal<readonly ChatNodeComponent[]>([]),
+    visibleNodeId: signal<string | null>(null),
     getActivePath: () => chatService.getActivePath(),
     getCurrentLeaf: () => currentLeaf(chatService),
-    scrollToNode: (id) => calls.push(`scroll:${id}`),
-    setShowMarks: (open) => calls.push(`show:${open}`),
+    showMarks: signal(false),
     ...overrides,
   };
 }
@@ -167,14 +164,16 @@ describe('ChatMarksService', () => {
     activateStory();
     const reveal = vi.fn().mockReturnValue(true);
     const comp = fakeNodeComp('a1', { revealMark: reveal });
-    const host = hostStub(chatService, { nodeComps: () => [comp] });
+    const host = hostStub(chatService, { nodeComps: signal([comp]) });
     service.bind(host);
+    const scrollSpy = vi.spyOn(service, 'scrollToNode').mockImplementation(() => {});
 
     const mark = { id: 'm1', nodeId: 'a1', start: 3, end: 9, quote: 'Answer', note: '', createdAt: '' } as ReadingMark;
     service.jumpToMark(mark);
 
     expect(reveal).toHaveBeenCalledWith(mark);
-    expect(host.calls).not.toContain('scroll:a1');
+    expect(scrollSpy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 
   it('jumpToMark scrolls to the section when the mark text is gone', async () => {
@@ -182,14 +181,16 @@ describe('ChatMarksService', () => {
     activateStory();
     const reveal = vi.fn().mockReturnValue(false);
     const comp = fakeNodeComp('a1', { revealMark: reveal });
-    const host = hostStub(chatService, { nodeComps: () => [comp] });
+    const host = hostStub(chatService, { nodeComps: signal([comp]) });
     service.bind(host);
+    const scrollSpy = vi.spyOn(service, 'scrollToNode').mockImplementation(() => {});
 
     const mark = { id: 'm1', nodeId: 'a1', start: 3, end: 9, quote: 'Answer', note: '', createdAt: '' } as ReadingMark;
     service.jumpToMark(mark);
 
     expect(reveal).toHaveBeenCalledWith(mark);
-    expect(host.calls).toContain('scroll:a1');
+    expect(scrollSpy).toHaveBeenCalledWith('a1');
+    vi.restoreAllMocks();
   });
 
   it('readFromMark delegates to the paced-read service', async () => {
@@ -264,7 +265,7 @@ describe('ChatMarksService', () => {
     await service.clearMarks();
 
     expect(readingMarks.marks()).toHaveLength(0);
-    expect(host.calls).toContain('show:false');
+    expect(host.showMarks()).toBe(false);
     vi.restoreAllMocks();
   });
 
@@ -281,7 +282,7 @@ describe('ChatMarksService', () => {
     await service.clearMarks();
 
     expect(readingMarks.marks()).toHaveLength(1);
-    expect(host.calls).not.toContain('show:false');
+    expect(host.showMarks()).toBe(false);
     vi.restoreAllMocks();
   });
 
@@ -295,8 +296,8 @@ describe('ChatMarksService', () => {
     const markPosition = vi.fn();
     const comp = fakeNodeComp('a1', { markPosition });
     const host = hostStub(chatService, {
-      visibleNodeId: () => 'a1',
-      nodeComps: () => [comp],
+      visibleNodeId: signal('a1'),
+      nodeComps: signal([comp]),
     });
     service.bind(host);
 
@@ -314,8 +315,8 @@ describe('ChatMarksService', () => {
       markSelection,
     });
     const host = hostStub(chatService, {
-      visibleNodeId: () => 'a1',
-      nodeComps: () => [comp],
+      visibleNodeId: signal('a1'),
+      nodeComps: signal([comp]),
     });
     service.bind(host);
 

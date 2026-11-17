@@ -20,7 +20,7 @@
  * delegates for every public member, so the template and the specs are
  * unchanged.
  */
-import { Injectable, inject, ElementRef } from '@angular/core';
+import { Injectable, inject, ElementRef, type Signal, type WritableSignal } from '@angular/core';
 import { ChatNode, ReadingMark } from '../../models/chat';
 import { ChatService } from './chat.service';
 import { NodeEditSession } from './node-edit-session';
@@ -30,18 +30,19 @@ import {
   type PacedReadResumePoint,
 } from '../llm/paced-read.service';
 
-/** What the chat-page paced-reading glue needs from the page. */
+/** What the chat-page paced-reading glue needs from the page. The component
+ *  hands over its live view signals at bind time (they stay private on the
+ *  page); the service reads them AND writes the visible-node signals, and
+ *  owns the positioned-chat bookkeeping itself. */
 export interface ChatPacedReadHost {
   /** The conversation tree scroller (.tree) — scroll capture/restore. */
-  tree(): ElementRef<HTMLElement> | undefined;
+  tree: Signal<ElementRef<HTMLElement> | undefined>;
   /** Active-path nodes (the chapter queue source). */
   getActivePath(): ChatNode[];
-  /** Node whose block sits nearest the top of the tree. */
-  visibleNodeId(): string | null;
-  /** Record which chat the tree is currently positioned for. */
-  setPositionedChatId(chatId: string | null): void;
-  setVisibleNodeId(id: string | null): void;
-  setVisibleNodeIds(ids: string[]): void;
+  /** Node whose block sits nearest the top of the tree (the service writes it). */
+  visibleNodeId: WritableSignal<string | null>;
+  /** All nodes whose blocks are currently visible in the tree viewport (the service writes it). */
+  visibleNodeIds: WritableSignal<string[]>;
 }
 
 /**
@@ -57,9 +58,22 @@ export class ChatPacedReadService {
 
   private host: ChatPacedReadHost | null = null;
 
+  /** Which chat the tree is currently positioned for (scroll bookkeeping). */
+  private positionedChatId: string | null = null;
+
   /** Wire the page that owns the DOM. Called once from the constructor. */
   bind(host: ChatPacedReadHost): void {
     this.host = host;
+  }
+
+  /** Record which chat the tree is currently positioned for. */
+  setPositionedChatId(chatId: string | null): void {
+    this.positionedChatId = chatId;
+  }
+
+  /** True when the tree is currently positioned for `chatId`. */
+  isPositionedFor(chatId: string | null): boolean {
+    return this.positionedChatId === chatId;
   }
 
   /** Register the chat page's resume host (constructor). */
@@ -110,9 +124,9 @@ export class ChatPacedReadService {
       } else {
         tree.scrollTop = point.scrollTop ?? 0;
       }
-      this.host?.setPositionedChatId(point.chatId);
-      this.host?.setVisibleNodeId(point.nodeId ?? null);
-      this.host?.setVisibleNodeIds(point.nodeId ? [point.nodeId] : []);
+      this.setPositionedChatId(point.chatId);
+      this.host?.visibleNodeId.set(point.nodeId ?? null);
+      this.host?.visibleNodeIds.set(point.nodeId ? [point.nodeId] : []);
     };
     // The tree may still be rendering right after a chat switch.
     apply();

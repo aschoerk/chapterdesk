@@ -19,6 +19,9 @@ describe('SetupWizardService', () => {
 
   beforeEach(() => {
     localStorage.removeItem('chat.demoData.loadedV1');
+    // Don't leak the per-task defaults this spec writes (e.g. 'prov-mock')
+    // into other specs that read chat.generationTasks.
+    localStorage.removeItem('chat.generationTasks');
     api = new InMemoryChatApi();
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -36,6 +39,7 @@ describe('SetupWizardService', () => {
 
   afterEach(() => {
     localStorage.removeItem('chat.demoData.loadedV1');
+    localStorage.removeItem('chat.generationTasks');
   });
 
   it('opens on the welcome step and resolves "skipped" via skip()', async () => {

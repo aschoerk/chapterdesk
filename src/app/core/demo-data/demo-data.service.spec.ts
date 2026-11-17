@@ -22,6 +22,10 @@ describe('DemoDataService', () => {
 
   beforeEach(() => {
     localStorage.removeItem('chat.demoData.loadedV1');
+    // GenerationSettingsService reads per-task defaults from localStorage;
+    // clear it so a stale config (e.g. 'prov-mock' left by the setup-wizard
+    // spec) can't leak into ensureMockWriterDefaults() assertions.
+    localStorage.removeItem('chat.generationTasks');
     api = new InMemoryChatApi();
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -40,6 +44,7 @@ describe('DemoDataService', () => {
 
   afterEach(() => {
     localStorage.removeItem('chat.demoData.loadedV1');
+    localStorage.removeItem('chat.generationTasks');
   });
 
   it('registers the key-free mock provider + models exactly once', async () => {

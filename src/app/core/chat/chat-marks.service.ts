@@ -13,7 +13,7 @@
  * thin delegates for every public member, so the template and the specs are
  * unchanged.
  */
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, type Signal, type WritableSignal } from '@angular/core';
 import { ChatNode, ReadingMark } from '../../models/chat';
 import { ChatService } from './chat.service';
 import { ReadingMarksService } from './reading-marks.service';
@@ -40,20 +40,20 @@ export interface ChatMarksActions {
   clearMarks(): Promise<void>;
 }
 
-/** What the chat-page marks handling needs from the page. */
+/** What the chat-page marks handling needs from the page. The component hands
+ *  over its live view signals at bind time (they stay private on the page);
+ *  the service reads them and writes the marks-panel open state. */
 export interface ChatMarksHost {
   /** Rendered chat-node components — to find the section a mark belongs to. */
-  nodeComps(): ChatNodeComponent[];
+  nodeComps: Signal<readonly ChatNodeComponent[]>;
   /** Node whose block sits nearest the top of the tree. */
-  visibleNodeId(): string | null;
+  visibleNodeId: Signal<string | null>;
   /** Active-path nodes (for the "chapter 3"-ish mark labels). */
   getActivePath(): ChatNode[];
   /** Deepest node on the active branch (fallback marks target). */
   getCurrentLeaf(): ChatNode | null;
-  /** Scroll the tree to a node (fallback when a mark's text is gone). */
-  scrollToNode(nodeId: string): void;
-  /** Open/close the marks panel (clearMarks closes it). */
-  setShowMarks(open: boolean): void;
+  /** Marks-panel open state (clearMarks closes it — the service writes it). */
+  showMarks: WritableSignal<boolean>;
 }
 
 /**
@@ -103,11 +103,17 @@ export class ChatMarksService implements ChatMarksActions {
     // revealMark centres the exact line itself — scrolling the section first
     // would fight its own scroll (both move the same scroller).
     if (comp?.revealMark(mark)) return;
-    this.host?.scrollToNode(mark.nodeId);
+    this.scrollToNode(mark.nodeId);
     if (mark.quote?.trim()) {
       // The mark was a text selection but that text is gone (edited section).
       this.toast.info(this.i18n.t('chat.marksGone'));
     }
+  }
+
+  /** Scroll the tree to a node (fallback when a mark's text is gone). */
+  scrollToNode(nodeId: string): void {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /**
@@ -185,6 +191,6 @@ export class ChatMarksService implements ChatMarksActions {
     });
     if (!ok) return;
     await this.readingMarks.clear();
-    this.host?.setShowMarks(false);
+    this.host?.showMarks.set(false);
   }
 }
