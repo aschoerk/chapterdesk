@@ -30,21 +30,17 @@ import { readingTimeLabel } from '../../core/llm/reading-time';
 import { ReadingMarksService } from '../../core/chat/reading-marks.service';
 import { MarkNoteDialogService } from '../../core/dialogs/mark-note-dialog.service';
 import { SearchReplaceComponent } from '../../components/search-replace/search-replace.component';
-import { SearchReplaceService, SearchReplaceSession } from '../../core/search-replace/search-replace.service';
-import { highlightMatchesIn } from '../../core/search-replace/search-utils';
 import { textareaCharMetrics, TextareaCharMetrics } from '../../core/util/dom-metrics';
 import { ChatNavSelectionService } from '../../core/chat/chat-nav-selection.service';
 import { ChatLayoutPrefsService } from '../../core/chat/chat-layout-prefs.service';
 import { ChatElaborateDialogService } from '../../core/dialogs/chat-elaborate-dialog.service';
 import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
-import { NameReplaceDialogService } from '../../core/dialogs/name-replace-dialog.service';
-import { NameListDialogService } from '../../core/dialogs/name-list-dialog.service';
 import { ToastService } from '../../core/toast/toast.service';
-import type { NameTextUnit, NameOccurrence } from '../../core/names/name-replace';
 import {
   ChatNavMenuService,
   type NavMenuEntry,
 } from '../../core/chat/chat-nav-menu.service';
+import { ChatSearchService, type ChatSearchHost } from '../../core/chat/chat-search.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
 
 @Component({
@@ -53,9 +49,10 @@ import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.
   imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent, ChatNavBarComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
-  // The navbar context menus belong to THIS page (their actions touch its
-  // selection and dialogs) — one instance per chat page, not app-wide.
-  providers: [ChatNavMenuService]
+  // The navbar context menus + the search/name glue belong to THIS page
+  // (their actions touch its selection, tree and dialogs) — one instance per
+  // chat page, not app-wide.
+  providers: [ChatNavMenuService, ChatSearchService]
 })
 export class ChatComponent implements OnInit {
   readonly chatService = inject(ChatService);
@@ -78,14 +75,13 @@ export class ChatComponent implements OnInit {
   private readonly generation = inject(GenerationSettingsService);
   private readonly confirm = inject(ConfirmService);
   private readonly editSession = inject(NodeEditSession);
-  private readonly search = inject(SearchReplaceService);
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly layoutPrefs = inject(ChatLayoutPrefsService);
   private readonly elaborateDialog = inject(ChatElaborateDialogService);
   private readonly elaborateService = inject(ChatElaborateService);
-  private readonly nameReplace = inject(NameReplaceDialogService);
-  private readonly nameList = inject(NameListDialogService);
   private readonly toast = inject(ToastService);
+  /** Search/replace + name dialogs glue — the page delegates to it below. */
+  private readonly chatSearch = inject(ChatSearchService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -676,130 +672,30 @@ export class ChatComponent implements OnInit {
     // though nothing was changed.
     this.editSession.abandon();
     // Stop the shared search dialog from using this page's nodes.
-    this.search.setSession(null);
+    this.chatSearch.unregister();
   }
 
-  /** Adapter that turns the search dialog into a chat-page search. */
-  private readonly searchSession: SearchReplaceSession = {
-    scopes: () => [
-      { id: 'node', labelKey: 'search.scope.node' },
-      { id: 'chat', labelKey: 'search.scope.chat' },
-    ],
-    unitsFor: (scope) => this.searchUnits(scope),
-    startUnitKey: (scope) => scope === 'chat' ? this.activeSearchNode()?.id ?? null : null,
-    navigate: (occ) => this.searchNavigate(occ),
-    apply: (updates) => this.searchApply(updates),
-  };
+  // ------------------------------------------------------------------
+  // Search / replace + name dialogs — DELEGATES to `ChatSearchService`
+  // (the SearchReplaceSession adapter, occurrence navigation/highlighting and
+  // the two name dialogs). The service calls back through `ChatSearchHost`
+  // for the DOM-bound bits; the page keeps these thin members so the template
+  // and the specs stay unchanged.
+  // ------------------------------------------------------------------
 
+  /** The searchable text units of a scope (node = editing/visible/leaf node,
+   *  chat = the active path). */
   private searchUnits(
     scope: 'node' | 'chat' | 'reader',
   ): { key: string; text: string; role?: ChatNode['role'] }[] {
-    if (scope === 'node') {
-      const node = this.activeSearchNode();
-      if (!node) return [];
-      return [{ key: node.id, text: this.searchTextFor(node), role: node.role }];
-    }
-    // chat scope → all nodes on the active path
-    return this.getActivePath()
-      .map((n) => ({ key: n.id, text: this.searchTextFor(n), role: n.role }))
-      .filter((u) => u.text.length > 0);
-  }
-
-  /**
-   * The text to search for a node. An open editor renders the LIVE draft in
-   * its textarea, so use that (the committed `content` may lag behind the
-   * draft by a character or a whole edit — searching it would shift every
-   * match shown in the editor).
-   */
-  private searchTextFor(node: ChatNode): string {
-    const state = this.editSession.state();
-    return state?.nodeId === node.id ? state.draftText : (node.content ?? '');
-  }
-
-  /** The node the "node" scope searches against (editing / visible / leaf). */
-  private activeSearchNode(): ChatNode | null {
-    const editingId = this.editSession.editingNodeId();
-    if (editingId) {
-      const editing = this.chatService.currentNodes().find((n) => n.id === editingId);
-      if (editing) return editing;
-    }
-    const visibleId = this.visibleNodeId();
-    if (visibleId) {
-      const visible = this.getActivePath().find((n) => n.id === visibleId);
-      if (visible) return visible;
-    }
-    return this.getCurrentLeaf();
-  }
-
-  private searchNavigate(occ: {
-    unit: { key: string };
-    match: { start: number; length: number };
-    localNth: number;
-  }): void {
-    const el = document.querySelector(`[data-node-id="${occ.unit.key}"]`);
-    if (!el) return;
-    // An open editor shows a textarea — select the range there (offsets were
-    // computed against the live draft). Otherwise highlight the rendered markdown.
-    const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
-    if (ta) {
-      // Bring the editor into view WITHOUT centering the whole (tall) card.
-      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      // Select BEFORE focusing: the browser then anchors the caret at the
-      // match instead of dumping it at the end of the content.
-      ta.setSelectionRange(occ.match.start, occ.match.start + occ.match.length);
-      ta.focus();
-      // Reveal the found position BOTH inside the textarea's own scroll region
-      // (accurate even when lines wrap) AND in the outer conversation scroller
-      // — the match may sit deep in a tall, wrapped node.
-      this.revealSearchMatchInEditor(ta, occ.match.start);
-      return;
-    }
-    // Not being edited → highlight the rendered markdown.
-    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const content = el.querySelector<HTMLElement>('.node-content');
-    if (content) {
-      highlightMatchesIn(content, this.search.term(), this.search.options(), occ.localNth);
-      content.querySelector('mark.sr-current')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  /**
-   * Reveal the caret (the found search match) so it is actually visible: first
-   * inside the textarea's own scroll region — using a mirror measurement that
-   * accounts for word-wrapping (`rowsBefore * lineHeight` is wrong for wrapped
-   * lines and left matches invisible) — then in the outer conversation
-   * scroller, so the match's line is on screen even when the textarea top was
-   * already past the fold.
-   */
-  private revealSearchMatchInEditor(ta: HTMLTextAreaElement, caretOffset: number): void {
-    const metrics = this.measureSearchCaret(ta, caretOffset);
-    if (!metrics) return; // nothing measurable (empty / no layout)
-    const { contentTop, paddingTop, lineHeight } = metrics;
-    // 1) Reveal inside the textarea: place the caret line one line-height from
-    //    the top so a little preceding text stays visible.
-    ta.scrollTop = Math.max(0, contentTop - lineHeight);
-    // 2) Reveal in the conversation scroller: the caret's absolute line must be
-    //    on screen (within a comfortable margin), otherwise a tall node hides
-    //    the found position below the fold.
-    const scroller = this.tree()?.nativeElement;
-    if (!scroller) return;
-    const sRect = scroller.getBoundingClientRect();
-    if (!sRect.width && !sRect.height) return; // no layout (jsdom)
-    const tRect = ta.getBoundingClientRect();
-    if (!tRect.width && !tRect.height) return;
-    const MARGIN = 40;
-    const caretY = tRect.top + paddingTop + (contentTop - ta.scrollTop);
-    if (caretY < sRect.top + MARGIN) {
-      scroller.scrollTop += caretY - (sRect.top + MARGIN);
-    } else if (caretY > sRect.bottom - MARGIN) {
-      scroller.scrollTop += caretY - (sRect.bottom - MARGIN);
-    }
+    return this.chatSearch.searchUnits(scope);
   }
 
   /**
    * The caret's vertical position inside the editor textarea (accounts for
    * word-wrapping). Delegates over the shared mirror helper so specs can stub
-   * the measurement (module functions aren't spyable).
+   * the measurement (module functions aren't spyable). ChatSearchService calls
+   * back through the host, so the spec spy on this method keeps working.
    */
   private measureSearchCaret(
     ta: HTMLTextAreaElement,
@@ -808,98 +704,24 @@ export class ChatComponent implements OnInit {
     return textareaCharMetrics(ta, offset);
   }
 
-  private async searchApply(updates: { key: string; text: string }[]): Promise<void> {
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-    for (const u of updates) {
-      await this.chatService.patchNode(chatId, u.key, { content: u.text });
-      // An open editor renders the live draft — push the replacement into it
-      // so the textarea stays in sync and subsequent matches keep their offsets.
-      this.nodeComps().find((c) => c.node().id === u.key)?.setDraftFromSearch(u.text);
-    }
+  /** Reveal a found search/name match inside the editor textarea AND in the
+   *  conversation scroller. */
+  private revealSearchMatchInEditor(ta: HTMLTextAreaElement, caretOffset: number): void {
+    this.chatSearch.revealSearchMatchInEditor(ta, caretOffset);
   }
 
   openSearch(): void {
-    this.search.openDialog();
+    this.chatSearch.openSearch();
   }
 
-  /**
-   * Scroll to the chat node that contains ONE concrete occurrence of a name
-   * and select/highlight exactly that occurrence — driven by the "Replace
-   * names" dialog's per-name ◀/▶ navigation.
-   */
-  private nameNavigate(occ: NameOccurrence): void {
-    const el = document.querySelector(`[data-node-id="${CSS.escape(occ.key)}"]`);
-    if (!el) return;
-    const ta = el.querySelector<HTMLTextAreaElement>('textarea.editor-textarea');
-    if (ta) {
-      // Editing: select the exact occurrence in the live draft.
-      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      ta.setSelectionRange(occ.start, occ.start + occ.length);
-      ta.focus();
-      this.revealSearchMatchInEditor(ta, occ.start);
-      return;
-    }
-    // Rendered markdown: scroll to the node and highlight exactly this
-    // occurrence (exact-case, whole-word).
-    (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const content = el.querySelector<HTMLElement>('.node-content');
-    if (content) {
-      highlightMatchesIn(
-        content,
-        occ.text,
-        { caseSensitive: true, wholeWord: true, useRegex: false },
-        occ.localNth,
-      );
-      content.querySelector('mark.sr-current')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  /**
-   * Open the "Replace names" dialog over the VISIBLE chat (the active path
-   * nodes — the same scope as the search dialog's "In chat"). The dialog
-   * finds names, proposes replacements and, on confirm, persists the updated
-   * node contents through the same path as search replacements.
-   */
+  /** Open the "Replace names" dialog over the VISIBLE chat. */
   async openNameReplace(): Promise<void> {
-    const units: NameTextUnit[] = this.searchUnits('chat');
-    if (units.length === 0) {
-      this.toast.info(this.i18n.t('nameReplace.noText'));
-      return;
-    }
-    const chatId = this.chatService.currentChatId();
-    if (!chatId) return;
-    const chat = this.chats().find((c) => c.id === chatId);
-    const approved = await this.nameReplace.open({
-      units,
-      apply: async (updated) => {
-        for (const u of updated) {
-          await this.chatService.patchNode(chatId, u.key, { content: u.text });
-          // An open editor renders the live draft — push the replacement into
-          // it so the textarea stays in sync.
-          this.nodeComps().find((c) => c.node().id === u.key)?.setDraftFromSearch(u.text);
-        }
-      },
-      navigate: (occ) => this.nameNavigate(occ),
-      language: null,
-      // Names already handled in THIS chat are hidden; the dialog can add and
-      // remove them again (persisted on the chat record).
-      handled: chat?.handledNames ?? [],
-      saveHandled: async (names) => {
-        await this.chatService.patchChatMeta(chatId, { handledNames: names });
-      },
-    });
-    if (approved && approved.length > 0) {
-      this.toast.success(this.i18n.t('nameReplace.applied', { count: approved.length }));
-    }
+    await this.chatSearch.openNameReplace();
   }
 
   /** Open the "Name lists" settings dialog. */
   async openNameList(): Promise<void> {
-    const changed = await this.nameList.open({});
-    if (changed) {
-      this.toast.success(this.i18n.t('nameList.saved'));
-    }
+    await this.chatSearch.openNameList();
   }
 
 
@@ -909,7 +731,7 @@ export class ChatComponent implements OnInit {
   }
 
   async ngOnInit() {
-    this.search.setSession(this.searchSession);
+    this.chatSearch.register();
     await this.chatService.loadChats();
     await this.projectService.loadTopics();
     await this.projectService.loadProjects();
@@ -922,6 +744,10 @@ export class ChatComponent implements OnInit {
     // `ChatNavBarComponent`; their actions are emitted onto this page's
     // handlers (selection + tree mutation) below.
     this.pacedRead.registerHost(this.pacedReadHost);
+    // The search/name glue lives in ChatSearchService; it calls back into the
+    // page for the DOM-bound bits (tree scroller, node components, caret
+    // measurement) and registers its session on init.
+    this.chatSearch.bind(this as unknown as ChatSearchHost);
     // Toolbar: .params-tools only exists while a story is open, so a one-shot
     // afterNextRender at construction would run too early and never attach.
     // This effect re-runs whenever the element appears/disappears (story
