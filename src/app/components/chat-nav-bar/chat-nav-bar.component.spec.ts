@@ -494,6 +494,49 @@ describe('ChatNavBarComponent', () => {
   });
 
   // ------------------------------------------------------------------
+  // Selection tools stay visible (sticky above the scrolling path)
+  // ------------------------------------------------------------------
+
+  describe('selection tools stay visible', () => {
+    it('keeps the selection-tools row sticky above the scrolling path', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+      ]);
+      createBar(chatService.getActivePath());
+      component.toggleNavSelection('q1');
+      fixture.detectChanges();
+
+      const tools = fixture.nativeElement.querySelector('.nav-tools') as HTMLElement;
+      expect(tools).not.toBeNull();
+      expect(getComputedStyle(tools).position).toBe('sticky');
+    });
+
+    it('scrolls a marked node below the stuck tools row', () => {
+      createBar([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+      ], { visibleNodeIds: ['a1'] });
+      component.toggleNavSelection('q1');
+      fixture.detectChanges();
+
+      const bar = fixture.nativeElement.querySelector('.node-nav-bar') as HTMLElement;
+      const tools = bar.querySelector('.nav-tools') as HTMLElement;
+      vi.spyOn(bar, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 100 } as DOMRect);
+      vi.spyOn(tools, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 20 } as DOMRect);
+      const marked = bar.querySelector('[data-nav-id="a1"]') as HTMLElement;
+      vi.spyOn(marked, 'getBoundingClientRect').mockReturnValue({ top: 10, bottom: 30 } as DOMRect);
+      bar.scrollTop = 100;
+
+      component.scrollNavBarToMarked();
+
+      // The marked node sits at 10, but the stuck tools cover the top 20px —
+      // so it is scrolled to just below the tools: 100 + (10 - 0 - 20 - 1).
+      expect(bar.scrollTop).toBe(89);
+    });
+  });
+
+  // ------------------------------------------------------------------
   // Multi-selection (Ctrl+click / Ctrl+drag)
   // ------------------------------------------------------------------
 

@@ -579,10 +579,15 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     }
     if (els.length === 0) return;
     const barRect = bar.getBoundingClientRect();
+    // The selection-tools row is sticky at the top of the bar's scroll area:
+    // a marked node must be scrolled to BELOW it, or it would sit hidden
+    // behind the stuck tools.
+    const tools = bar.querySelector('.nav-tools') as HTMLElement | null;
+    const toolsBottom = tools ? tools.getBoundingClientRect().bottom - barRect.top : 0;
     const first = els[0].getBoundingClientRect();
     const last = els[els.length - 1].getBoundingClientRect();
-    if (first.top < barRect.top) {
-      bar.scrollTop += first.top - barRect.top - 1;
+    if (first.top < barRect.top + toolsBottom) {
+      bar.scrollTop += first.top - barRect.top - toolsBottom - 1;
     } else if (last.bottom > barRect.bottom) {
       bar.scrollTop += last.bottom - barRect.bottom + 1;
     }
