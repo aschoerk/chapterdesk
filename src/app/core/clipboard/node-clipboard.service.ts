@@ -1,6 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Chat, ChatNode, NodeAttachment, NodeRole } from '../../models/chat';
 import { ChatService } from '../chat/chat.service';
+import { ProjectService } from '../settings/project.service';
+import { TopicSelectionService } from '../settings/topic-selection.service';
+import { resolveCurrentTopic } from '../llm/llm-context';
 
 /**
  * Client-side clipboard for ChatNodes.
@@ -90,6 +93,8 @@ function isClipboardEntry(v: unknown): v is ClipboardEntry {
 @Injectable({ providedIn: 'root' })
 export class NodeClipboardService {
   private readonly chatService = inject(ChatService);
+  private readonly projectService = inject(ProjectService);
+  private readonly topicSelection = inject(TopicSelectionService);
 
   /** The current clipboard payload (null = empty). */
   readonly clipboard = signal<ClipboardEntry | null>(this.readFromStorage());
@@ -237,6 +242,10 @@ export class NodeClipboardService {
       : nodes;
     if (!extracted.length) return null;
 
+    const activePath = this.chatService.getActivePath();
+    const rangeStart = activePath.findIndex(node => node.id === extracted[0].id);
+    const rangeIndex = rangeStart >= 0 ? rangeStart + 1 : 1;
+
     const extractedIds = new Set(extracted.map(n => n.id));
 
     // Which extracted nodes may actually be CUT (deepest first). Computed
@@ -255,7 +264,7 @@ export class NodeClipboardService {
     };
 
     const newChat = await this.chatService.createChat(
-      opts.title ?? sourceChat.title ?? 'Extracted story',
+      `${opts.title ?? sourceChat.title ?? 'Extracted story'} (${rangeIndex})`,
       sourceChat.projectId ?? null,
     );
 
@@ -265,7 +274,23 @@ export class NodeClipboardService {
       await this.chatService.patchChatMeta(newChat.id, { lore });
     }
 
-    await this.createNodes(newChat.id, entry, null);
+    const project = this.projectService.getProject(sourceChat.projectId);
+    const currentTopic = resolveCurrentTopic(
+      sourceChat.projectId,
+      project?.mainTopicId,
+      this.topicSelection.selectedTopicId(),
+      this.projectService.topics(),
+    );
+    const systemPrompt = currentTopic?.defaultSystemPrompt?.trim();
+    const systemNode = systemPrompt
+      ? await this.chatService.addNode(newChat.id, {
+          parentId: null,
+          role: 'system',
+          content: systemPrompt,
+        })
+      : null;
+
+    await this.createNodes(newChat.id, entry, systemNode?.id ?? null);
 
     // Remove ONLY the nodes whose whole subtree moved. Every other extracted
     // node has a branch that stays behind, so it was copied and keeps its

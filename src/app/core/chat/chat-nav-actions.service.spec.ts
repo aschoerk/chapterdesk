@@ -4,8 +4,10 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { CHAT_API } from '../../api/chat-api.token';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
-import { seedApi, makeNode, makeChat } from '../../../../test-helpers/factories';
+import { seedApi, makeNode, makeChat, makeProject, makeTopic } from '../../../../test-helpers/factories';
 import { SettingsService } from '../settings/settings.service';
+import { ProjectService } from '../settings/project.service';
+import { TopicSelectionService } from '../settings/topic-selection.service';
 import { I18nService } from '../i18n/i18n.service';
 import { ChatService } from './chat.service';
 import { NodeClipboardService } from '../clipboard/node-clipboard.service';
@@ -30,14 +32,19 @@ describe('ChatNavActionsService', () => {
   let navMenu: ChatNavMenuService;
   let clipboard: NodeClipboardService;
 
-  async function open(nodes: ReturnType<typeof makeNode>[]): Promise<void> {
+  async function open(
+    nodes: ReturnType<typeof makeNode>[],
+    environment: { project?: Partial<ReturnType<typeof makeProject>>; topics?: Partial<ReturnType<typeof makeTopic>>[] } = {},
+  ): Promise<void> {
     TestBed.resetTestingModule();
     api = new InMemoryChatApi();
     seedApi(api, {
+      projects: environment.project ? [environment.project] : [],
+      topics: environment.topics ?? [],
       providers: [{ id: 'prov-1' }],
       models: [{ id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' }],
     });
-    api.chats.push(makeChat({ id: CHAT_ID, title: 'Story' }));
+    api.chats.push(makeChat({ id: CHAT_ID, title: 'Story', projectId: environment.project?.id ?? null }));
     api.nodes = nodes.map(n => ({ ...n, chatId: CHAT_ID }));
     await TestBed.configureTestingModule({
       providers: [
@@ -50,6 +57,8 @@ describe('ChatNavActionsService', () => {
     }).compileComponents();
     TestBed.inject(I18nService).setLocale('en');
     await TestBed.inject(SettingsService).loadAll();
+    await TestBed.inject(ProjectService).loadProjects();
+    await TestBed.inject(ProjectService).loadTopics();
     chatService = TestBed.inject(ChatService);
     navSelection = TestBed.inject(ChatNavSelectionService);
     navMenu = TestBed.inject(ChatNavMenuService);
@@ -176,7 +185,58 @@ describe('ChatNavActionsService', () => {
     expect(chatService.chats().length).toBe(before + 1);
     const newChat = chatService.chats().find(c => c.id !== CHAT_ID)!;
     expect(newChat).toBeDefined();
+    expect(newChat.title).toBe('Story (2)');
     expect(chatService.currentChatId()).toBe(newChat.id);
+  });
+
+  it('extract prepends the current topic system prompt', async () => {
+    await open(story(), {
+      project: { id: 'project-1', mainTopicId: 'topic-main' },
+      topics: [
+        { id: 'topic-main', projectIds: ['project-1'], defaultSystemPrompt: 'Main prompt' },
+        { id: 'topic-current', projectIds: ['project-1'], defaultSystemPrompt: 'Current prompt' },
+      ],
+    });
+    TestBed.inject(TopicSelectionService).selectTopic('topic-current');
+    activateStory();
+    mockConfirm();
+    navSelection.toggle('a1', chatService.getActivePath(), () => false);
+
+    await service.extractNavSelection();
+
+    const extractedChat = api.chats.find(chat => chat.id !== CHAT_ID)!;
+    const extractedNodes = api.nodes.filter(node => node.chatId === extractedChat.id);
+    const systemNode = extractedNodes.find(node => node.role === 'system')!;
+    const selectedNode = extractedNodes.find(node => node.content === 'Answer one')!;
+    expect(systemNode.content).toBe('Current prompt');
+    expect(systemNode.parentId).toBeNull();
+    expect(selectedNode.parentId).toBe(systemNode.id);
+  });
+
+  it('extract subtree prepends the current topic system prompt before the visible continuation', async () => {
+    await open(story(), {
+      project: { id: 'project-1', mainTopicId: 'topic-main' },
+      topics: [
+        { id: 'topic-main', projectIds: ['project-1'], defaultSystemPrompt: 'Main prompt' },
+        { id: 'topic-current', projectIds: ['project-1'], defaultSystemPrompt: 'Current prompt' },
+      ],
+    });
+    TestBed.inject(TopicSelectionService).selectTopic('topic-current');
+    activateStory();
+    mockConfirm();
+    navSelection.toggle('a1', chatService.getActivePath(), () => false);
+
+    await service.extractNavSelection(true);
+
+    const extractedChat = api.chats.find(chat => chat.id !== CHAT_ID)!;
+    const extractedNodes = api.nodes.filter(node => node.chatId === extractedChat.id);
+    const systemNode = extractedNodes.find(node => node.role === 'system')!;
+    const firstAnswer = extractedNodes.find(node => node.content === 'Answer one')!;
+    const continuation = extractedNodes.find(node => node.content === 'Answer two')!;
+    expect(systemNode.content).toBe('Current prompt');
+    expect(extractedChat.title).toBe('Story (2)');
+    expect(firstAnswer.parentId).toBe(systemNode.id);
+    expect(continuation.parentId).toBe(firstAnswer.id);
   });
 
   // ----------------------------------------------------------------------
