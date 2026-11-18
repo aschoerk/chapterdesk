@@ -61,8 +61,6 @@ export interface ExtractOptions {
    * are never taken along — only what is visible.
    */
   withVisibleSubtree?: boolean;
-  /** Restrict navbar extraction to nodes currently intersecting the chat tree viewport. */
-  visibleNodeIds?: string[];
 }
 
 function toClipboardNode(n: ChatNode): ClipboardNode {
@@ -239,11 +237,9 @@ export class NodeClipboardService {
     const sourceChat = this.chatService.chats().find(c => c.id === sourceChatId);
     if (!sourceChat) return null;
 
-    const visibleIds = opts.visibleNodeIds ? new Set(opts.visibleNodeIds) : null;
-    const visibleNodes = visibleIds ? nodes.filter(n => visibleIds.has(n.id)) : nodes;
     const extracted = opts.withVisibleSubtree
-      ? this.withVisibleContinuation(visibleNodes, visibleIds)
-      : visibleNodes;
+      ? this.withVisibleContinuation(nodes)
+      : nodes;
     if (!extracted.length) return null;
 
     const activePath = this.chatService.getActivePath();
@@ -380,13 +376,13 @@ export class NodeClipboardService {
    * hangs below it on the ACTIVE PATH (the visible continuation). Other
    * branches are not visible and are therefore never included.
    */
-  private withVisibleContinuation(nodes: ChatNode[], visibleIds: Set<string> | null): ChatNode[] {
+  private withVisibleContinuation(nodes: ChatNode[]): ChatNode[] {
     const firstId = nodes[0]?.id;
     if (!firstId) return nodes;
     const path = this.chatService.getActivePath();
     const start = path.findIndex(n => n.id === firstId);
     if (start < 0) return nodes;
-    const tail = path.slice(start).filter(n => !visibleIds || visibleIds.has(n.id));
+    const tail = path.slice(start);
     // The terminal empty direction is the user's input box, never content:
     // do not drag it into the new story.
     const last = tail[tail.length - 1];

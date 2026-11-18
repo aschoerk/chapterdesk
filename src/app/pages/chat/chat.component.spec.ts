@@ -99,12 +99,6 @@ describe('Chat', () => {
     fixture = TestBed.createComponent(ChatComponent);
     component = fixture.componentInstance;
     chatService = TestBed.inject(ChatService);
-    // jsdom has no measurable scroll viewport; default integration tests treat
-    // the rendered active path as visible. Viewport filtering has focused
-    // coverage in ChatNavActionsService specs with an explicit visible set.
-    (component as any).navActions.bindVisibleNodeIds(() =>
-      chatService.getActivePath().map(node => node.id),
-    );
     orch = TestBed.inject(LlmOrchestratorService) as unknown as {
       completion: ReturnType<typeof vi.fn>;
       completeImage: ReturnType<typeof vi.fn>;
