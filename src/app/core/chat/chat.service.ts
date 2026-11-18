@@ -351,16 +351,26 @@ export class ChatService {
     if (!(await this.editSession.canLeaveChat(chatId))) {
       return; // tree, path, localStorage untouched
     }
+    const previousChatId = this.state.currentChatId();
+    if (previousChatId) {
+      this.state.activeChildMapsByChat.update(maps => ({
+        ...maps,
+        [previousChatId]: this.state.activeChildMap(),
+      }));
+    }
     if (chatId) {
       localStorage.setItem(LS_CHAT, chatId);
     } else {
       localStorage.removeItem(LS_CHAT);
     }
     this.state.currentChatId.set(chatId);
-    this.state.activeChildMap.set({});
+    const savedPath = this.state.activeChildMapsByChat()[chatId];
+    this.state.activeChildMap.set(savedPath ?? {});
     await this.writer.loadNodes(chatId);
     await this.writer.loadDeletedNodes(chatId);
-    this.writer.restoreMostRecentPath();
+    if (!savedPath) {
+      this.writer.restoreMostRecentPath();
+    }
     await this.writer.ensureDraftAtLeaf(chatId);
     await this.writer.ensureDraftUnderUserLeaf(chatId);
   }

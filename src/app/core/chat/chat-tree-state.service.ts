@@ -26,6 +26,8 @@ export class ChatTreeStateService {
   readonly deletedNodes = signal<ChatNode[]>([]);
   /** parentId → currently active childId. */
   readonly activeChildMap = signal<Record<string, string>>({});
+  /** Per-chat active-child selections, retained while another chat is open. */
+  readonly activeChildMapsByChat = signal<Record<string, Record<string, string>>>({});
 
   /**
    * True while a multi-step writer (e.g. Elaborate) is sequentially chaining

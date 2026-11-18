@@ -2173,6 +2173,7 @@ describe('Chat', () => {
       nodes: [
         { id: 'q1', chatId: 'chat-1', parentId: null, role: 'user', content: 'Q1' },
         { id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A1' },
+        { id: 'a1-newer', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'A1 newer', updatedAt: '2026-01-02T00:00:00.000Z' },
         { id: 'q2', chatId: 'chat-2', parentId: null, role: 'user', content: 'Q2' },
         { id: 'a2', chatId: 'chat-2', parentId: 'q2', role: 'assistant', content: 'A2' },
       ],
@@ -2186,20 +2187,19 @@ describe('Chat', () => {
     // chat-1 was manually resized; chat-2 was not.
     localStorage.setItem('chat-client.navbar.height.chat-1', '180');
 
-    // Switch to chat-2 → DEFAULT handling (null), NOT the 180 from chat-1
-    // (no leftover tall bar → no empty lines for the short path).
+    // Choose a branch other than the newest one before leaving the chat.
+    chatService.setActiveChild('q1', 'a1');
     await chatService.selectChat('chat-2');
-    chatService.setActiveChild(null, 'q2');
-    chatService.setActiveChild('q2', 'a2');
     fixture.detectChanges();
     expect(component.navBarHeight()).toBeNull();
+    expect(chatService.getActivePath().map(node => node.id)).toContain('q2');
 
-    // Back to chat-1 → its saved height is re-applied.
+    // Returning restores the exact active branch, not the timestamp-newest one.
     await chatService.selectChat('chat-1');
-    chatService.setActiveChild(null, 'q1');
-    chatService.setActiveChild('q1', 'a1');
     fixture.detectChanges();
     expect(component.navBarHeight()).toBe(180);
+    expect(chatService.getActivePath().map(node => node.id)).toContain('a1');
+    expect(chatService.getActivePath().map(node => node.id)).not.toContain('a1-newer');
   });
 });
 
