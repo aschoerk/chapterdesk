@@ -149,6 +149,29 @@ describe('ChatNavActionsService', () => {
     expect(clipboard.hasContent()).toBe(true);
   });
 
+  it('limits navbar selection clipboard actions to nodes inside the chat viewport', async () => {
+    await open(story());
+    activateStory();
+    navSelection.toggle('q1', chatService.getActivePath(), () => false);
+    navSelection.toggle('a1', chatService.getActivePath(), () => false);
+    service.bindVisibleNodeIds(() => ['a1']);
+
+    service.copyNavSelection();
+
+    expect(clipboard.clipboard()?.nodes.map(node => node.id)).toEqual(['a1']);
+  });
+
+  it('does not run a navbar node clipboard action for a node outside the viewport', async () => {
+    await open(story());
+    activateStory();
+    service.bindVisibleNodeIds(() => ['a1']);
+    const q1 = chatService.nodes().find(node => node.id === 'q1')!;
+
+    service.copyNavNodes(q1);
+
+    expect(clipboard.hasContent()).toBe(false);
+  });
+
   it('cutNavSelection cuts the selected chain and clears the selection', async () => {
     await open(story());
     activateStory();

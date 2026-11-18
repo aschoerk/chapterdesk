@@ -575,6 +575,7 @@ export class ChatComponent implements
       getCurrentLeaf: () => this.getCurrentLeaf(),
       showMarks: this.showMarks,
     });
+    this.navActions.bindVisibleNodeIds(() => this.measureViewportVisibleNodeIds());
     // Toolbar: .params-tools only exists while a story is open, so a one-shot
     // afterNextRender at construction would run too early and never attach.
     // This effect re-runs whenever the element appears/disappears (story
@@ -705,6 +706,24 @@ export class ChatComponent implements
 
     this.visibleNodeId.set(bestId);
     this.visibleNodeIds.set(visible);
+  }
+
+  /** Read viewport intersection directly for navbar actions. The cached signal
+   *  is for rendering; action-time measurement avoids using stale visibility
+   *  after layout changes that have not emitted a scroll event yet. */
+  private measureViewportVisibleNodeIds(): string[] {
+    const root = this.tree()?.nativeElement;
+    if (!root) return [];
+    const top = root.getBoundingClientRect().top;
+    const bottom = top + root.clientHeight;
+    const visible: string[] = [];
+    for (const node of this.getActivePath()) {
+      const el = root.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > top && rect.top < bottom) visible.push(node.id);
+    }
+    return visible;
   }
 
   // ------------------------------------------------------------------

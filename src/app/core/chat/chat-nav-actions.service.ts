@@ -70,6 +70,18 @@ export class ChatNavActionsService implements ChatNavActions {
   private readonly toast = inject(ToastService);
   private readonly navSelection = inject(ChatNavSelectionService);
   private readonly navMenu = inject(ChatNavMenuService);
+  private getVisibleNodeIds: () => string[] = () =>
+    this.chatService.getActivePath().map(node => node.id);
+
+  /** Bind the chat tree's viewport measurement. Navbar rows can exist outside
+   *  the chat-node scroller, so they are not by themselves valid action targets. */
+  bindVisibleNodeIds(getter: () => string[]): void {
+    this.getVisibleNodeIds = getter;
+  }
+
+  private visibleNodeIdSet(): Set<string> {
+    return new Set(this.getVisibleNodeIds());
+  }
 
   // ------------------------------------------------------------------
   // Selection clipboard (the whole selected chain)
@@ -78,10 +90,11 @@ export class ChatNavActionsService implements ChatNavActions {
   /** The selected nodes in active-path (top-first) order so cut/delete
    *  reparent left-over children to the chain's topmost surviving ancestor. */
   private selectedNavNodes(): ChatNode[] {
+    const visible = this.visibleNodeIdSet();
     return this.navSelection.selectedNodes(
       this.chatService.getActivePath(),
       (id) => this.navMenu.isLastEmptyDirection(id)
-    );
+    ).filter(node => visible.has(node.id));
   }
 
   copyNavSelection(): void {
@@ -148,7 +161,10 @@ export class ChatNavActionsService implements ChatNavActions {
       if (!ok) return;
     }
     try {
-      const chat = await this.clipboard.extractSequence(nodes, { withVisibleSubtree });
+      const chat = await this.clipboard.extractSequence(nodes, {
+        withVisibleSubtree,
+        visibleNodeIds: [...this.visibleNodeIdSet()],
+      });
       this.navSelection.clear();
       if (chat) {
         this.toast.success(this.i18n.t('node.extractSelectedDone'));
@@ -185,7 +201,11 @@ export class ChatNavActionsService implements ChatNavActions {
    *  Excluded-from-context nodes are skipped — they are not shown in the nav-bar.
    *  A delegate over `ChatNavMenuService` (it owns the paste-menu geometry). */
   private navPasteTargets(nodeId: string): { leftId: string; rightId: string | null } | null {
-    return this.navMenu.pasteTargets(nodeId);
+    const targets = this.navMenu.pasteTargets(nodeId);
+    if (!targets) return null;
+    const visible = this.visibleNodeIdSet();
+    if (!visible.has(targets.leftId) || (targets.rightId && !visible.has(targets.rightId))) return null;
+    return targets;
   }
 
   private async pasteChain(
@@ -238,6 +258,8 @@ export class ChatNavActionsService implements ChatNavActions {
     leftId: string,
     rightId: string | null,
   ): Promise<void> {
+    const visible = this.visibleNodeIdSet();
+    if (!visible.has(leftId) || (rightId && !visible.has(rightId))) return Promise.resolve();
     return this.pasteChain(mode, leftId, rightId);
   }
 
@@ -246,7 +268,12 @@ export class ChatNavActionsService implements ChatNavActions {
    *  (first visible node) or left of the terminal empty direction. A delegate
    *  over `ChatNavMenuService`. */
   private navPasteBeforeTargets(node: ChatNode): { leftId: string; rightId: string | null } | null {
-    return this.navMenu.pasteBeforeTargets(node);
+    if (!this.visibleNodeIdSet().has(node.id)) return null;
+    const targets = this.navMenu.pasteBeforeTargets(node);
+    if (!targets) return null;
+    const visible = this.visibleNodeIdSet();
+    if (!visible.has(targets.leftId) || (targets.rightId && !visible.has(targets.rightId))) return null;
+    return targets;
   }
 
   /** Paste the clipboard chain immediately BEFORE `node` in the active path. */
@@ -302,6 +329,7 @@ export class ChatNavActionsService implements ChatNavActions {
   /** The nodes a navbar clipboard action targets: the whole selection when
    *  the right-clicked node is part of one, otherwise just that node. */
   private navActionNodes(node: ChatNode): ChatNode[] {
+    if (!this.visibleNodeIdSet().has(node.id)) return [];
     if (this.navSelection.selectedIds().includes(node.id)) {
       return this.selectedNavNodes();
     }
