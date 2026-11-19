@@ -13,7 +13,7 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { SortPreferencesService } from '../../core/settings/sort-preferences.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import {
-  makeChat, makeModel, makePersona, makeProject, makeTopic
+  makeAttachment, makeChat, makeModel, makeNode, makePersona, makeProject, makeTopic
 } from '../../../../test-helpers/factories';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
@@ -1101,6 +1101,20 @@ describe('SideBarComponent', () => {
       expandProject('Env B');
     }
 
+    async function compareNodeSets(leftNodes: ReturnType<typeof makeNode>[], rightNodes: ReturnType<typeof makeNode>[]) {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1' }));
+        a.chats.push(chat({ id: 'c2', title: 'Story 2', projectId: 'p-1' }));
+        a.nodes.push(...leftNodes, ...rightNodes);
+      });
+      expandProject('Env A');
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      await component.compareSelectedChats();
+      return component.chatComparison();
+    }
+
     /** Drain the full microtask chain (deep async handlers) via a macrotask. */
     const flush = () => new Promise<void>((res) => setTimeout(res, 0));
 
@@ -1186,6 +1200,230 @@ describe('SideBarComponent', () => {
       expect(storyTools()).not.toBeNull();
       expect(storyTools()!.textContent)
         .toContain(i18n.t('sidebar.selectedCount', { count: 2 }));
+    });
+
+    it('compares the selected chats by structure, content, and attachment data', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1' }));
+        a.chats.push(chat({ id: 'c2', title: 'Story 2', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'a-root', chatId: 'c1', role: 'user', content: 'Same direction', position: 1 }),
+          makeNode({ id: 'a-answer', chatId: 'c1', parentId: 'a-root', role: 'assistant', content: 'Same answer', position: 1,
+            attachments: [makeAttachment({ id: 'a-file', dataUrl: 'data:text/plain;base64,c2FtZQ==' })] }),
+          makeNode({ id: 'b-root', chatId: 'c2', role: 'user', content: 'Same direction', position: 1 }),
+          makeNode({ id: 'b-answer', chatId: 'c2', parentId: 'b-root', role: 'assistant', content: 'Different answer', position: 1,
+            attachments: [makeAttachment({ id: 'b-file', dataUrl: 'data:text/plain;base64,ZGlmZmVyZW50' })] })
+        );
+      });
+      expandProject('Env A');
+      ctrlClickStory('Env A', 'Story 1');
+      ctrlClickStory('Env A', 'Story 2');
+      expect(storyTools()?.querySelector(`button[title="${i18n.t('sidebar.compareSelectedTitle')}"]`)).not.toBeNull();
+
+      await component.compareSelectedChats();
+      fixture.detectChanges();
+
+      expect(component.chatComparison()).toEqual({
+        structureIdentical: true,
+        contentsIdentical: false,
+        attachmentsIdentical: false
+      });
+      const result = fixture.nativeElement.querySelector('.chat-comparison') as HTMLElement;
+      expect(result.textContent).toContain(i18n.t('sidebar.compareStructureSame'));
+      expect(result.textContent).toContain(i18n.t('sidebar.compareContentDifferent'));
+      expect(result.textContent).toContain(i18n.t('sidebar.compareAttachmentsDifferent'));
+    });
+
+    it('treats two empty chats as identical in all comparison dimensions', async () => {
+      const result = await compareNodeSets([], []);
+      expect(result).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('marks the structure different when a node has a different child count', async () => {
+      const left = [
+        makeNode({ id: 'left-root', chatId: 'c1', content: 'Root', role: 'user', position: 1 }),
+        makeNode({ id: 'left-child-1', chatId: 'c1', parentId: 'left-root', content: 'First', role: 'assistant', position: 1 }),
+        makeNode({ id: 'left-child-2', chatId: 'c1', parentId: 'left-root', content: 'Second', role: 'assistant', position: 2 })
+      ];
+      const right = [
+        makeNode({ id: 'right-root', chatId: 'c2', content: 'Root', role: 'user', position: 1 }),
+        makeNode({ id: 'right-child-1', chatId: 'c2', parentId: 'right-root', content: 'First', role: 'assistant', position: 1 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: false,
+        contentsIdentical: false,
+        attachmentsIdentical: false
+      });
+    });
+
+    it('marks the structure different when matching nodes have different version-chain lengths', async () => {
+      const left = [
+        makeNode({ id: 'left-question', chatId: 'c1', role: 'user', content: 'Question', position: 1 }),
+        makeNode({ id: 'left-old', chatId: 'c1', parentId: 'left-question', role: 'assistant', content: 'Old answer',
+          version: 1, isCurrent: false, position: 1 }),
+        makeNode({ id: 'left-current', chatId: 'c1', parentId: 'left-question', role: 'assistant', content: 'Current answer',
+          version: 2, previousVersionId: 'left-old', isCurrent: true, position: 1 })
+      ];
+      const right = [
+        makeNode({ id: 'right-question', chatId: 'c2', role: 'user', content: 'Question', position: 1 }),
+        makeNode({ id: 'right-current', chatId: 'c2', parentId: 'right-question', role: 'assistant', content: 'Current answer',
+          version: 1, isCurrent: true, position: 1 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: false,
+        contentsIdentical: false,
+        attachmentsIdentical: false
+      });
+    });
+
+    it('compares contents and attachments only after matching branch counts and versions', async () => {
+      const left = [
+        makeNode({ id: 'left-root', chatId: 'c1', role: 'user', content: 'Root', position: 1 }),
+        makeNode({ id: 'left-a', chatId: 'c1', parentId: 'left-root', role: 'assistant', content: 'A', position: 1 }),
+        makeNode({ id: 'left-b', chatId: 'c1', parentId: 'left-root', role: 'assistant', content: 'B', position: 2 })
+      ];
+      const right = [
+        makeNode({ id: 'right-root', chatId: 'c2', role: 'user', content: 'Root', position: 1 }),
+        makeNode({ id: 'right-a', chatId: 'c2', parentId: 'right-root', role: 'assistant', content: 'A changed', position: 1 }),
+        makeNode({ id: 'right-b', chatId: 'c2', parentId: 'right-root', role: 'assistant', content: 'B', position: 2 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        contentsIdentical: false,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('keeps matching fork structure when only an attachment payload differs', async () => {
+      const left = [
+        makeNode({ id: 'left-root', chatId: 'c1', role: 'assistant', content: 'Same', position: 1,
+          attachments: [makeAttachment({ id: 'left-file', dataUrl: 'data:text/plain;base64,b25l' })] })
+      ];
+      const right = [
+        makeNode({ id: 'right-root', chatId: 'c2', role: 'assistant', content: 'Same', position: 1,
+          attachments: [makeAttachment({ id: 'right-file', dataUrl: 'data:text/plain;base64,dHdv' })] })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: false
+      });
+    });
+
+    it('treats equivalent linear chats without forks as identical despite different ids', async () => {
+      const left = [
+        makeNode({ id: 'l-q1', chatId: 'c1', role: 'user', content: 'Direction', position: 1 }),
+        makeNode({ id: 'l-a1', chatId: 'c1', parentId: 'l-q1', role: 'assistant', content: 'Answer', position: 1,
+          attachments: [makeAttachment({ id: 'left-attachment' })] }),
+        makeNode({ id: 'l-q2', chatId: 'c1', parentId: 'l-a1', role: 'user', content: 'Next direction', position: 1 })
+      ];
+      const right = [
+        makeNode({ id: 'r-q1', chatId: 'c2', role: 'user', content: 'Direction', position: 1 }),
+        makeNode({ id: 'r-a1', chatId: 'c2', parentId: 'r-q1', role: 'assistant', content: 'Answer', position: 1,
+          attachments: [makeAttachment({ id: 'right-attachment' })] }),
+        makeNode({ id: 'r-q2', chatId: 'c2', parentId: 'r-a1', role: 'user', content: 'Next direction', position: 1 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('treats matching forks nested after earlier forks as identical', async () => {
+      const tree = (prefix: string, chatId: string) => {
+        const q = `${prefix}-q`;
+        const a = `${prefix}-a`;
+        const forkA = `${prefix}-fork-a`;
+        const forkB = `${prefix}-fork-b`;
+        const forkAnswerA = `${prefix}-fork-answer-a`;
+        const forkAnswerB = `${prefix}-fork-answer-b`;
+        const nestedA = `${prefix}-nested-a`;
+        const nestedB = `${prefix}-nested-b`;
+        return [
+          makeNode({ id: q, chatId, role: 'user', content: 'Start', position: 1 }),
+          makeNode({ id: a, chatId, parentId: q, role: 'assistant', content: 'Opening', position: 1 }),
+          makeNode({ id: forkA, chatId, parentId: a, role: 'user', content: 'First fork', position: 1 }),
+          makeNode({ id: forkB, chatId, parentId: a, role: 'user', content: 'Alternate fork', position: 2 }),
+          makeNode({ id: forkAnswerA, chatId, parentId: forkA, role: 'assistant', content: 'First continuation', position: 1 }),
+          makeNode({ id: forkAnswerB, chatId, parentId: forkB, role: 'assistant', content: 'Alternate continuation', position: 1 }),
+          makeNode({ id: nestedA, chatId, parentId: forkAnswerA, role: 'user', content: 'Nested fork', position: 1 }),
+          makeNode({ id: nestedB, chatId, parentId: forkAnswerA, role: 'user', content: 'Nested alternative', position: 2 }),
+          makeNode({ id: `${prefix}-nested-answer-a`, chatId, parentId: nestedA, role: 'assistant', content: 'Nested answer A', position: 1 }),
+          makeNode({ id: `${prefix}-nested-answer-b`, chatId, parentId: nestedB, role: 'assistant', content: 'Nested answer B', position: 1 })
+        ];
+      };
+
+      expect(await compareNodeSets(tree('left', 'c1'), tree('right', 'c2'))).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('clones a complex forked chat and compares the clone identical to its source', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Forked Story', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'root-q', chatId: 'c1', role: 'user', content: 'Opening direction', position: 1 }),
+          makeNode({ id: 'root-a', chatId: 'c1', parentId: 'root-q', role: 'assistant', content: 'Opening chapter', position: 1,
+            attachments: [makeAttachment({ id: 'source-image', name: 'opening.png', mimeType: 'image/png',
+              size: 20, dataUrl: 'data:image/png;base64,b3BlbmluZw==' })] }),
+          makeNode({ id: 'fork-q1', chatId: 'c1', parentId: 'root-a', role: 'user', content: 'First continuation', position: 1 }),
+          makeNode({ id: 'fork-q2', chatId: 'c1', parentId: 'root-a', role: 'user', content: 'Alternative continuation', position: 2 }),
+          makeNode({ id: 'fork-a1', chatId: 'c1', parentId: 'fork-q1', role: 'assistant', content: 'First branch answer', position: 1 }),
+          makeNode({ id: 'fork-a2', chatId: 'c1', parentId: 'fork-q2', role: 'assistant', content: 'Alternative branch answer', position: 1 }),
+          makeNode({ id: 'nested-q1', chatId: 'c1', parentId: 'fork-a1', role: 'user', content: 'Nested continuation A', position: 1 }),
+          makeNode({ id: 'nested-q2', chatId: 'c1', parentId: 'fork-a1', role: 'user', content: 'Nested continuation B', position: 2 }),
+          makeNode({ id: 'nested-a1-old', chatId: 'c1', parentId: 'nested-q1', role: 'assistant', content: 'Earlier nested answer',
+            position: 1, version: 1, isCurrent: false }),
+          makeNode({ id: 'nested-a1', chatId: 'c1', parentId: 'nested-q1', role: 'assistant', content: 'Revised nested answer',
+            position: 1, version: 2, previousVersionId: 'nested-a1-old', isCurrent: true,
+            attachments: [makeAttachment({ id: 'nested-file', name: 'notes.txt', dataUrl: 'data:text/plain;base64,bm90ZXM=' })] }),
+          makeNode({ id: 'nested-a2', chatId: 'c1', parentId: 'nested-q2', role: 'assistant', content: 'Other nested answer', position: 1 }),
+          makeNode({ id: 'tail-q', chatId: 'c1', parentId: 'fork-a2', role: 'user', content: 'Continue the alternative', position: 1 }),
+          makeNode({ id: 'tail-a', chatId: 'c1', parentId: 'tail-q', role: 'assistant', content: 'Alternative ending', position: 1 }),
+          // Existing composer prevents selecting the clone from adding a new
+          // empty draft that was not part of the source tree.
+          makeNode({ id: 'tail-draft', chatId: 'c1', parentId: 'tail-a', role: 'user', content: '', position: 1 })
+        );
+      });
+      const copy = await chatService.cloneChat('c1');
+
+      expect(copy.title).toBe('Forked Story (copy)');
+      const originalNodes = await chatService.fetchNodes('c1');
+      const copiedNodes = await chatService.fetchNodes(copy.id);
+      expect(copiedNodes).toHaveLength(originalNodes.length);
+      expect(new Set(copiedNodes.map(node => node.id)).size).toBe(copiedNodes.length);
+      expect(copiedNodes.every(node => node.chatId === copy.id)).toBe(true);
+
+      // Check every graph edge and version link was remapped into the clone,
+      // rather than left pointing at the source tree.
+      const copiedIds = new Set(copiedNodes.map(node => node.id));
+      expect(copiedNodes.filter(node => node.parentId).every(node => copiedIds.has(node.parentId!))).toBe(true);
+      expect(copiedNodes.filter(node => node.previousVersionId)
+        .every(node => copiedIds.has(node.previousVersionId!))).toBe(true);
+      expect(copiedNodes.some(node => node.previousVersionId && node.previousVersionId !== 'nested-a1-old')).toBe(true);
+
+      component.selectedChatIds.set(['c1', copy.id]);
+      await component.compareSelectedChats();
+
+      expect(component.chatComparison()).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
     });
 
     it('Clear empties the selection and hides the toolbar', async () => {

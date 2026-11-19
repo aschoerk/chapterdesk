@@ -5,7 +5,7 @@ import { ChatService } from '../../core/chat/chat.service';
 import { Router } from '@angular/router';
 import { LastModelService } from '../../core/settings/last-model.service';
 import { SettingsService } from '../../core/settings/settings.service';
-import {Chat, Project, Topic} from '../../models/chat';
+import {Chat, ChatNode, Project, Topic} from '../../models/chat';
 import {CHAT_API} from '../../api/chat-api.token';
 import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
@@ -22,6 +22,12 @@ import type { ParsedUsage } from '../../core/llm/usage';
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
 /** localStorage-backed sort preference key for this (sidebar) page. */
 const SORT_PAGE = 'sidebar';
+
+interface ChatComparison {
+  structureIdentical: boolean;
+  contentsIdentical: boolean;
+  attachmentsIdentical: boolean;
+}
 
 @Component({
   selector: 'side-bar',
@@ -95,6 +101,8 @@ export class SideBarComponent implements OnInit {
   readonly selectedChatIds = signal<string[]>([]);
   readonly hasSelection = computed(() => this.selectedChatIds().length > 0);
   readonly selectedCount = computed(() => this.selectedChatIds().length);
+  readonly chatComparison = signal<ChatComparison | null>(null);
+  readonly comparingChats = signal(false);
 
   /**
    * Environment key currently hovered as a drag&drop target
@@ -129,6 +137,7 @@ export class SideBarComponent implements OnInit {
   }
 
   toggleChatSelection(id: string): void {
+    this.chatComparison.set(null);
     this.selectedChatIds.update(cur =>
       cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
     );
@@ -136,6 +145,24 @@ export class SideBarComponent implements OnInit {
 
   clearSelection(): void {
     this.selectedChatIds.set([]);
+    this.chatComparison.set(null);
+  }
+
+  /** Compare the full persisted section trees, ignoring generated record ids. */
+  async compareSelectedChats(): Promise<void> {
+    const ids = this.selectedChatIds();
+    if (ids.length !== 2 || this.comparingChats()) return;
+    this.comparingChats.set(true);
+    this.chatComparison.set(null);
+    try {
+      const [left, right] = await Promise.all(ids.map(id => this.chatService.fetchNodes(id)));
+      this.chatComparison.set(compareChatNodes(left, right));
+    } catch (err: any) {
+      console.error(err);
+      alert(this.i18n.t('sidebar.compareFailed', { error: err?.message || err }));
+    } finally {
+      this.comparingChats.set(false);
+    }
   }
 
   /** Copy the selected stories (they can be pasted/duplicated elsewhere). */
@@ -829,4 +856,93 @@ export class SideBarComponent implements OnInit {
   async goToPersonas() {
     await this.router.navigate(['/personas']);
   }
+}
+
+function compareChatNodes(left: ChatNode[], right: ChatNode[]): ChatComparison {
+  const normalize = (nodes: ChatNode[]) => {
+    const byParent = new Map<string | null, ChatNode[]>();
+    for (const node of nodes) {
+      const siblings = byParent.get(node.parentId) ?? [];
+      siblings.push(node);
+      byParent.set(node.parentId, siblings);
+    }
+
+    const groupsForParent = (parentId: string | null) => {
+      const siblings = byParent.get(parentId) ?? [];
+      const siblingIds = new Set(siblings.map(node => node.id));
+      const nextVersion = new Map<string, ChatNode>();
+      for (const node of siblings) {
+        if (node.previousVersionId && siblingIds.has(node.previousVersionId)) {
+          nextVersion.set(node.previousVersionId, node);
+        }
+      }
+
+      const roots = siblings.filter(node => !node.previousVersionId || !siblingIds.has(node.previousVersionId));
+      const used = new Set<string>();
+      const groups: ChatNode[][] = [];
+      const addChain = (root: ChatNode) => {
+        const chain: ChatNode[] = [];
+        let current: ChatNode | undefined = root;
+        while (current && !used.has(current.id)) {
+          used.add(current.id);
+          chain.push(current);
+          current = nextVersion.get(current.id);
+        }
+        if (chain.length) groups.push(chain);
+      };
+      roots.forEach(addChain);
+      // Preserve malformed/cyclic version records as standalone groups so
+      // they cannot disappear from an equality result.
+      siblings.filter(node => !used.has(node.id))
+        .sort((a, b) => a.version - b.version)
+        .forEach(addChain);
+
+      return groups.sort((a, b) => {
+        const aPosition = Math.min(...a.map(node => node.position ?? Number.MAX_SAFE_INTEGER));
+        const bPosition = Math.min(...b.map(node => node.position ?? Number.MAX_SAFE_INTEGER));
+        return aPosition - bPosition || a[0].version - b[0].version;
+      });
+    };
+
+    const ordered: ChatNode[] = [];
+    const visited = new Set<string>();
+    let hasCycle = false;
+    const shapeForParent = (parentId: string | null, ancestorIds = new Set<string>()): unknown[] =>
+      groupsForParent(parentId).map(group => ({
+        versions: group.map(node => {
+          if (ancestorIds.has(node.id)) {
+            hasCycle = true;
+            return { role: node.role, current: node.isCurrent, cyclic: true, children: [] };
+          }
+          if (visited.has(node.id)) {
+            hasCycle = true;
+            return { role: node.role, current: node.isCurrent, duplicate: true, children: [] };
+          }
+          visited.add(node.id);
+          ordered.push(node);
+          const nextAncestors = new Set(ancestorIds);
+          nextAncestors.add(node.id);
+          return {
+            role: node.role,
+            current: node.isCurrent,
+            children: shapeForParent(node.id, nextAncestors)
+          };
+        })
+      }));
+
+    const shape = shapeForParent(null);
+    return { shape, ordered, allReachable: !hasCycle && ordered.length === nodes.length };
+  };
+
+  const a = normalize(left);
+  const b = normalize(right);
+  const structureIdentical = a.allReachable && b.allReachable && JSON.stringify(a.shape) === JSON.stringify(b.shape);
+  const contentsIdentical = structureIdentical && a.ordered.every((node, index) =>
+    (node.content ?? '') === (b.ordered[index].content ?? '')
+  );
+  const attachmentsIdentical = structureIdentical && a.ordered.every((node, index) =>
+    JSON.stringify((node.attachments ?? []).map(({ id: _id, ...attachment }) => attachment)) ===
+    JSON.stringify((b.ordered[index].attachments ?? []).map(({ id: _id, ...attachment }) => attachment))
+  );
+  return { structureIdentical, contentsIdentical, attachmentsIdentical };
 }

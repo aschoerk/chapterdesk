@@ -98,6 +98,13 @@
         <span class="story-selection-info">
           {{ i18n.t('sidebar.selectedCount', { count: selectedCount() }) }}
         </span>
+        @if (selectedCount() === 2) {
+          <button class="btn small" type="button" (click)="compareSelectedChats()"
+                  [disabled]="comparingChats()"
+                  [title]="i18n.t('sidebar.compareSelectedTitle')">
+            {{ comparingChats() ? i18n.t('sidebar.comparing') : i18n.t('sidebar.compareSelected') }}
+          </button>
+        }
         <button class="btn small" type="button" (click)="copySelectedStories()"
                 [title]="i18n.t('sidebar.copySelectedTitle')">
           {{ i18n.t('sidebar.copySelected') }}
@@ -124,6 +131,20 @@
           {{ i18n.t('sidebar.cancelClipboard') }}
         </button>
       }
+    </div>
+  }
+  @if (chatComparison(); as comparison) {
+    <div class="chat-comparison" role="status" aria-live="polite">
+      <strong>{{ i18n.t('sidebar.compareResultTitle') }}</strong>
+      <span [class.match]="comparison.structureIdentical" [class.mismatch]="!comparison.structureIdentical">
+        {{ i18n.t(comparison.structureIdentical ? 'sidebar.compareStructureSame' : 'sidebar.compareStructureDifferent') }}
+      </span>
+      <span [class.match]="comparison.contentsIdentical" [class.mismatch]="!comparison.contentsIdentical">
+        {{ i18n.t(comparison.contentsIdentical ? 'sidebar.compareContentSame' : 'sidebar.compareContentDifferent') }}
+      </span>
+      <span [class.match]="comparison.attachmentsIdentical" [class.mismatch]="!comparison.attachmentsIdentical">
+        {{ i18n.t(comparison.attachmentsIdentical ? 'sidebar.compareAttachmentsSame' : 'sidebar.compareAttachmentsDifferent') }}
+      </span>
     </div>
   }
 
