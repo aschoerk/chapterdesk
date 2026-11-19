@@ -42,6 +42,8 @@ export interface NodeVersionDiffDialogState {
   modifiedLabel?: string;
   /** Generic read-only texts to compare `newText` against. */
   texts?: TextDiffOption[];
+  /** Optional selectable documents for the modified/right pane. */
+  modifiedTexts?: TextDiffOption[];
   /** Option preselected on the left side (defaults to the first one). */
   initialId?: string;
   /**

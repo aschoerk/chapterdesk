@@ -406,8 +406,8 @@ export class SideBarComponent implements OnInit {
     const [leftNodes, rightNodes] = await Promise.all(ids.map(id => this.chatService.fetchNodes(id)));
     const leftChat = this.chatService.chats().find(chat => chat.id === ids[0]);
     const rightChat = this.chatService.chats().find(chat => chat.id === ids[1]);
-    const readerText = (nodes: ChatNode[]) => enumerateStoryDocuments(nodes)
-      .map(path => path.map(node => {
+    const readerDocuments = (nodes: ChatNode[], chat: Chat | undefined, id: string) => {
+      const documents = enumerateStoryDocuments(nodes).map(path => path.map(node => {
         const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
         const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
         const content = node.content?.trim() ?? '';
@@ -415,14 +415,24 @@ export class SideBarComponent implements OnInit {
           .map(attachment => `<div class="book-file">${this.escapeHtml(attachment.name)}</div>`).join('');
         return `<section class="book-node book-${node.role}"><header class="book-kicker">${this.escapeHtml(meta)}</header><div class="book-body">${this.markdown.toHtml(content)}</div>${files}</section>`;
       }).filter(Boolean).join('\n\n'))
-      .filter(Boolean)
-      .join('\n\n--- next reader document ---\n\n');
+      .filter(Boolean);
+      const title = chat?.title ?? id;
+      if (!documents.length) documents.push('');
+      return documents.map((text, index) => ({
+        id: `${id}:reader:${index}`,
+        label: `${title} · ${this.i18n.t('sidebar.readerDocument', { current: index + 1, total: documents.length })}`,
+        text
+      }));
+    };
+    const leftDocuments = readerDocuments(leftNodes, leftChat, ids[0]);
+    const rightDocuments = readerDocuments(rightNodes, rightChat, ids[1]);
     void this.textDiff.open({
       title: this.i18n.t('sidebar.readerCompareTitle'),
-      newText: readerText(rightNodes),
+      newText: rightDocuments[0]?.text ?? '',
       originalLabel: leftChat?.title ?? ids[0],
       modifiedLabel: rightChat?.title ?? ids[1],
-      texts: [{ id: ids[0], label: leftChat?.title ?? ids[0], text: readerText(leftNodes) }],
+      texts: leftDocuments,
+      modifiedTexts: rightDocuments,
       readOnly: true
     });
   }

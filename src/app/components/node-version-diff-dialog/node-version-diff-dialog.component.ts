@@ -79,7 +79,10 @@ export class NodeVersionDiffDialogComponent {
   readonly isSiblingMode = computed(() => (this.dialog.current()?.siblings?.length ?? 0) > 0);
 
   /** True for a generic text comparison (topic / environment / persona / prompt). */
-  readonly isTextMode = computed(() => (this.dialog.current()?.texts?.length ?? 0) > 0);
+  readonly isTextMode = computed(() =>
+    (this.dialog.current()?.texts?.length ?? 0) > 0 ||
+    (this.dialog.current()?.modifiedTexts?.length ?? 0) > 0
+  );
 
   /** True when the right side must not be edited and Apply is hidden. */
   readonly readOnly = computed(() => this.dialog.current()?.readOnly === true);
@@ -106,6 +109,16 @@ export class NodeVersionDiffDialogComponent {
     return this.entries().find((v) => v.id === id) ?? this.entries()[0] ?? null;
   });
 
+  readonly modifiedEntries = computed<CompareEntry[]>(() => {
+    const state = this.dialog.current();
+    return state?.modifiedTexts ?? [];
+  });
+  readonly selectedModifiedId = signal<string | null>(null);
+  readonly selectedModifiedEntry = computed<CompareEntry | null>(() => {
+    const id = this.selectedModifiedId();
+    return this.modifiedEntries().find(entry => entry.id === id) ?? this.modifiedEntries()[0] ?? null;
+  });
+
   readonly selectedVersion = computed<ChatNode | null>(() => {
     const id = this.selectedVersionId();
     return this.versions().find((v) => v.id === id) ?? this.versions()[0] ?? null;
@@ -117,7 +130,7 @@ export class NodeVersionDiffDialogComponent {
   }));
 
   readonly modifiedModel = computed<DiffEditorModel>(() => ({
-    code: this.preservedDraft() ?? this.openSeed(),
+    code: this.selectedModifiedEntry()?.text ?? this.preservedDraft() ?? this.openSeed(),
     language: 'plaintext',
   }));
 
@@ -143,10 +156,17 @@ export class NodeVersionDiffDialogComponent {
     lineHeight: 20,
   }));
 
+  readonly leftSelectorLabel = computed(() => this.isSiblingMode()
+    ? this.i18n.t('nodeVersionDiff.siblingLabel')
+    : this.isTextMode() && this.dialog.current()?.modifiedTexts?.length
+      ? this.i18n.t('sidebar.readerSourceDocument')
+      : this.i18n.t('nodeVersionDiff.versionLabel'));
+
   /** Current change index for prev/next navigation. */
   readonly changeIndex = signal(0);
   readonly info = signal<ChangeInfo>({ count: 0, added: 0, removed: 0 });
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private refreshRetryCount = 0;
 
   constructor() {
     effect(() => {
@@ -159,6 +179,9 @@ export class NodeVersionDiffDialogComponent {
         : (s.siblings && s.siblings.length > 0 ? s.siblings : (s.versions ?? [])).map((v) => v.id);
       const initial = s.initialId && ids.includes(s.initialId) ? s.initialId : ids[0] ?? null;
       this.selectedVersionId.set(initial);
+      const modifiedIds = s.modifiedTexts?.map(text => text.id) ?? [];
+      const initialModified = s.modifiedTexts?.[0]?.id ?? null;
+      this.selectedModifiedId.set(initialModified && modifiedIds.includes(initialModified) ? initialModified : null);
       this.changeIndex.set(0);
     });
     // Keep Monaco's theme in step with the app theme without re-creating the editor.
@@ -178,13 +201,44 @@ export class NodeVersionDiffDialogComponent {
       if (this.refreshTimer) clearTimeout(this.refreshTimer);
       this.refreshTimer = setTimeout(() => this.refreshChanges(), 80);
     });
+    // The diff editor updates asynchronously when either input model changes.
+    // Subscribe to its completion event where available, with a short delayed
+    // refresh as a compatibility fallback for editor/test implementations.
+    (editor as Monaco.editor.IStandaloneDiffEditor & {
+      onDidUpdateDiff?: (listener: () => void) => { dispose(): void };
+    }).onDidUpdateDiff?.(() => this.refreshChanges());
     this.refreshChanges();
+    this.scheduleRefreshChanges();
   }
 
   onVersionChange(id: string): void {
     if (this.editor) this.preservedDraft.set(this.editor.getModifiedEditor().getValue());
     this.selectedVersionId.set(id);
     this.changeIndex.set(0);
+    this.applySelectedModels();
+    this.scheduleRefreshChanges();
+  }
+
+  onModifiedTextChange(id: string): void {
+    this.selectedModifiedId.set(id);
+    this.changeIndex.set(0);
+    this.applySelectedModels();
+    this.scheduleRefreshChanges();
+  }
+
+  /** Apply the selected documents directly to Monaco's live models. */
+  private applySelectedModels(): void {
+    const model = this.editor?.getModel() as {
+      original?: { setValue(value: string): void };
+      modified?: { setValue(value: string): void };
+    } | null;
+    if (!model) return;
+    model.original?.setValue(this.selectedEntry()?.text ?? '');
+    // Generic two-sided comparisons supply an explicit destination list. In
+    // editable version mode the right side remains the user's preserved draft.
+    if (this.modifiedEntries().length) {
+      model.modified?.setValue(this.selectedModifiedEntry()?.text ?? '');
+    }
   }
 
   hasDiff(): boolean {
@@ -321,6 +375,38 @@ export class NodeVersionDiffDialogComponent {
     const i = this.changeIndex();
     if (changes.length === 0) this.changeIndex.set(0);
     else if (i >= changes.length) this.changeIndex.set(changes.length - 1);
+  }
+
+  /**
+   * Monaco computes diff hunks asynchronously after its input models change.
+   * Refresh the toolbar after both source and destination document switches;
+   * listening only to modified-editor typing leaves the summary stuck at the
+   * initial document's "No differences" state.
+   */
+  private scheduleRefreshChanges(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshRetryCount = 0;
+    this.refreshChanges();
+    this.scheduleRefreshRetry();
+  }
+
+  private scheduleRefreshRetry(): void {
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.refreshChanges();
+      // Monaco can finish computing a large multi-document diff after the
+      // model-change event. Keep a few bounded retries; onDidUpdateDiff will
+      // refresh immediately when supported.
+      if (this.info().count === 0 && this.refreshRetryCount < 4) {
+        this.refreshRetryCount++;
+        this.scheduleRefreshRetry();
+      }
+    }, this.refreshRetryCount === 0 ? 100 : 200);
+  }
+
+  ngOnDestroy(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
   }
 
   apply(): void {

@@ -368,6 +368,9 @@ export const EN = {
     attachRootNodesToSystem: 'Attach root sections to system prompt',
     compareReaderViews: 'Compare reader views (Monaco)',
     readerCompareTitle: 'Compare reader views',
+    readerSourceDocument: 'Source document',
+    readerDestinationDocument: 'Destination document',
+    readerDocument: 'document {{current}} of {{total}}',
   },
   node: {
     dir: 'Dir',

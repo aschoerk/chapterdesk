@@ -1374,9 +1374,13 @@ describe('SideBarComponent', () => {
           makeNode({ id: 'a-system', chatId: 'c1', role: 'system', content: 'Rules', parentId: null }),
           makeNode({ id: 'a-user', chatId: 'c1', role: 'user', content: 'Direction', parentId: 'a-system' }),
           makeNode({ id: 'a-answer', chatId: 'c1', role: 'assistant', content: '# Chapter\n\nHello reader.', parentId: 'a-user' }),
+          makeNode({ id: 'a-fork', chatId: 'c1', role: 'user', content: 'Alternate direction', parentId: 'a-system', position: 2 }),
+          makeNode({ id: 'a-fork-answer', chatId: 'c1', role: 'assistant', content: '# Alternate\n\nAlternate reader.', parentId: 'a-fork' }),
           makeNode({ id: 'b-system', chatId: 'c2', role: 'system', content: 'Rules', parentId: null }),
           makeNode({ id: 'b-user', chatId: 'c2', role: 'user', content: 'Direction', parentId: 'b-system' }),
-          makeNode({ id: 'b-answer', chatId: 'c2', role: 'assistant', content: '# Chapter\n\nDifferent reader text.', parentId: 'b-user' })
+          makeNode({ id: 'b-answer', chatId: 'c2', role: 'assistant', content: '# Chapter\n\nDifferent reader text.', parentId: 'b-user' }),
+          makeNode({ id: 'b-fork', chatId: 'c2', role: 'user', content: 'Alternate direction', parentId: 'b-system', position: 2 }),
+          makeNode({ id: 'b-fork-answer', chatId: 'c2', role: 'assistant', content: '# Alternate\n\nDifferent alternate reader.', parentId: 'b-fork' })
         );
       });
       component.selectedChatIds.set(['c1', 'c2']);
@@ -1389,9 +1393,13 @@ describe('SideBarComponent', () => {
       expect(state.readOnly).toBe(true);
       expect(state.originalLabel).toBe('Story 1');
       expect(state.modifiedLabel).toBe('Story 2');
+      expect(state.texts).toHaveLength(2);
+      expect(state.modifiedTexts).toHaveLength(2);
       expect(state.texts?.[0].text).toContain('<h1>Chapter</h1>');
-      expect(state.texts?.[0].text).toContain('Direction');
-      expect(state.newText).toContain('Different reader text.');
+      expect(state.texts?.[1].text).toContain('<h1>Alternate</h1>');
+      expect(state.modifiedTexts?.[0].text).toContain('Different reader text.');
+      expect(state.modifiedTexts?.[1].text).toContain('Different alternate reader.');
+      expect(state.newText).toBe(state.modifiedTexts?.[0].text);
     });
 
     it('pastes staged stories through the target environment context menu', async () => {

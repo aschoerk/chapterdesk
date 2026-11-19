@@ -20,7 +20,7 @@
       <div class="nvd-head">
         <h3 id="nvd-title">{{ d.title || i18n.t(isSiblingMode() ? 'nodeVersionDiff.titleSiblings' : 'nodeVersionDiff.title') }}</h3>
         <label class="nvd-version-select">
-          <span>{{ i18n.t(isSiblingMode() ? 'nodeVersionDiff.siblingLabel' : 'nodeVersionDiff.versionLabel') }}</span>
+          <span>{{ leftSelectorLabel() }}</span>
           <select
             [ngModel]="selectedVersionId()"
             (ngModelChange)="onVersionChange($event)"
@@ -30,6 +30,16 @@
             }
           </select>
         </label>
+        @if (modifiedEntries().length > 0) {
+          <label class="nvd-version-select">
+            <span>{{ i18n.t('nodeVersionDiff.destinationLabel') }}</span>
+            <select [ngModel]="selectedModifiedId()" (ngModelChange)="onModifiedTextChange($event)">
+              @for (entry of modifiedEntries(); track entry.id) {
+                <option [value]="entry.id">{{ entry.label }}</option>
+              }
+            </select>
+          </label>
+        }
       </div>
 
       @if (entries().length === 0) {

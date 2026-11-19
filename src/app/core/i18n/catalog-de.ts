@@ -373,6 +373,9 @@ export const DE: typeof EN = {
     attachRootNodesToSystem: 'Wurzelabschnitte an Systemprompt anhängen',
     compareReaderViews: 'Reader-Ansichten mit Monaco vergleichen',
     readerCompareTitle: 'Reader-Ansichten vergleichen',
+    readerSourceDocument: 'Quelldokument',
+    readerDestinationDocument: 'Zieldokument',
+    readerDocument: 'Dokument {{current}} von {{total}}',
   },
   node: {
     dir: 'An',

@@ -17,6 +17,7 @@ let fakeState: {
   modifiedValue: string;
   executeEdits: ReturnType<typeof vi.fn>;
 };
+let fakeDiffUpdate: (() => void) | null = null;
 
 function makeFakeEditor() {
   return {
@@ -28,8 +29,21 @@ function makeFakeEditor() {
       revealLineInCenter: vi.fn(),
     }),
     getOriginalEditor: () => ({ revealLineInCenter: vi.fn() }),
-    getModel: () => ({ original: { getValue: () => fakeState.originalValue } }),
+    getModel: () => ({
+      original: {
+        getValue: () => fakeState.originalValue,
+        setValue: (value: string) => { fakeState.originalValue = value; },
+      },
+      modified: {
+        getValue: () => fakeState.modifiedValue,
+        setValue: (value: string) => { fakeState.modifiedValue = value; },
+      },
+    }),
     revealPositionInCenter: vi.fn(),
+    onDidUpdateDiff: (listener: () => void) => {
+      fakeDiffUpdate = listener;
+      return { dispose: vi.fn() };
+    },
   };
 }
 
@@ -110,6 +124,7 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
   });
 
   beforeEach(async () => {
+    fakeDiffUpdate = null;
     fakeState = {
       changes: [change],
       originalValue: 'line1\nold line\nline3',
@@ -206,6 +221,57 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
 
     component.apply();
     await expect(p).resolves.toBeNull();
+  });
+
+  it('allows independent iteration through source and destination reader documents', async () => {
+    fakeState.changes = [];
+    const p = dialog.open({
+      title: 'Compare reader views',
+      newText: 'destination A',
+      originalLabel: 'Source chat',
+      modifiedLabel: 'Destination chat',
+      texts: [
+        { id: 'source-1', label: 'Source · document 1 of 2', text: 'source A' },
+        { id: 'source-2', label: 'Source · document 2 of 2', text: 'source B' },
+      ],
+      modifiedTexts: [
+        { id: 'destination-1', label: 'Destination · document 1 of 2', text: 'destination A' },
+        { id: 'destination-2', label: 'Destination · document 2 of 2', text: 'destination B' },
+      ],
+      readOnly: true,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.originalModel().code).toBe('source A');
+    expect(component.modifiedModel().code).toBe('destination A');
+    const selectors = fixture.nativeElement.querySelectorAll('.nvd-version-select select') as NodeListOf<HTMLSelectElement>;
+    expect(selectors).toHaveLength(2);
+
+    fakeState.changes = [change];
+
+    selectors[0].value = 'source-2';
+    selectors[0].dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+    fakeDiffUpdate?.();
+    expect(component.originalModel().code).toBe('source B');
+    expect(fakeState.originalValue).toBe('source B');
+    expect(component.modifiedModel().code).toBe('destination A');
+    expect(component.info().count).toBe(1);
+
+    fakeState.changes = [];
+    selectors[1].value = 'destination-2';
+    selectors[1].dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+    fakeDiffUpdate?.();
+    expect(component.originalModel().code).toBe('source B');
+    expect(component.modifiedModel().code).toBe('destination B');
+    expect(fakeState.modifiedValue).toBe('destination B');
+    expect(component.info().count).toBe(0);
+
+    dialog.cancel();
+    await p;
   });
 
   it('version mode keeps prior-version labels (not sibling previews)', async () => {
