@@ -587,3 +587,53 @@
 .paste-btn {
   flex-shrink: 0;
 }
+
+.sidebar-context-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: transparent;
+}
+
+.sidebar-context-menu {
+  position: fixed;
+  z-index: 2001;
+  min-width: 210px;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel, var(--bg-input));
+  color: var(--text);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.sidebar-context-item {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.sidebar-context-item:hover,
+.sidebar-context-item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.sidebar-context-item.danger {
+  color: var(--color-danger, #b91c1c);
+}
+
+.sidebar-context-separator {
+  height: 1px;
+  margin: 4px 3px;
+  background: var(--border);
+}

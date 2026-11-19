@@ -1135,6 +1135,30 @@ describe('SideBarComponent', () => {
       return fixture.nativeElement.querySelector('.story-tools') as HTMLElement | null;
     }
 
+    function contextMenu(): HTMLElement | null {
+      return fixture.nativeElement.querySelector('.sidebar-context-menu') as HTMLElement | null;
+    }
+
+    function rightClick(target: Element): MouseEvent {
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 90
+      });
+      target.dispatchEvent(event);
+      fixture.detectChanges();
+      return event;
+    }
+
+    function clickContextItem(label: string): void {
+      const buttons = Array.from(contextMenu()?.querySelectorAll('button') ?? []);
+      const button = buttons.find(candidate => candidate.textContent?.trim() === label);
+      expect(button, `context menu item '${label}'`).toBeDefined();
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      fixture.detectChanges();
+    }
+
     function clickTool(i18nKey: string): void {
       (storyTools()!.querySelector(`button[title="${i18n.t(i18nKey)}"]`) as HTMLButtonElement)
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1200,6 +1224,105 @@ describe('SideBarComponent', () => {
       expect(storyTools()).not.toBeNull();
       expect(storyTools()!.textContent)
         .toContain(i18n.t('sidebar.selectedCount', { count: 2 }));
+    });
+
+    it('opens an environment context menu with the corresponding environment button actions', async () => {
+      await seedTwoEnvs();
+      const header = projectBlock('Env A')!.querySelector('.project-header')!;
+      const event = rightClick(header);
+
+      expect(event.defaultPrevented).toBe(true);
+      const menu = contextMenu()!;
+      const labels = Array.from(menu.querySelectorAll('button')).map(button => button.textContent?.trim());
+      expect(labels).toContain(i18n.t('sidebar.editEnvironment'));
+      expect(labels).toContain(i18n.t('sidebar.newStory'));
+      expect(labels).toContain(i18n.t('sidebar.deleteBook'));
+
+      clickContextItem(i18n.t('sidebar.editEnvironment'));
+      expect(router.navigate).toHaveBeenCalledWith(['/projects'], { queryParams: { editProject: 'p-1' } });
+      expect(contextMenu()).toBeNull();
+    });
+
+    it('opens a chat context menu with that chat’s button actions', async () => {
+      await seedTwoEnvs();
+      const row = chatItem('Env A', 'Story 1')!;
+      rightClick(row);
+
+      const labels = Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim());
+      expect(labels).toContain(i18n.t('sidebar.moveUnassigned'));
+      expect(labels).toContain(i18n.t('sidebar.renameStory'));
+      expect(labels).toContain(i18n.t('sidebar.moveEnvironment'));
+      expect(labels).toContain(i18n.t('sidebar.cloneStory'));
+      expect(labels).toContain(i18n.t('sidebar.sumTotalCost'));
+      expect(labels).toContain(i18n.t('common.delete'));
+
+      clickContextItem(i18n.t('sidebar.renameStory'));
+      expect(component.editingChatId()).toBe('c1');
+      expect(contextMenu()).toBeNull();
+    });
+
+    it('adds selected-chat clipboard actions to the sidebar context menu and compare only for two selections', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      rightClick(projectBlock('Env A')!.querySelector('.project-header')!);
+      let labels = Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim());
+      expect(labels).toContain(i18n.t('sidebar.copySelected'));
+      expect(labels).toContain(i18n.t('sidebar.cutSelected'));
+      expect(labels).toContain(i18n.t('sidebar.clearSelection'));
+      expect(labels).not.toContain(i18n.t('sidebar.compareSelected'));
+      component.closeContextMenu();
+
+      ctrlClickStory('Env A', 'Story 2');
+      rightClick(chatItem('Env A', 'Story 1')!);
+      labels = Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim());
+      expect(labels).toContain(i18n.t('sidebar.compareSelected'));
+      expect(labels).toContain(i18n.t('sidebar.copySelected'));
+      clickContextItem(i18n.t('sidebar.compareSelected'));
+      await settleDeep();
+      expect(component.chatComparison()).toEqual({
+        structureIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+
+      rightClick(chatItem('Env A', 'Story 1')!);
+      clickContextItem(i18n.t('sidebar.copySelected'));
+      expect(component.clipboard.hasContent()).toBe(true);
+    });
+
+    it('adds staged clipboard cancellation to the context menu', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.cutSelectedTitle');
+      rightClick(projectBlock('Env B')!.querySelector('.project-header')!);
+
+      expect(Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim()))
+        .toContain(i18n.t('sidebar.cancelClipboard'));
+      clickContextItem(i18n.t('sidebar.cancelClipboard'));
+      expect(component.clipboard.hasContent()).toBe(false);
+    });
+
+    it('pastes staged stories through the target environment context menu', async () => {
+      await seedTwoEnvs();
+      ctrlClickStory('Env A', 'Story 1');
+      clickTool('sidebar.cutSelectedTitle');
+      rightClick(projectBlock('Env B')!.querySelector('.project-header')!);
+      clickContextItem(component.pasteHereTitle('p-2'));
+      await settleDeep();
+
+      expect(chatService.chats().find(candidate => candidate.id === 'c1')?.projectId).toBe('p-2');
+      expect(component.clipboard.hasContent()).toBe(false);
+    });
+
+    it('closes the sidebar context menu on Escape', async () => {
+      await seedTwoEnvs();
+      rightClick(projectBlock('Env A')!.querySelector('.project-header')!);
+      expect(contextMenu()).not.toBeNull();
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(contextMenu()).toBeNull();
     });
 
     it('compares the selected chats by structure, content, and attachment data', async () => {

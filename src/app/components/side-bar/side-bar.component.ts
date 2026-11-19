@@ -29,6 +29,30 @@ interface ChatComparison {
   attachmentsIdentical: boolean;
 }
 
+type SidebarContextTarget =
+  | { kind: 'project'; project: Project }
+  | { kind: 'unassigned' }
+  | { kind: 'chat'; chat: Chat };
+
+type SidebarContextAction =
+  | 'project-edit' | 'project-create' | 'project-delete' | 'project-paste'
+  | 'chat-rename' | 'chat-unassign' | 'chat-reassign' | 'chat-clone' | 'chat-delete' | 'chat-cost'
+  | 'selection-copy' | 'selection-cut' | 'selection-delete' | 'selection-clear'
+  | 'clipboard-cancel' | 'selection-compare';
+
+interface SidebarContextItem {
+  action: SidebarContextAction;
+  label: string;
+  danger?: boolean;
+  separatorBefore?: boolean;
+}
+
+interface SidebarContextMenuState {
+  x: number;
+  y: number;
+  target: SidebarContextTarget;
+}
+
 @Component({
   selector: 'side-bar',
   standalone: true,
@@ -103,6 +127,7 @@ export class SideBarComponent implements OnInit {
   readonly selectedCount = computed(() => this.selectedChatIds().length);
   readonly chatComparison = signal<ChatComparison | null>(null);
   readonly comparingChats = signal(false);
+  readonly contextMenu = signal<SidebarContextMenuState | null>(null);
 
   /**
    * Environment key currently hovered as a drag&drop target
@@ -146,6 +171,116 @@ export class SideBarComponent implements OnInit {
   clearSelection(): void {
     this.selectedChatIds.set([]);
     this.chatComparison.set(null);
+  }
+
+  openContextMenu(event: MouseEvent, target: SidebarContextTarget): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const items = this.contextItems(target);
+    if (!items.length) {
+      this.closeContextMenu();
+      return;
+    }
+    const width = 250;
+    const height = Math.min(items.length * 38 + 12, window.innerHeight - 16);
+    this.contextMenu.set({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+      target
+    });
+  }
+
+  contextItems(target: SidebarContextTarget): SidebarContextItem[] {
+    const items: SidebarContextItem[] = [];
+    if (target.kind === 'project') {
+      items.push(
+        { action: 'project-edit', label: this.i18n.t('sidebar.editEnvironment') },
+        { action: 'project-create', label: this.i18n.t('sidebar.newStory') }
+      );
+      if (this.clipboard.hasContent()) {
+        items.push({ action: 'project-paste', label: this.pasteHereTitle(target.project.id) });
+      }
+      items.push({ action: 'project-delete', label: this.i18n.t('sidebar.deleteBook'), danger: true, separatorBefore: true });
+    } else if (target.kind === 'unassigned') {
+      if (this.clipboard.hasContent()) {
+        items.push({ action: 'project-paste', label: this.pasteHereTitle(null) });
+      }
+    } else {
+      if (target.chat.projectId) {
+        items.push({ action: 'chat-unassign', label: this.i18n.t('sidebar.moveUnassigned') });
+      }
+      items.push(
+        { action: 'chat-rename', label: this.i18n.t('sidebar.renameStory') },
+        { action: 'chat-reassign', label: this.i18n.t('sidebar.moveEnvironment') },
+        { action: 'chat-clone', label: this.i18n.t('sidebar.cloneStory') },
+        { action: 'chat-cost', label: this.i18n.t('sidebar.sumTotalCost') },
+        { action: 'chat-delete', label: this.i18n.t('common.delete'), danger: true, separatorBefore: true }
+      );
+    }
+
+    if (this.selectedChatIds().length) {
+      items.push(
+        { action: 'selection-copy', label: this.i18n.t('sidebar.copySelected'), separatorBefore: items.length > 0 },
+        { action: 'selection-cut', label: this.i18n.t('sidebar.cutSelected') },
+        { action: 'selection-delete', label: this.i18n.t('common.delete'), danger: true },
+        { action: 'selection-clear', label: this.i18n.t('sidebar.clearSelection') }
+      );
+      if (this.selectedCount() === 2) {
+        items.push({ action: 'selection-compare', label: this.i18n.t('sidebar.compareSelected') });
+      }
+    }
+    if (this.clipboard.hasContent()) {
+      items.push({ action: 'clipboard-cancel', label: this.i18n.t('sidebar.cancelClipboard'), separatorBefore: items.length > 0 });
+    }
+    return items.filter(item => item.label);
+  }
+
+  async runContextAction(action: SidebarContextAction): Promise<void> {
+    const state = this.contextMenu();
+    if (!state) return;
+    const { target } = state;
+    const event = {
+      stopPropagation: () => {},
+      preventDefault: () => {}
+    } as Event;
+    this.closeContextMenu();
+
+    switch (action) {
+      case 'project-edit': if (target.kind === 'project') this.editProject(target.project, event); break;
+      case 'project-create': if (target.kind === 'project') await this.createChatForProject(target.project, event); break;
+      case 'project-delete': if (target.kind === 'project') await this.deleteProject(target.project, event); break;
+      case 'project-paste': await this.pasteIntoEnv(target.kind === 'project' ? target.project.id : null); break;
+      case 'chat-rename': if (target.kind === 'chat') this.startEditChatTitle(target.chat, event); break;
+      case 'chat-unassign': if (target.kind === 'chat') await this.unassignChat(target.chat, event); break;
+      case 'chat-reassign': if (target.kind === 'chat') this.toggleReassign(target.chat.id, event); break;
+      case 'chat-clone': if (target.kind === 'chat') await this.cloneChat(target.chat, event); break;
+      case 'chat-delete': if (target.kind === 'chat') await this.deleteChat(target.chat, event); break;
+      case 'chat-cost': if (target.kind === 'chat') await this.recomputeChatCost(target.chat.id, event); break;
+      case 'selection-copy': this.copySelectedStories(); break;
+      case 'selection-cut': this.cutSelectedStories(); break;
+      case 'selection-delete': await this.deleteSelectedStories(); break;
+      case 'selection-clear': this.clearSelection(); break;
+      case 'clipboard-cancel': this.cancelClipboard(); break;
+      case 'selection-compare': await this.compareSelectedChats(); break;
+    }
+  }
+
+  closeContextMenu(): void {
+    this.contextMenu.set(null);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onContextMenuKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.contextMenu()) {
+      event.preventDefault();
+      this.closeContextMenu();
+    }
+  }
+
+  @HostListener('window:resize')
+  @HostListener('document:scroll')
+  onContextMenuViewportChange(): void {
+    this.closeContextMenu();
   }
 
   /** Compare the full persisted section trees, ignoring generated record ids. */

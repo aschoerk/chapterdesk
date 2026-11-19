@@ -156,6 +156,7 @@
              [class.current]="isCurrentProject(project.id)"
              [class.drop-target]="isDropTarget(project.id)"
              [title]="projectTooltip(project)"
+             (contextmenu)="openContextMenu($event, { kind: 'project', project })"
              (click)="toggleExpanded(project.id)"
              (dragenter)="onDragEnter(project.id)"
              (dragleave)="onDragLeave(project.id)"
@@ -234,6 +235,7 @@
                    [class.cut]="isCutChat(chat.id)"
                    [draggable]="editingChatId() !== chat.id"
                    [title]="chatTooltip(chat)"
+                   (contextmenu)="openContextMenu($event, { kind: 'chat', chat })"
                    (click)="onChatItemClick($event, chat)"
                    (dragstart)="onChatDragStart($event, chat)"
                    (dragend)="onChatDragEnd()">
@@ -353,6 +355,7 @@
         <div class="project-header"
              [class.current]="isCurrentProject(null)"
              [class.drop-target]="isDropTarget('__unassigned__')"
+             (contextmenu)="openContextMenu($event, { kind: 'unassigned' })"
              (click)="toggleExpanded('__unassigned__')"
              (dragenter)="onDragEnter('__unassigned__')"
              (dragleave)="onDragLeave('__unassigned__')"
@@ -391,6 +394,7 @@
                 [class.cut]="isCutChat(chat.id)"
                 [draggable]="editingChatId() !== chat.id"
                 [title]="chatTooltip(chat)"
+                (contextmenu)="openContextMenu($event, { kind: 'chat', chat })"
                 (click)="onChatItemClick($event, chat)"
                 (dragstart)="onChatDragStart($event, chat)"
                 (dragend)="onChatDragEnd()">
@@ -482,4 +486,21 @@
 
     <!-- Unassigned block stays almost the same, just use the new icon style -->
   </div>
+
+  @if (contextMenu(); as menu) {
+    <div class="sidebar-context-backdrop" (mousedown)="closeContextMenu()"></div>
+    <div class="sidebar-context-menu" role="menu" [style.left.px]="menu.x" [style.top.px]="menu.y"
+         (contextmenu)="$event.preventDefault(); $event.stopPropagation()">
+      @for (item of contextItems(menu.target); track $index) {
+        @if (item.separatorBefore) {
+          <div class="sidebar-context-separator" role="separator"></div>
+        }
+        <button class="sidebar-context-item" type="button" role="menuitem"
+                [class.danger]="item.danger"
+                (click)="runContextAction(item.action)">
+          {{ item.label }}
+        </button>
+      }
+    </div>
+  }
 </aside>
