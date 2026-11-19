@@ -12,7 +12,7 @@ import { ChatNode } from '../../models/chat';
 
 /** Shared state the fake Monaco diff editor reads/writes. */
 let fakeState: {
-  changes: unknown[];
+  changes: unknown[] | null;
   originalValue: string;
   modifiedValue: string;
   executeEdits: ReturnType<typeof vi.fn>;
@@ -246,28 +246,37 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
 
     expect(component.originalModel().code).toBe('source A');
     expect(component.modifiedModel().code).toBe('destination A');
+    expect(component.diffPending()).toBe(true);
+    expect(fixture.nativeElement.querySelector('.nvd-change-pos')?.textContent).toContain('Comparing');
     const selectors = fixture.nativeElement.querySelectorAll('.nvd-version-select select') as NodeListOf<HTMLSelectElement>;
     expect(selectors).toHaveLength(2);
 
-    fakeState.changes = [change];
+    fakeState.changes = null;
 
     selectors[0].value = 'source-2';
     selectors[0].dispatchEvent(new Event('change', { bubbles: true }));
     fixture.detectChanges();
-    fakeDiffUpdate?.();
     expect(component.originalModel().code).toBe('source B');
     expect(fakeState.originalValue).toBe('source B');
     expect(component.modifiedModel().code).toBe('destination A');
-    expect(component.info().count).toBe(1);
+    expect(component.diffPending()).toBe(true);
+    expect(fixture.nativeElement.querySelector('.nvd-change-pos')?.textContent).toContain('Comparing');
 
-    fakeState.changes = [];
+    fakeState.changes = [change];
+    fakeDiffUpdate?.();
+    expect(component.info().count).toBe(1);
+    expect(component.diffPending()).toBe(false);
+
+    fakeState.changes = null;
     selectors[1].value = 'destination-2';
     selectors[1].dispatchEvent(new Event('change', { bubbles: true }));
     fixture.detectChanges();
-    fakeDiffUpdate?.();
     expect(component.originalModel().code).toBe('source B');
     expect(component.modifiedModel().code).toBe('destination B');
     expect(fakeState.modifiedValue).toBe('destination B');
+
+    fakeState.changes = [];
+    fakeDiffUpdate?.();
     expect(component.info().count).toBe(0);
 
     dialog.cancel();

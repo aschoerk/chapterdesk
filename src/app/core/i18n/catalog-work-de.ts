@@ -185,6 +185,7 @@ export const DE_WORK: typeof EN_WORK = {
     noVersions: 'Keine früheren Versionen zum Vergleichen.',
     noSiblings: 'Keine anderen Geschwister zum Vergleichen.',
     noDiff: 'Keine Unterschiede',
+    comparing: 'Vergleiche…',
     resizeTitle: 'Zum Größe ändern ziehen',
     readonlyHintSiblings:
       'Links: das ausgewählte Geschwister (schreibgeschützt). Rechts: dieser Abschnitt — direkt bearbeiten, Änderung wiederherstellen oder Zeilen vom Geschwister kopieren und einfügen. Das Ergebnis wird beim Speichern zu einer neuen Version dieses Abschnitts.',

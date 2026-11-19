@@ -1010,7 +1010,7 @@ export const openApiSpec: OpenApiDocument = {
         type: 'object',
         properties: {
           title: { type: 'string' },
-          node_number: { type: 'integer', minimum: 0 },
+          node_number: { type: 'integer' },
           projectId: { type: 'string', nullable: true },
           chatParametersId: { type: 'string', nullable: true },
         },

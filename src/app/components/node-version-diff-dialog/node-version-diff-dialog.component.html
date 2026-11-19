@@ -57,11 +57,15 @@
             ← {{ i18n.t('nodeVersionDiff.prevChange') }}
           </button>
           <span class="nvd-change-pos">
-            {{
+            @if (diffPending()) {
+              {{ i18n.t('nodeVersionDiff.comparing') }}
+            } @else {
+              {{
               hasDiff()
                 ? i18n.t('nodeVersionDiff.changeXOfY', { current: changeIndex() + 1, total: info().count })
                 : i18n.t('nodeVersionDiff.noDiff')
-            }}
+              }}
+            }
           </span>
           <button
             class="btn small"

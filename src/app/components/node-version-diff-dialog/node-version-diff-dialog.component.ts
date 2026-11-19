@@ -165,8 +165,10 @@ export class NodeVersionDiffDialogComponent {
   /** Current change index for prev/next navigation. */
   readonly changeIndex = signal(0);
   readonly info = signal<ChangeInfo>({ count: 0, added: 0, removed: 0 });
+  readonly diffPending = signal(true);
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshRetryCount = 0;
+  private supportsDiffUpdateEvent = false;
 
   constructor() {
     effect(() => {
@@ -183,6 +185,8 @@ export class NodeVersionDiffDialogComponent {
       const initialModified = s.modifiedTexts?.[0]?.id ?? null;
       this.selectedModifiedId.set(initialModified && modifiedIds.includes(initialModified) ? initialModified : null);
       this.changeIndex.set(0);
+      this.info.set({ count: 0, added: 0, removed: 0 });
+      this.diffPending.set(true);
     });
     // Keep Monaco's theme in step with the app theme without re-creating the editor.
     effect(() => {
@@ -204,11 +208,16 @@ export class NodeVersionDiffDialogComponent {
     // The diff editor updates asynchronously when either input model changes.
     // Subscribe to its completion event where available, with a short delayed
     // refresh as a compatibility fallback for editor/test implementations.
-    (editor as Monaco.editor.IStandaloneDiffEditor & {
+    const diffEditor = editor as Monaco.editor.IStandaloneDiffEditor & {
       onDidUpdateDiff?: (listener: () => void) => { dispose(): void };
-    }).onDidUpdateDiff?.(() => this.refreshChanges());
+    };
+    this.supportsDiffUpdateEvent = typeof diffEditor.onDidUpdateDiff === 'function';
+    diffEditor.onDidUpdateDiff?.(() => {
+      this.refreshChanges();
+      if (this.editor?.getLineChanges() !== null) this.diffPending.set(false);
+    });
     this.refreshChanges();
-    this.scheduleRefreshChanges();
+    if (!this.supportsDiffUpdateEvent) this.scheduleRefreshRetry();
   }
 
   onVersionChange(id: string): void {
@@ -360,7 +369,10 @@ export class NodeVersionDiffDialogComponent {
     }
     const ed = this.editor;
     if (!ed) return;
-    const changes = ed.getLineChanges() ?? [];
+    const changes = ed.getLineChanges();
+    // Monaco returns null until the asynchronous diff computation has
+    // completed. Do not turn that transient state into "No differences".
+    if (changes === null) return;
     let added = 0;
     let removed = 0;
     for (const c of changes) {
@@ -386,20 +398,26 @@ export class NodeVersionDiffDialogComponent {
   private scheduleRefreshChanges(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshRetryCount = 0;
+    this.diffPending.set(true);
     this.refreshChanges();
-    this.scheduleRefreshRetry();
+    if (!this.supportsDiffUpdateEvent) this.scheduleRefreshRetry();
   }
 
   private scheduleRefreshRetry(): void {
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       this.refreshChanges();
-      // Monaco can finish computing a large multi-document diff after the
-      // model-change event. Keep a few bounded retries; onDidUpdateDiff will
-      // refresh immediately when supported.
-      if (this.info().count === 0 && this.refreshRetryCount < 4) {
+      // Retry only for Monaco/test doubles that do not expose its completion
+      // event. When it does, keep "Comparing…" until onDidUpdateDiff fires.
+      const changes = this.editor?.getLineChanges();
+      if (this.refreshRetryCount < 20 && !this.supportsDiffUpdateEvent && changes === null) {
         this.refreshRetryCount++;
         this.scheduleRefreshRetry();
+      } else {
+        if (changes !== null) {
+          this.refreshChanges();
+          this.diffPending.set(false);
+        }
       }
     }, this.refreshRetryCount === 0 ? 100 : 200);
   }

@@ -182,6 +182,7 @@ export const EN_WORK = {
     noVersions: 'No earlier versions to compare.',
     noSiblings: 'No other siblings to compare.',
     noDiff: 'No differences',
+    comparing: 'Comparing…',
     resizeTitle: 'Drag to resize',
     readonlyHintSiblings:
       'Left: the selected sibling (read-only). Right: this section — edit it directly, restore a change, or copy lines from the sibling and paste them. The result becomes a new version of this section when you save.',
