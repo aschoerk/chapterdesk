@@ -48,6 +48,7 @@ describe('ChatNavMenuService', () => {
   let service: ChatNavMenuService;
   let clipboard: NodeClipboardService;
   let chatService: ChatService;
+  let i18n: I18nService;
 
   async function open(nodes: ReturnType<typeof makeNode>[]): Promise<void> {
     TestBed.resetTestingModule();
@@ -67,7 +68,8 @@ describe('ChatNavMenuService', () => {
         ChatNavMenuService,
       ],
     }).compileComponents();
-    TestBed.inject(I18nService).setLocale('en');
+    i18n = TestBed.inject(I18nService);
+    i18n.setLocale('en');
     await TestBed.inject(SettingsService).loadAll();
     chatService = TestBed.inject(ChatService);
     clipboard = TestBed.inject(NodeClipboardService);
@@ -116,7 +118,7 @@ describe('ChatNavMenuService', () => {
     service.bind(host);
     clipboard.copySequence([path[1]]);
 
-    // Right-click on the draft: suppressed.
+    // Right-click on the draft: suppressed (it is not a fork participant).
     service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5, clientY: 5 } as MouseEvent, path.at(-1)!);
     expect(service.navNodeMenu()).toBeNull();
 
@@ -126,6 +128,44 @@ describe('ChatNavMenuService', () => {
     expect(service.pasteTargets('a1')).toEqual({ leftId: 'a1', rightId: 'q2' });
     // Behind the draft itself is allowed (= at the very end): no right node.
     expect(service.pasteTargets('draft')).toEqual({ leftId: 'draft', rightId: null });
+  });
+
+  it('a terminal empty draft that is a fork participant can be switched from the bar', async () => {
+    // q1 → a1 forks into { draft (the terminal empty composer) }, { q3 → a3 }.
+    // The active path runs through a1 → the draft. The draft IS the terminal
+    // empty direction AND a fork participant (a1 has draft + q3 as siblings):
+    // it must open a menu with the fork-switch rows — but no selection /
+    // clipboard / paste rows.
+    await open([
+      makeNode({ id: 'q1', role: 'user', content: 'Q1', createdAt: '2026-01-01T00:00:00.000Z' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', isCurrent: true, createdAt: '2026-01-01T00:00:01.000Z' }),
+      makeNode({ id: 'draft', parentId: 'a1', role: 'user', content: '', isCurrent: true, createdAt: '2026-01-01T00:00:03.000Z' }),
+      makeNode({ id: 'q3', parentId: 'a1', role: 'user', content: 'Q3', isCurrent: true, createdAt: '2026-01-01T00:00:02.000Z' }),
+      makeNode({ id: 'a3', parentId: 'q3', role: 'assistant', content: 'A3', isCurrent: true, createdAt: '2026-01-01T00:00:04.000Z' }),
+    ]);
+    const path = chatService.getActivePath();
+    const host = hostStub(path);
+    service.bind(host);
+    const draft = path.at(-1)!;
+    expect(draft.id).toBe('draft');
+    expect(chatService.isDraftQuestion(draft)).toBe(true); // terminal empty direction
+
+    // The draft IS a fork participant: its parent a1 has draft AND q3.
+    expect(chatService.getChildren(draft.parentId).length).toBe(2);
+
+    // Right-click on the draft opens the menu (fork participant).
+    service.openNavNodeMenu({ preventDefault() {}, stopPropagation() {}, clientX: 5, clientY: 5 } as MouseEvent, draft);
+    expect(service.navNodeMenu()?.nodeId).toBe('draft');
+
+    // Rows: branch-here + fork switch ONLY — no selection/clipboard/paste.
+    const items = service.navNodeMenuItems();
+    const labels = items.filter(i => !i.divider).map(i => i.label);
+    expect(labels).toContain(i18n.t('node.prevBranch'));
+    expect(labels).toContain(i18n.t('node.nextBranch'));
+    expect(labels).not.toContain(i18n.t('node.copySelected'));
+    expect(labels).not.toContain(i18n.t('node.cutSelected'));
+    expect(labels).not.toContain(i18n.t('node.deleteSelected'));
+    expect(labels).not.toContain(i18n.t('node.navSelect'));
   });
 
   it('paste menu rows dispatch insert vs append through the host', async () => {

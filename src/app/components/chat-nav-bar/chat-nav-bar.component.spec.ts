@@ -165,7 +165,47 @@ describe('ChatNavBarComponent', () => {
       expect(count.textContent).toContain('2');
     });
 
-    it('shows every current sibling at a branch point, including excluded siblings', async () => {
+    it('reveals the deeper forks AFTER switching onto the sibling branch', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'x', parentId: 'q1', role: 'user', content: 'X' }),
+        node({ id: 'b', parentId: 'q1', role: 'user', content: 'B' }),
+        node({ id: 'b1', parentId: 'b', role: 'assistant', content: 'B1' }),
+        node({ id: 'c1', parentId: 'b1', role: 'user', content: 'C1', position: 1 }),
+        node({ id: 'd1', parentId: 'c1', role: 'assistant', content: 'D1' }),
+        node({ id: 'c2', parentId: 'b1', role: 'user', content: 'C2', position: 2 }),
+        node({ id: 'd2', parentId: 'c2', role: 'assistant', content: 'D2' }),
+      ]);
+      chatService.setActiveChild('q1', 'x');
+      chatService.setActiveChild('b1', 'c1');
+
+      // The x branch shows ONLY x; the deeper fork under b1 is not reachable.
+      createBar(chatService.getActivePath());
+      expect(navNode('x')).not.toBeNull();
+      expect(navNode('b1')).toBeNull();
+      expect(navNode('c1')).toBeNull();
+      expect(navNode('c2')).toBeNull();
+
+      // User switches at the q1 fork onto b (as the tree's branch switcher /
+      // node menu do): the active path recomputes and the nav bar now reveals
+      // b's own fork (c1/c2): the ACTIVE continuation c1 shows the "1/2" badge.
+      chatService.setActiveChild('q1', 'b');
+      fixture.componentRef.setInput('activePath', chatService.getActivePath());
+      fixture.detectChanges();
+
+      expect(navNode('b')).not.toBeNull();
+      expect(navNode('b1')).not.toBeNull();
+      // The deeper fork under b1 is now on the active path — the active
+      // continuation (c1) carries the 1/2 branch-count badge.
+      expect(navNode('c1')).not.toBeNull();
+      const badge = navNode('c1').querySelector('.nav-branch-count') as HTMLElement;
+      expect(badge).not.toBeNull();
+      expect(badge.textContent).toContain('1');
+      expect(badge.textContent).toContain('2');
+      expect(navNode('c2')).toBeNull(); // not rendered — switched via c1's fork
+    });
+
+    it('shows only the ACTIVE sibling at a branch point — alternatives stay in the tree', async () => {
       await seed([
         node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
         node({ id: 'x', parentId: 'q1', role: 'user', content: 'hidden', excludeFromContext: true }),
@@ -175,15 +215,13 @@ describe('ChatNavBarComponent', () => {
       chatService.setActiveChild('q1', 'x');
       chatService.setActiveChild('x', 'a1');
 
-      // Both branches are displayed so either can be discovered and selected.
+      // Of the siblings x / b only the ACTIVE one (x) is part of the chain.
+      // x is excluded but has a sibling, so it stays visible with the branch
+      // count; b is switched to via the branch switcher, never rendered.
       createBar(chatService.getActivePath());
       expect(navNode('x')).not.toBeNull();
-      expect(navNode('b')).not.toBeNull();
-      const activate = vi.fn();
-      component.activateSibling.subscribe(activate);
-      navNode('b').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      expect(activate).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }));
-
+      expect(navNode('x').querySelector('.nav-branch-count')).not.toBeNull();
+      expect(navNode('b')).toBeNull();
       // without the sibling the excluded node drops out of the bar.
       chatService.setActiveChild('q1', 'b');
       await chatService.deleteNode('chat-1', 'b', { keepChildren: true });
@@ -191,6 +229,39 @@ describe('ChatNavBarComponent', () => {
       fixture.componentRef.setInput('activePath', chatService.getActivePath());
       fixture.detectChanges();
       expect(navNode('x')).toBeNull();
+    });
+
+    it('never represents a referenced old version (previousVersionId chain)', async () => {
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q', isCurrent: true }),
+        node({
+          id: 'a2', parentId: 'q1', role: 'assistant', content: 'Current',
+          version: 2, previousVersionId: 'a1', isCurrent: true,
+        }),
+        node({
+          id: 'a1', parentId: 'q1', role: 'assistant', content: 'Retired',
+          version: 1, isCurrent: false,
+        }),
+      ]);
+      chatService.setActiveChild('q1', 'a2');
+
+      // The page feeds current-only paths — but even a STALE path that still
+      // references the retired version must drop it before entering the bar.
+      createBar([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q', isCurrent: true }),
+        node({
+          id: 'a1', parentId: 'q1', role: 'assistant', content: 'Retired',
+          version: 1, isCurrent: false,
+        }),
+      ]);
+
+      expect(navNode('q1')).not.toBeNull();
+      expect(navNode('a1')).toBeNull();
+      const ids: string[] = [];
+      for (const el of Array.from(fixture.nativeElement.querySelectorAll('.nav-node')) as HTMLElement[]) {
+        ids.push(el.getAttribute('data-nav-id') ?? '');
+      }
+      expect(ids).toEqual(['q1']);
     });
 
     it('shows a documented lore node (first appearance) as a ⟡ pill even though it is excluded', async () => {
@@ -273,6 +344,49 @@ describe('ChatNavBarComponent', () => {
       // hidden, even though it is the armed (current) lore.
       expect(navNode('lore1')).not.toBeNull();
       expect(navNode('lore2')).toBeNull();
+    });
+
+    it('never hides a fork-anchor lore node — its n/m badge is the fork switch', async () => {
+      // Mirrors the live chat (#Becoming Vivi copy): a fork parent `f2c`
+      // with 3 children whose ACTIVE child is a lore node that repeats an
+      // earlier lore text AND is excluded. The lore pill is the fork's switch
+      // anchor, so it must stay visible with its 1/3 badge (not deduped).
+      await seed([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A' }),
+        node({ id: 'lore0', parentId: 'a1', role: 'user', content: buildLoreNodeContent('Canon text.'), excludeFromContext: true }),
+        node({ id: 'd0', parentId: 'lore0', role: 'user', content: 'D0' }),
+        node({ id: 'a2', parentId: 'd0', role: 'assistant', content: 'A2' }),
+        node({ id: 'f2c', parentId: 'a2', role: 'user', content: 'fork parent', position: 1 }),
+        node({ id: 'lore1', parentId: 'f2c', role: 'user', content: buildLoreNodeContent('Canon text.'), excludeFromContext: true, position: 1 }),
+        node({ id: 'continue1', parentId: 'lore1', role: 'user', content: 'continue', excludeFromContext: true, position: 1 }),
+        node({ id: 'chapterA', parentId: 'continue1', role: 'assistant', content: 'Chapter A', position: 1 }),
+        node({ id: 'branchB', parentId: 'f2c', role: 'user', content: 'branch B', position: 2 }),
+        node({ id: 'chapterB', parentId: 'branchB', role: 'assistant', content: 'Chapter B', position: 1 }),
+        node({ id: 'branchC', parentId: 'f2c', role: 'user', content: 'branch C', position: 3 }),
+        node({ id: 'chapterC', parentId: 'branchC', role: 'assistant', content: 'Chapter C', position: 1 }),
+      ]);
+      chatService.setActiveChild('q1', 'a1');
+      chatService.setActiveChild('a1', 'lore0');
+      chatService.setActiveChild('lore0', 'd0');
+      chatService.setActiveChild('d0', 'a2');
+      chatService.setActiveChild('a2', 'f2c');
+      chatService.setActiveChild('f2c', 'lore1');
+      chatService.setActiveChild('lore1', 'continue1');
+      chatService.setActiveChild('continue1', 'chapterA');
+
+      createBar(chatService.getActivePath());
+
+      // The fork anchor `lore1` repeats lore0's text AND is excluded — but it
+      // is the ACTIVE child of a 3-fork, so it MUST stay visible with its
+      // 1/3 badge so the fork is switchable from the bar.
+      expect(navNode('lore1')).not.toBeNull();
+      const badge = navNode('lore1').querySelector('.nav-branch-count') as HTMLElement;
+      expect(badge).not.toBeNull();
+      expect(badge.textContent).toContain('1');
+      expect(badge.textContent).toContain('3');
+      // The excluded connector (continue) stays hidden — it is not a fork.
+      expect(navNode('continue1')).toBeNull();
     });
 
     it('shows a new ⟡ pill when the lore content changes', async () => {
@@ -398,7 +512,21 @@ describe('ChatNavBarComponent', () => {
 
       expect(navNode('x').querySelector('.nav-edit-dot')).not.toBeNull();
       expect(navNode('x').classList.contains('active')).toBe(true);
-      expect(navNode('b')).not.toBeNull(); // all current siblings are shown at the branch point
+      // b is a sibling of x but NOT the active continuation — only x is part
+      // of the chain (alternatives stay in the tree).
+      expect(navNode('b')).toBeNull();
+    });
+
+    it('never lets a frame land on a retired version — it falls to the next current node', () => {
+      // Stale path that still references the retired version a1.
+      createBar([
+        node({ id: 'q1', parentId: null, role: 'user', content: 'Q', isCurrent: true }),
+        node({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Retired', version: 1, isCurrent: false }),
+        node({ id: 'a2', parentId: 'q1', role: 'assistant', content: 'Current', version: 2, previousVersionId: 'a1', isCurrent: true }),
+      ], { visibleNodeIds: ['a1'] });
+
+      expect(navNode('a1')).toBeNull(); // retired version never renders
+      expect(navNode('a2').classList.contains('active')).toBe(true); // frame falls forward
     });
   });
 
@@ -426,6 +554,7 @@ describe('ChatNavBarComponent', () => {
       expect(a1Title).toContain(i18n.t('node.navNodeSummary', {
         index: 2, total: 5, percent: 30, words: 3, totalWords: 10, pages: 1, totalPages: 1,
       }));
+      expect(a1Title).toContain('id: a1');
       expect(a1Title).toContain('one two three');
 
       const a2Title = navNode('a2').getAttribute('title');
@@ -829,7 +958,7 @@ describe('ChatNavBarComponent', () => {
     it('emits switchSibling for the branch rows and toggles the selection locally', async () => {
       await seedBranch();
       const a1 = chatService.nodes().find((n) => n.id === 'a1')!;
-      const switches: { node: ChatNode; dir: -1 | 0 | 1 }[] = [];
+      const switches: { node: ChatNode; dir: -1 | 1 }[] = [];
       component.switchSibling.subscribe((s) => switches.push(s));
 
       component.openNavNodeMenu(navMenuEvent(), a1);

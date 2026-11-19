@@ -61,25 +61,42 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    *  node exactly like the old inline bar did. */
   readonly activePath = input.required<ChatNode[]>();
   /**
-   * Navbar entries for the active path plus every CURRENT sibling at each
-   * active-path branch point. Showing the alternative pills (including
-   * excluded ones) is what makes every branch discoverable and switchable.
-   * Excluded, non-branch nodes on the active path remain hidden, except lore.
+   * Active-path entries as a single CHAIN. Two invariants are enforced here:
+   *
+   *  1. Of siblings only ONE may be represented at one time in the chain —
+   *     the ACTIVE continuation. The page's active path already follows the
+   *     active-child map (one child per parent), so a per-parent guard keeps
+   *     it that way even when a stale or isolated host supplies a path that
+   *     carries two siblings.
+   *  2. Referenced OLD VERSIONS (`previousVersionId` chains / `!isCurrent`)
+   *     must NEVER appear — a supplied `activePath` may still carry a retired
+   *     node, and it is dropped before entering the chain.
+   *
+   * A node that is part of the path and has siblings stays VISIBLE and
+   * SWITCHABLE even when it would normally be hidden (`excludeFromContext`,
+   * see `isNavVisible`): the branch count shows the fork and the branch
+   * switcher (context-menu Prev/Next-branch, `switchSibling`) moves the active
+   * continuation onto a sibling. Switching re-computes the active path, which
+   * then reveals that sibling's own forks — so every root→leaf path of the
+   * chat is reachable by switching.
+   * Lore milestones are always included (see `isNavVisible`); identical lore
+   * repeats are deduplicated in `navPathEntries`.
    */
   readonly visibleNavPath = computed(() => {
     const path = this.activePath();
     const result: ChatNode[] = [];
     const seen = new Set<string>();
+    const takenByParent = new Set<string | null>();
     for (const node of path) {
-      const siblings = this.getChildren(node.parentId ?? null);
-      const candidates = siblings.length > 1
-        ? siblings.filter(sibling => this.isNavVisible(sibling))
-        : this.isNavVisible(node) ? [node] : [];
-      for (const candidate of candidates) {
-        if (seen.has(candidate.id)) continue;
-        seen.add(candidate.id);
-        result.push(candidate);
-      }
+      // Rule 2: a retired version never enters the chain.
+      if (node.deletedAt || !node.isCurrent) continue;
+      if (seen.has(node.id)) continue;
+      // Rule 1: one sibling per parent at a time.
+      if (takenByParent.has(node.parentId ?? null)) continue;
+      if (!this.isNavVisible(node)) continue;
+      seen.add(node.id);
+      takenByParent.add(node.parentId ?? null);
+      result.push(node);
     }
     return result;
   });
@@ -90,12 +107,19 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    * appearance of each distinct lore text is shown, and repeats stay hidden
    * until the lore content changes. The bar therefore reads as the canon's
    * evolution — one ⟡ pill per change — instead of a lore pill per send.
+   *
+   * EXCEPTION — a lore node that is the ACTIVE CHILD of a fork (it has
+   * siblings) is the switch anchor of that fork: without its pill the fork
+   * has no branch-count badge and cannot be switched from the bar. So the
+   * repeat-dedupe never hides a fork participant — its `n/m` badge must stay
+   * visible even when its lore text equals an earlier pill.
    */
   readonly navPathEntries = computed<ChatNode[]>(() => {
     const out: ChatNode[] = [];
     let lastLoreText: string | null = null;
     for (const n of this.visibleNavPath()) {
-      if (isChatLoreNode(n)) {
+      const isForkAnchor = this.isForkAnchor(n);
+      if (isChatLoreNode(n) && !isForkAnchor) {
         const text = loreTextOf(n);
         if (text === lastLoreText) continue;
         lastLoreText = text;
@@ -104,6 +128,13 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     }
     return out;
   });
+
+  /** True when `n` is the ACTIVE continuation of a fork — i.e. its parent has
+   *  more than one CURRENT child. Such a node is the fork's switch anchor and
+   *  must always appear in the bar (see `navPathEntries`). */
+  private isForkAnchor(n: ChatNode): boolean {
+    return this.getChildren(n.parentId ?? null).length > 1;
+  }
 
   /** Nodes whose blocks are currently visible in the tree viewport (page's
    *  `visibleNodeIds`). Each of them carries the "current" frame — a long
@@ -118,7 +149,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
 
   /** Plain click on a nav node → scroll the tree to it. */
   readonly scrollToNode = output<string>();
-  /** Activate a displayed sibling that is not currently on the active path. */
+  /** Activate a branch point that is outside the currently active path. */
   readonly activateSibling = output<ChatNode>();
   /** Copy the selected chain to the node clipboard. */
   readonly copySelection = output<void>();
@@ -140,7 +171,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   /** Start a parallel branch at `node`. */
   readonly startBranch = output<ChatNode>();
   /** Switch the active continuation of `node.parentId` by `dir`. */
-  readonly switchSibling = output<{ node: ChatNode; dir: -1 | 0 | 1 }>();
+  readonly switchSibling = output<{ node: ChatNode; dir: -1 | 1 }>();
   /** Copy a single node (context menu action). */
   readonly copyNode = output<ChatNode>();
   /** Cut a single node (context menu action). */
@@ -204,6 +235,8 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    * Map a target node id to the VISIBLE navbar node that should carry its
    * mark. Hidden nodes (excluded from context AND not part of a branch) are
    * absent from the navbar, so their mark falls to the next visible node.
+   * A referenced old version can never be the mark target either — it is
+   * absent from the bar, so its mark falls to the next visible CURRENT node.
    */
   private navMarkFallback(id: string | null): string | null {
     if (!id) return null;
@@ -211,7 +244,9 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     const i = path.findIndex(n => n.id === id);
     if (i < 0) return null;
     for (let k = i; k < path.length; k++) {
-      if (this.isNavVisible(path[k])) return path[k].id;
+      const n = path[k];
+      if (n.deletedAt || !n.isCurrent) continue;
+      if (this.isNavVisible(n)) return n.id;
     }
     return null;
   }
@@ -312,12 +347,13 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    *  state). The native tooltip renders the newline as a line break. */
   navNodeTitle(node: ChatNode): string {
     const summary = this.navNodeSummaries().get(node.id) ?? '';
+    const nodeId = `id: ${node.id}`;
     const body = isChatLoreNode(node)
       ? (node.excludeFromContext
           ? this.i18n.t('node.loreDocumentedTitle')
           : this.i18n.t('node.loreArmedTitle'))
       : (node.content ?? '');
-    return body ? `${summary}\n${body}` : summary;
+    return [summary, nodeId, body].filter(Boolean).join('\n');
   }
 
   /** The nav nodes that currently carry the "current" frame: the fallback of
@@ -464,7 +500,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     this.startBranch.emit(node);
   }
 
-  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void {
+  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
     this.switchSibling.emit({ node, dir });
   }
 

@@ -459,7 +459,7 @@ export class SideBarComponent implements OnInit {
 
   async compareChatReaderVariants(chat: Chat): Promise<void> {
     const nodes = await this.chatService.fetchNodes(chat.id);
-    const documents = this.readerDocuments(nodes, chat, chat.id);
+      const documents = this.readerDocuments(nodes, chat, chat.id);
     if (documents.length < 2) return;
     void this.textDiff.open({
       title: this.i18n.t('sidebar.compareChatVariantsTitle', { title: chat.title }),
@@ -473,14 +473,15 @@ export class SideBarComponent implements OnInit {
   }
 
   private readerDocuments(nodes: ChatNode[], chat: Chat | undefined, id: string) {
-    // Match the navbar's switchable tree: only current nodes participate,
-    // siblings follow their stored navbar position, and every selectable
-    // terminal path remains an option (including an empty draft sibling).
+    // A selectable variant is one complete root-to-leaf path through the
+    // current navbar tree. Keep current empty draft leaves too: although the
+    // Read view omits them, they are real current siblings and can be selected
+    // in the navbar. Retired versions cannot be selected there, so omit them.
     const currentNodes = nodes.filter(node => !node.deletedAt && node.isCurrent);
     const byParent = new Map<string | null, ChatNode[]>();
-    const byId = new Map(currentNodes.map(node => [node.id, node]));
+    const currentIds = new Set(currentNodes.map(node => node.id));
     for (const node of currentNodes) {
-      const parentId = node.parentId && byId.has(node.parentId) ? node.parentId : null;
+      const parentId = node.parentId && currentIds.has(node.parentId) ? node.parentId : null;
       const siblings = byParent.get(parentId) ?? [];
       siblings.push(node);
       byParent.set(parentId, siblings);
@@ -504,20 +505,23 @@ export class SideBarComponent implements OnInit {
     };
     for (const root of byParent.get(null) ?? []) walk(root, [], new Set());
 
-    const documents = paths.map(path => path.map(node => {
+    const documents = paths.map(path => ({
+      id: path.map(node => node.id).join('>'),
+      text: path.map(node => {
       const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
       const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
       const content = node.content?.trim() ?? '';
       const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
         .map(attachment => `Attachment: ${attachment.name}`);
       return [`<!-- ${meta} -->`, content, ...files].filter(Boolean).join('\n\n');
-    }).filter(Boolean).join('\n\n'));
+      }).filter(Boolean).join('\n\n')
+    }));
     const title = chat?.title ?? id;
-    if (!documents.length) documents.push('');
-    return documents.map((text, index) => ({
-      id: `${id}:reader:${index}`,
+    if (!documents.length) documents.push({ id: `${id}:empty`, text: '' });
+    return documents.map((document, index) => ({
+      id: `${id}:reader:${document.id}`,
       label: `${title} · ${this.i18n.t('sidebar.readerVariant', { current: index + 1, total: documents.length })}`,
-      text
+      text: document.text
     }));
   }
 

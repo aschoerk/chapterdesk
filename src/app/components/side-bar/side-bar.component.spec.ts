@@ -1295,7 +1295,7 @@ describe('SideBarComponent', () => {
         .not.toContain(actionLabel);
     });
 
-    it('lists current switchable siblings, including excluded branch points and empty draft variants', async () => {
+    it('lists current sibling leaf paths, including empty drafts but excluding retired versions', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1', name: 'Env A' }));
         a.chats.push(chat({ id: 'c1', title: 'Story with switchable siblings', projectId: 'p-1' }));
@@ -1321,7 +1321,39 @@ describe('SideBarComponent', () => {
       expect(variantText).toContain('Ordinary direction');
       expect(variantText).toContain('Excluded branch point');
       expect(variantText).toContain('Excluded path answer');
+      expect(state.texts?.some(entry => entry.id.includes('empty-draft'))).toBe(true);
       expect(variantText).not.toContain('Retired version');
+    });
+
+    it('offers every complete leaf path beneath nested sibling branches', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Nested variants', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'root', chatId: 'c1', role: 'assistant', content: 'Root', parentId: null }),
+          makeNode({ id: 'branch-a', chatId: 'c1', role: 'user', content: 'Branch A', parentId: 'root', position: 1 }),
+          makeNode({ id: 'branch-b', chatId: 'c1', role: 'user', content: 'Branch B', parentId: 'root', position: 2 }),
+          makeNode({ id: 'a-answer', chatId: 'c1', role: 'assistant', content: 'A answer', parentId: 'branch-a' }),
+          makeNode({ id: 'b-answer', chatId: 'c1', role: 'assistant', content: 'B answer', parentId: 'branch-b' }),
+          makeNode({ id: 'b-following-a', chatId: 'c1', role: 'user', content: 'B follow-up A', parentId: 'b-answer', position: 1 }),
+          makeNode({ id: 'b-following-b', chatId: 'c1', role: 'user', content: 'B follow-up B', parentId: 'b-answer', position: 2 }),
+          makeNode({ id: 'b-leaf-a', chatId: 'c1', role: 'assistant', content: 'B leaf A', parentId: 'b-following-a' }),
+          makeNode({ id: 'b-leaf-b', chatId: 'c1', role: 'assistant', content: 'B leaf B', parentId: 'b-following-b' })
+        );
+      });
+      const openSpy = vi.spyOn(textDiff, 'open').mockResolvedValue(null);
+
+      await component.compareChatReaderVariants(chatService.chats().find(chat => chat.id === 'c1')!);
+      const variants = openSpy.mock.calls[0][0].texts ?? [];
+      const variantText = variants.map(option => option.text).join('\n');
+
+      expect(variantText).toContain('A answer');
+      expect(variantText).toContain('B answer');
+      expect(variantText).toContain('B follow-up A');
+      expect(variantText).toContain('B leaf A');
+      expect(variantText).toContain('B follow-up B');
+      expect(variantText).toContain('B leaf B');
+      expect(variants).toHaveLength(3);
     });
 
     it('removes excluded sections through the chat context menu and preserves following content', async () => {
@@ -1501,11 +1533,11 @@ describe('SideBarComponent', () => {
       expect(state.modifiedLabel).toBe('Story 2');
       expect(state.texts).toHaveLength(2);
       expect(state.modifiedTexts).toHaveLength(2);
-      expect(state.texts?.[0].text).toContain('# Chapter\n\nHello reader.');
-      expect(state.texts?.[1].text).toContain('# Alternate\n\nAlternate reader.');
-      expect(state.texts?.[0].text).not.toContain('<h1>');
-      expect(state.modifiedTexts?.[0].text).toContain('Different reader text.');
-      expect(state.modifiedTexts?.[1].text).toContain('Different alternate reader.');
+      expect(state.texts?.some(entry => entry.text.includes('# Chapter\n\nHello reader.'))).toBe(true);
+      expect(state.texts?.some(entry => entry.text.includes('# Alternate\n\nAlternate reader.'))).toBe(true);
+      expect(state.texts?.every(entry => !entry.text.includes('<h1>'))).toBe(true);
+      expect(state.modifiedTexts?.some(entry => entry.text.includes('Different reader text.'))).toBe(true);
+      expect(state.modifiedTexts?.some(entry => entry.text.includes('Different alternate reader.'))).toBe(true);
       expect(state.newText).toBe(state.modifiedTexts?.[0].text);
     });
 

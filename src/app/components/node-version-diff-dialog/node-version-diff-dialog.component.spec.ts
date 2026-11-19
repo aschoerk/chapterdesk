@@ -213,6 +213,8 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
     expect(component.selectedEntry()?.id).toBe('t2');
     expect(component.originalModel().code).toBe('older text');
     expect(component.options().readOnly).toBe(true);
+    expect(component.options().wordWrap).toBe('on');
+    expect(component.options().minimap).toMatchObject({ enabled: true, side: 'right' });
     expect(fixture.nativeElement.querySelector('.nvd-pane-labels')?.textContent).toContain(
       'Version 1',
     );

@@ -145,9 +145,9 @@ export class NodeVersionDiffDialogComponent {
     readOnly: this.readOnly(), // modified (right) side is editable only in node mode
     originalEditable: false, // old (left) side stays read-only
     automaticLayout: true, // tracks the resizable dialog
-    wordWrap: 'off',
+    wordWrap: 'on',
     scrollBeyondLastLine: false,
-    minimap: { enabled: false },
+    minimap: { enabled: true, side: 'right', showSlider: 'always' },
     lineNumbers: 'on',
     folding: false,
     renderOverviewRuler: false,

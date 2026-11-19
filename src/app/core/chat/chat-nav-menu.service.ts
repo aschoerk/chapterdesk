@@ -188,9 +188,17 @@ export class ChatNavMenuService implements ChatNavMenuActions {
   // ------------------------------------------------------------------
 
   /** Open the node menu at the pointer position. The browser native menu is
-   *  suppressed for nav nodes; the terminal empty direction gets no menu. */
+   *  suppressed for nav nodes; the terminal empty direction (the composer)
+   *  gets no menu — UNLESS it is a fork participant (its parent has other
+   *  CURRENT children): then it is that fork's switch anchor and must stay
+   *  switchable from the bar. */
   openNavNodeMenu(event: MouseEvent, node: ChatNode): void {
-    if (this.isLastEmptyDirection(node.id)) return;
+    if (
+      this.isLastEmptyDirection(node.id) &&
+      this.chatService.getChildren(node.parentId).length <= 1
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     this.closeNavPasteMenu();
@@ -229,6 +237,10 @@ export class ChatNavMenuService implements ChatNavMenuActions {
     const node = this.chatService.getActivePath().find(n => n.id === menu.nodeId);
     if (!node) return [];
     const busy = this.chatService.isGenerating(node.id);
+    // A terminal empty draft is the composer input — it only ever gets the
+    // fork-switch (and start-branch) rows, never selection / clipboard /
+    // paste: it must stay the terminal input target.
+    const isDraft = this.isLastEmptyDirection(node.id);
 
     const groups: NavMenuEntry[][] = [];
 
@@ -261,55 +273,57 @@ export class ChatNavMenuService implements ChatNavMenuActions {
       ]);
     }
 
-    const isSelected = host.navSelectedIds().includes(node.id);
-    const selectionGroup: NavMenuEntry[] = [{
-      label: this.i18n.t(isSelected ? 'node.navUnselect' : 'node.navSelect'),
-      action: () => host.toggleNavSelection(node.id),
-    }];
-    if (host.navHasSelection()) {
-      selectionGroup.push({
-        label: this.i18n.t('node.clearSelection'),
-        action: () => host.clearNavSelection(),
-      });
-    }
-    groups.push(selectionGroup);
+    if (!isDraft) {
+      const isSelected = host.navSelectedIds().includes(node.id);
+      const selectionGroup: NavMenuEntry[] = [{
+        label: this.i18n.t(isSelected ? 'node.navUnselect' : 'node.navSelect'),
+        action: () => host.toggleNavSelection(node.id),
+      }];
+      if (host.navHasSelection()) {
+        selectionGroup.push({
+          label: this.i18n.t('node.clearSelection'),
+          action: () => host.clearNavSelection(),
+        });
+      }
+      groups.push(selectionGroup);
 
-    groups.push([
-      {
-        label: this.i18n.t('node.copySelected'),
-        hint: this.i18n.t('node.copySelectedTitle'),
-        action: () => host.copyNavNodes(node),
-      },
-      {
-        label: this.i18n.t('node.cutSelected'),
-        hint: this.i18n.t('node.cutSelectedTitle'),
-        action: () => host.cutNavNodes(node),
-      },
-      {
-        label: this.i18n.t('node.deleteSelected'),
-        hint: this.i18n.t('node.deleteSelectedTitle'),
-        action: () => host.deleteNavNodes(node),
-        danger: true,
-      },
-    ]);
-
-    if (this.clipboard.hasContent()) {
-      const before = this.pasteBeforeTargets(node);
-      const after = this.pasteTargets(node.id);
       groups.push([
         {
-          label: this.i18n.t('node.navPasteBefore'),
-          hint: before ? this.i18n.t('node.pasteInsertTitle') : this.i18n.t('node.navPasteBeforeDisabled'),
-          action: () => host.pasteNavSelectionBefore(node),
-          disabled: !before,
+          label: this.i18n.t('node.copySelected'),
+          hint: this.i18n.t('node.copySelectedTitle'),
+          action: () => host.copyNavNodes(node),
         },
         {
-          label: this.i18n.t('node.navPasteAfter'),
-          hint: after ? this.i18n.t('node.pasteAfterTitle') : this.i18n.t('node.navPasteAfterDisabled'),
-          action: () => host.pasteNavSelectionAfter(node.id),
-          disabled: !after,
+          label: this.i18n.t('node.cutSelected'),
+          hint: this.i18n.t('node.cutSelectedTitle'),
+          action: () => host.cutNavNodes(node),
+        },
+        {
+          label: this.i18n.t('node.deleteSelected'),
+          hint: this.i18n.t('node.deleteSelectedTitle'),
+          action: () => host.deleteNavNodes(node),
+          danger: true,
         },
       ]);
+
+      if (this.clipboard.hasContent()) {
+        const before = this.pasteBeforeTargets(node);
+        const after = this.pasteTargets(node.id);
+        groups.push([
+          {
+            label: this.i18n.t('node.navPasteBefore'),
+            hint: before ? this.i18n.t('node.pasteInsertTitle') : this.i18n.t('node.navPasteBeforeDisabled'),
+            action: () => host.pasteNavSelectionBefore(node),
+            disabled: !before,
+          },
+          {
+            label: this.i18n.t('node.navPasteAfter'),
+            hint: after ? this.i18n.t('node.pasteAfterTitle') : this.i18n.t('node.navPasteAfterDisabled'),
+            action: () => host.pasteNavSelectionAfter(node.id),
+            disabled: !after,
+          },
+        ]);
+      }
     }
 
     const out: NavMenuEntry[] = [];
