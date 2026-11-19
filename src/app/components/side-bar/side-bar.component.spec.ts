@@ -1395,8 +1395,9 @@ describe('SideBarComponent', () => {
       expect(state.modifiedLabel).toBe('Story 2');
       expect(state.texts).toHaveLength(2);
       expect(state.modifiedTexts).toHaveLength(2);
-      expect(state.texts?.[0].text).toContain('<h1>Chapter</h1>');
-      expect(state.texts?.[1].text).toContain('<h1>Alternate</h1>');
+      expect(state.texts?.[0].text).toContain('# Chapter\n\nHello reader.');
+      expect(state.texts?.[1].text).toContain('# Alternate\n\nAlternate reader.');
+      expect(state.texts?.[0].text).not.toContain('<h1>');
       expect(state.modifiedTexts?.[0].text).toContain('Different reader text.');
       expect(state.modifiedTexts?.[1].text).toContain('Different alternate reader.');
       expect(state.newText).toBe(state.modifiedTexts?.[0].text);

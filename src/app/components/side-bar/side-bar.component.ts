@@ -21,7 +21,6 @@ import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-di
 import { enumerateStoryDocuments } from '../../core/chat/story-paths';
 import { resolveCurrentTopic } from '../../core/llm/llm-context';
 import { isPromptRecordAttachment } from '../../core/llm/llm-message';
-import { MarkdownService } from '../../core/chat/markdown.service';
 import type { ParsedUsage } from '../../core/llm/usage';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
@@ -82,7 +81,6 @@ export class SideBarComponent implements OnInit {
   private readonly usage = inject(ChatUsageService);
   private readonly storyClipboard = inject(StoryClipboardService);
   private readonly textDiff = inject(NodeVersionDiffDialogService);
-  private readonly markdown = inject(MarkdownService);
 
   /** Reactive alias so the template can use `clipboard.hasContent()` etc. */
   readonly clipboard = this.storyClipboard;
@@ -412,8 +410,8 @@ export class SideBarComponent implements OnInit {
         const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
         const content = node.content?.trim() ?? '';
         const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
-          .map(attachment => `<div class="book-file">${this.escapeHtml(attachment.name)}</div>`).join('');
-        return `<section class="book-node book-${node.role}"><header class="book-kicker">${this.escapeHtml(meta)}</header><div class="book-body">${this.markdown.toHtml(content)}</div>${files}</section>`;
+          .map(attachment => `Attachment: ${attachment.name}`);
+        return [`<!-- ${meta} -->`, content, ...files].filter(Boolean).join('\n\n');
       }).filter(Boolean).join('\n\n'))
       .filter(Boolean);
       const title = chat?.title ?? id;
