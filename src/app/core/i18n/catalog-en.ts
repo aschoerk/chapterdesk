@@ -376,6 +376,7 @@ export const EN = {
     readerSourceDocument: 'Source document',
     readerDestinationDocument: 'Destination document',
     readerDocument: 'document {{current}} of {{total}}',
+    readerVariant: 'variant {{current}} of {{total}}',
   },
   node: {
     dir: 'Dir',

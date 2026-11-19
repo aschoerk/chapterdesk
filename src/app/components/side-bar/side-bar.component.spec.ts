@@ -1295,6 +1295,35 @@ describe('SideBarComponent', () => {
         .not.toContain(actionLabel);
     });
 
+    it('lists current switchable siblings, including excluded branch points and empty draft variants', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story with switchable siblings', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'root', chatId: 'c1', role: 'assistant', content: 'Root answer', parentId: null }),
+          makeNode({ id: 'ordinary', chatId: 'c1', role: 'user', content: 'Ordinary direction', parentId: 'root', position: 1 }),
+          makeNode({ id: 'ordinary-answer', chatId: 'c1', role: 'assistant', content: 'Ordinary answer', parentId: 'ordinary' }),
+          makeNode({ id: 'excluded', chatId: 'c1', role: 'user', content: 'Excluded branch point', parentId: 'root', position: 2,
+            excludeFromContext: true }),
+          makeNode({ id: 'excluded-answer', chatId: 'c1', role: 'assistant', content: 'Excluded path answer', parentId: 'excluded' }),
+          makeNode({ id: 'empty-draft', chatId: 'c1', role: 'user', content: '', parentId: 'root', position: 3 }),
+          makeNode({ id: 'retired', chatId: 'c1', role: 'user', content: 'Retired version', parentId: 'root',
+            version: 1, isCurrent: false, position: 4 })
+        );
+      });
+      const openSpy = vi.spyOn(textDiff, 'open').mockResolvedValue(null);
+
+      await component.compareChatReaderVariants(chatService.chats().find(chat => chat.id === 'c1')!);
+
+      const state = openSpy.mock.calls[0][0];
+      expect(state.texts).toHaveLength(3);
+      const variantText = state.texts?.map(entry => entry.text).join('\n') ?? '';
+      expect(variantText).toContain('Ordinary direction');
+      expect(variantText).toContain('Excluded branch point');
+      expect(variantText).toContain('Excluded path answer');
+      expect(variantText).not.toContain('Retired version');
+    });
+
     it('removes excluded sections through the chat context menu and preserves following content', async () => {
       await setup(a => {
         a.projects.push(project({ id: 'p-1', name: 'Env A' }));
@@ -1449,12 +1478,12 @@ describe('SideBarComponent', () => {
         a.chats.push(chat({ id: 'c2', title: 'Story 2', projectId: 'p-1' }));
         a.nodes.push(
           makeNode({ id: 'a-system', chatId: 'c1', role: 'system', content: 'Rules', parentId: null }),
-          makeNode({ id: 'a-user', chatId: 'c1', role: 'user', content: 'Direction', parentId: 'a-system' }),
+          makeNode({ id: 'a-user', chatId: 'c1', role: 'user', content: 'Direction', parentId: 'a-system', position: 1 }),
           makeNode({ id: 'a-answer', chatId: 'c1', role: 'assistant', content: '# Chapter\n\nHello reader.', parentId: 'a-user' }),
           makeNode({ id: 'a-fork', chatId: 'c1', role: 'user', content: 'Alternate direction', parentId: 'a-system', position: 2 }),
           makeNode({ id: 'a-fork-answer', chatId: 'c1', role: 'assistant', content: '# Alternate\n\nAlternate reader.', parentId: 'a-fork' }),
           makeNode({ id: 'b-system', chatId: 'c2', role: 'system', content: 'Rules', parentId: null }),
-          makeNode({ id: 'b-user', chatId: 'c2', role: 'user', content: 'Direction', parentId: 'b-system' }),
+          makeNode({ id: 'b-user', chatId: 'c2', role: 'user', content: 'Direction', parentId: 'b-system', position: 1 }),
           makeNode({ id: 'b-answer', chatId: 'c2', role: 'assistant', content: '# Chapter\n\nDifferent reader text.', parentId: 'b-user' }),
           makeNode({ id: 'b-fork', chatId: 'c2', role: 'user', content: 'Alternate direction', parentId: 'b-system', position: 2 }),
           makeNode({ id: 'b-fork-answer', chatId: 'c2', role: 'assistant', content: '# Alternate\n\nDifferent alternate reader.', parentId: 'b-fork' })

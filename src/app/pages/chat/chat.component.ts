@@ -342,7 +342,7 @@ export class ChatComponent implements
 
   /** Switch the active continuation at `node.parentId` to the previous/next
    *  sibling — the navbar equivalent of the node's branch switcher. */
-  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
+  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void {
     this.navActions.switchNavSibling(node, dir);
   }
 

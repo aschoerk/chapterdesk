@@ -628,6 +628,7 @@
             [visibleNodeIds]="visibleNodeIds()"
             [editingNodeId]="editingNodeId()"
             (scrollToNode)="scrollToNode($event)"
+            (activateSibling)="switchNavSibling($event, 0)"
             (copySelection)="copyNavSelection()"
             (cutSelection)="cutNavSelection()"
             (extractSelection)="extractNavSelection($event)"

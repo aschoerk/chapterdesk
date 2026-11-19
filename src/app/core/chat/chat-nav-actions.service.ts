@@ -50,7 +50,7 @@ export interface ChatNavActions {
   pasteChainInto(mode: 'insert' | 'append', leftId: string, rightId: string | null): Promise<void>;
   appendNavSelectionAfter(nodeId: string): Promise<void>;
   canPasteAfter(node: ChatNode): boolean;
-  switchNavSibling(node: ChatNode, dir: -1 | 1): void;
+  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void;
   startBranchAt(node: ChatNode): Promise<void>;
   copyNavNodes(node: ChatNode): void;
   cutNavNodes(node: ChatNode): Promise<void>;
@@ -268,9 +268,15 @@ export class ChatNavActionsService implements ChatNavActions {
 
   /** Switch the active continuation at `node.parentId` to the previous/next
    *  sibling — the navbar equivalent of the node's branch switcher. */
-  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
+  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void {
     const siblings = this.chatService.getChildren(node.parentId);
     if (siblings.length < 2) return;
+    if (dir === 0) {
+      if (siblings.some(sibling => sibling.id === node.id)) {
+        this.chatService.setActiveChild(node.parentId, node.id);
+      }
+      return;
+    }
     const anchorId = this.chatService.getActiveChildId(node.parentId) ?? node.id;
     const idx = siblings.findIndex(s => s.id === anchorId);
     const target = siblings[(idx + dir + siblings.length) % siblings.length];

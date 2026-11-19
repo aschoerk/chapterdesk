@@ -18,7 +18,6 @@ import { SortPreferencesService, SortMode } from '../../core/settings/sort-prefe
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { StoryClipboardService } from '../../core/clipboard/story-clipboard.service';
 import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
-import { enumerateStoryDocuments } from '../../core/chat/story-paths';
 import { resolveCurrentTopic } from '../../core/llm/llm-context';
 import { isPromptRecordAttachment } from '../../core/llm/llm-message';
 import type { ParsedUsage } from '../../core/llm/usage';
@@ -474,20 +473,50 @@ export class SideBarComponent implements OnInit {
   }
 
   private readerDocuments(nodes: ChatNode[], chat: Chat | undefined, id: string) {
-    const documents = enumerateStoryDocuments(nodes).map(path => path.map(node => {
+    // Match the navbar's switchable tree: only current nodes participate,
+    // siblings follow their stored navbar position, and every selectable
+    // terminal path remains an option (including an empty draft sibling).
+    const currentNodes = nodes.filter(node => !node.deletedAt && node.isCurrent);
+    const byParent = new Map<string | null, ChatNode[]>();
+    const byId = new Map(currentNodes.map(node => [node.id, node]));
+    for (const node of currentNodes) {
+      const parentId = node.parentId && byId.has(node.parentId) ? node.parentId : null;
+      const siblings = byParent.get(parentId) ?? [];
+      siblings.push(node);
+      byParent.set(parentId, siblings);
+    }
+    for (const siblings of byParent.values()) {
+      siblings.sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER));
+    }
+
+    const paths: ChatNode[][] = [];
+    const walk = (node: ChatNode, path: ChatNode[], ancestors: Set<string>) => {
+      if (ancestors.has(node.id)) return;
+      const nextPath = [...path, node];
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(node.id);
+      const children = byParent.get(node.id) ?? [];
+      if (!children.length) {
+        paths.push(nextPath);
+        return;
+      }
+      for (const child of children) walk(child, nextPath, nextAncestors);
+    };
+    for (const root of byParent.get(null) ?? []) walk(root, [], new Set());
+
+    const documents = paths.map(path => path.map(node => {
       const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
       const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
       const content = node.content?.trim() ?? '';
       const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
         .map(attachment => `Attachment: ${attachment.name}`);
       return [`<!-- ${meta} -->`, content, ...files].filter(Boolean).join('\n\n');
-    }).filter(Boolean).join('\n\n'))
-      .filter(Boolean);
+    }).filter(Boolean).join('\n\n'));
     const title = chat?.title ?? id;
     if (!documents.length) documents.push('');
     return documents.map((text, index) => ({
       id: `${id}:reader:${index}`,
-      label: `${title} · ${this.i18n.t('sidebar.readerDocument', { current: index + 1, total: documents.length })}`,
+      label: `${title} · ${this.i18n.t('sidebar.readerVariant', { current: index + 1, total: documents.length })}`,
       text
     }));
   }

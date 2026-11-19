@@ -28,7 +28,7 @@ export interface ChatNavMenuHost {
   toggleNavSelection(id: string): void;
   clearNavSelection(): void;
   startBranchAt(node: ChatNode): void | Promise<void>;
-  switchNavSibling(node: ChatNode, dir: -1 | 1): void;
+  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void;
   copyNavNodes(node: ChatNode): void | Promise<void>;
   cutNavNodes(node: ChatNode): void | Promise<void>;
   deleteNavNodes(node: ChatNode): void | Promise<void>;

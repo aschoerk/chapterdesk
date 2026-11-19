@@ -60,10 +60,29 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
    *  edited" point, the "current" frame) can fall back to the next visible
    *  node exactly like the old inline bar did. */
   readonly activePath = input.required<ChatNode[]>();
-  /** The path as RENDERED: nodes excluded from the model context are hidden
-   *  UNLESS they sit in a branch (have siblings) — same filter as the page's
-   *  `navPath()`. */
-  readonly visibleNavPath = computed(() => this.activePath().filter(n => this.isNavVisible(n)));
+  /**
+   * Navbar entries for the active path plus every CURRENT sibling at each
+   * active-path branch point. Showing the alternative pills (including
+   * excluded ones) is what makes every branch discoverable and switchable.
+   * Excluded, non-branch nodes on the active path remain hidden, except lore.
+   */
+  readonly visibleNavPath = computed(() => {
+    const path = this.activePath();
+    const result: ChatNode[] = [];
+    const seen = new Set<string>();
+    for (const node of path) {
+      const siblings = this.getChildren(node.parentId ?? null);
+      const candidates = siblings.length > 1
+        ? siblings.filter(sibling => this.isNavVisible(sibling))
+        : this.isNavVisible(node) ? [node] : [];
+      for (const candidate of candidates) {
+        if (seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        result.push(candidate);
+      }
+    }
+    return result;
+  });
 
   /**
    * The nav-bar's render list. Lore milestones are always visible (see
@@ -99,6 +118,8 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
 
   /** Plain click on a nav node → scroll the tree to it. */
   readonly scrollToNode = output<string>();
+  /** Activate a displayed sibling that is not currently on the active path. */
+  readonly activateSibling = output<ChatNode>();
   /** Copy the selected chain to the node clipboard. */
   readonly copySelection = output<void>();
   /** Cut the selected chain (page confirms + mutates). */
@@ -119,7 +140,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   /** Start a parallel branch at `node`. */
   readonly startBranch = output<ChatNode>();
   /** Switch the active continuation of `node.parentId` by `dir`. */
-  readonly switchSibling = output<{ node: ChatNode; dir: -1 | 1 }>();
+  readonly switchSibling = output<{ node: ChatNode; dir: -1 | 0 | 1 }>();
   /** Copy a single node (context menu action). */
   readonly copyNode = output<ChatNode>();
   /** Cut a single node (context menu action). */
@@ -330,6 +351,10 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   /** Plain click → scroll to the node; Ctrl+click is handled by pointer down/up. */
   onNavNodeClick(event: MouseEvent, node: ChatNode): void {
     if (event.ctrlKey || event.metaKey) return;
+    if (!this.activePath().some(active => active.id === node.id)) {
+      this.activateSibling.emit(node);
+      return;
+    }
     // Clicking a nav node is a deliberate navigation — re-anchor the
     // auto-scroll so the bar follows the clicked node.
     this.navBarUserScrolled = false;
@@ -338,6 +363,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
 
   onNavPointerDown(event: PointerEvent, node: ChatNode): void {
     if (!(event.ctrlKey || event.metaKey)) return;
+    if (!this.activePath().some(active => active.id === node.id)) return;
     if (this.isLastEmptyDirection(node.id)) return;
     event.preventDefault();
     this.navSelection.beginDrag();
@@ -346,6 +372,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
 
   /** Fires on pointer-entering a nav node — extends a ctrl+drag and tracks hover. */
   onNavPointerEnter(node: ChatNode): void {
+    if (!this.activePath().some(active => active.id === node.id)) return;
     this.navSelection.enterNode(
       node,
       this.navNodeIndex(node.id),
@@ -367,6 +394,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
   }
 
   toggleNavSelection(id: string): void {
+    if (!this.activePath().some(node => node.id === id)) return;
     this.navSelection.toggle(id, this.activePath(), (x) => this.isLastEmptyDirection(x));
   }
 
@@ -436,7 +464,7 @@ export class ChatNavBarComponent implements ChatNavMenuHost, ChatNavMenuActions,
     this.startBranch.emit(node);
   }
 
-  switchNavSibling(node: ChatNode, dir: -1 | 1): void {
+  switchNavSibling(node: ChatNode, dir: -1 | 0 | 1): void {
     this.switchSibling.emit({ node, dir });
   }
 

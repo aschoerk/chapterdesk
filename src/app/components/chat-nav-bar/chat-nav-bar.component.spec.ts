@@ -165,7 +165,7 @@ describe('ChatNavBarComponent', () => {
       expect(count.textContent).toContain('2');
     });
 
-    it('hides excluded nodes without siblings but keeps excluded branch points', async () => {
+    it('shows every current sibling at a branch point, including excluded siblings', async () => {
       await seed([
         node({ id: 'q1', parentId: null, role: 'user', content: 'Q' }),
         node({ id: 'x', parentId: 'q1', role: 'user', content: 'hidden', excludeFromContext: true }),
@@ -175,9 +175,14 @@ describe('ChatNavBarComponent', () => {
       chatService.setActiveChild('q1', 'x');
       chatService.setActiveChild('x', 'a1');
 
-      // x is excluded but has a sibling (b) → stays visible as a branch point.
+      // Both branches are displayed so either can be discovered and selected.
       createBar(chatService.getActivePath());
       expect(navNode('x')).not.toBeNull();
+      expect(navNode('b')).not.toBeNull();
+      const activate = vi.fn();
+      component.activateSibling.subscribe(activate);
+      navNode('b').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(activate).toHaveBeenCalledWith(expect.objectContaining({ id: 'b' }));
 
       // without the sibling the excluded node drops out of the bar.
       chatService.setActiveChild('q1', 'b');
@@ -393,7 +398,7 @@ describe('ChatNavBarComponent', () => {
 
       expect(navNode('x').querySelector('.nav-edit-dot')).not.toBeNull();
       expect(navNode('x').classList.contains('active')).toBe(true);
-      expect(navNode('b')).toBeNull(); // the non-active sibling is not a nav node
+      expect(navNode('b')).not.toBeNull(); // all current siblings are shown at the branch point
     });
   });
 
@@ -824,7 +829,7 @@ describe('ChatNavBarComponent', () => {
     it('emits switchSibling for the branch rows and toggles the selection locally', async () => {
       await seedBranch();
       const a1 = chatService.nodes().find((n) => n.id === 'a1')!;
-      const switches: { node: ChatNode; dir: -1 | 1 }[] = [];
+      const switches: { node: ChatNode; dir: -1 | 0 | 1 }[] = [];
       component.switchSibling.subscribe((s) => switches.push(s));
 
       component.openNavNodeMenu(navMenuEvent(), a1);

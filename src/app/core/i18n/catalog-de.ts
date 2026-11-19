@@ -381,6 +381,7 @@ export const DE: typeof EN = {
     readerSourceDocument: 'Quelldokument',
     readerDestinationDocument: 'Zieldokument',
     readerDocument: 'Dokument {{current}} von {{total}}',
+    readerVariant: 'Variante {{current}} von {{total}}',
   },
   node: {
     dir: 'An',
