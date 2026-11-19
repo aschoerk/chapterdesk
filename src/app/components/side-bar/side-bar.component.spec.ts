@@ -1264,6 +1264,62 @@ describe('SideBarComponent', () => {
       expect(contextMenu()).toBeNull();
     });
 
+    it('offers a chat’s own reader-variant comparison only when no chats are selected', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Forked story', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'root', chatId: 'c1', role: 'user', content: 'Start', position: 1 }),
+          makeNode({ id: 'branch-a', chatId: 'c1', parentId: 'root', role: 'assistant', content: 'Reader A', position: 1 }),
+          makeNode({ id: 'branch-b', chatId: 'c1', parentId: 'root', role: 'assistant', content: 'Reader B', position: 2 })
+        );
+      });
+      expandProject('Env A');
+      rightClick(chatItem('Env A', 'Forked story')!);
+      const actionLabel = i18n.t('sidebar.compareChatVariants');
+      expect(Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim()))
+        .toContain(actionLabel);
+
+      const openSpy = vi.spyOn(textDiff, 'open').mockResolvedValue(null);
+      clickContextItem(actionLabel);
+      await settleDeep();
+      expect(openSpy).toHaveBeenCalledOnce();
+      expect(openSpy.mock.calls[0][0].texts).toHaveLength(2);
+      expect(openSpy.mock.calls[0][0].modifiedTexts).toHaveLength(2);
+      expect(openSpy.mock.calls[0][0].texts?.[0].text).toContain('Reader A');
+      expect(openSpy.mock.calls[0][0].texts?.[1].text).toContain('Reader B');
+
+      ctrlClickStory('Env A', 'Forked story');
+      rightClick(chatItem('Env A', 'Forked story')!);
+      expect(Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim()))
+        .not.toContain(actionLabel);
+    });
+
+    it('removes excluded sections through the chat context menu and preserves following content', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1', node_number: 3 }));
+        a.nodes.push(
+          makeNode({ id: 'root', chatId: 'c1', role: 'assistant', content: 'Opening', parentId: null }),
+          makeNode({ id: 'excluded', chatId: 'c1', role: 'user', content: 'Hidden directive', parentId: 'root', excludeFromContext: true }),
+          makeNode({ id: 'answer', chatId: 'c1', role: 'assistant', content: 'Keep this answer', parentId: 'excluded' })
+        );
+      });
+      expandProject('Env A');
+      rightClick(chatItem('Env A', 'Story 1')!);
+
+      const label = i18n.t('sidebar.removeExcludedNodes');
+      expect(Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim()))
+        .toContain(label);
+      clickContextItem(label);
+      await settleDeep();
+
+      const nodes = await chatService.fetchNodes('c1');
+      expect(nodes.some(node => node.id === 'excluded')).toBe(false);
+      expect(nodes.find(node => node.id === 'answer')?.parentId).toBe('root');
+      expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(2);
+    });
+
     it('adds selected-chat clipboard actions to the sidebar context menu and compare only for two selections', async () => {
       await seedTwoEnvs();
       ctrlClickStory('Env A', 'Story 1');

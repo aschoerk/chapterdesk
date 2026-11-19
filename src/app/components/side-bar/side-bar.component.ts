@@ -42,7 +42,8 @@ type SidebarContextTarget =
 type SidebarContextAction =
   | 'project-edit' | 'project-create' | 'project-delete' | 'project-paste'
   | 'chat-rename' | 'chat-unassign' | 'chat-reassign' | 'chat-clone' | 'chat-delete' | 'chat-cost'
-  | 'chat-prepend-system' | 'chat-fix-count' | 'chat-attach-orphans'
+  | 'chat-prepend-system' | 'chat-fix-count' | 'chat-attach-orphans' | 'chat-remove-excluded'
+  | 'chat-reader-variants'
   | 'selection-copy' | 'selection-cut' | 'selection-delete' | 'selection-clear'
   | 'clipboard-cancel' | 'selection-compare' | 'selection-reader-compare';
 
@@ -226,6 +227,10 @@ export class SideBarComponent implements OnInit {
           : []),
         { action: 'chat-fix-count', label: this.i18n.t('sidebar.repairNodeNumber') },
         { action: 'chat-attach-orphans', label: this.i18n.t('sidebar.attachRootNodesToSystem') },
+        { action: 'chat-remove-excluded', label: this.i18n.t('sidebar.removeExcludedNodes'), danger: true },
+        ...(this.selectedChatIds().length === 0
+          ? [{ action: 'chat-reader-variants' as const, label: this.i18n.t('sidebar.compareChatVariants') }]
+          : []),
         { action: 'chat-delete', label: this.i18n.t('common.delete'), danger: true, separatorBefore: true }
       );
     }
@@ -274,6 +279,8 @@ export class SideBarComponent implements OnInit {
       case 'chat-prepend-system': if (target.kind === 'chat') await this.prependProjectSystemPrompt(target.chat); break;
       case 'chat-fix-count': if (target.kind === 'chat') await this.repairChatNodeNumber(target.chat); break;
       case 'chat-attach-orphans': if (target.kind === 'chat') await this.attachOrphanRootsToSystemPrompt(target.chat); break;
+      case 'chat-remove-excluded': if (target.kind === 'chat') await this.removeExcludedNodes(target.chat); break;
+      case 'chat-reader-variants': if (target.kind === 'chat') await this.compareChatReaderVariants(target.chat); break;
       case 'selection-copy': this.copySelectedStories(); break;
       case 'selection-cut': this.cutSelectedStories(); break;
       case 'selection-delete': await this.deleteSelectedStories(); break;
@@ -364,6 +371,42 @@ export class SideBarComponent implements OnInit {
     await this.chatService.repairChatNodeCount(chat.id, count);
   }
 
+  async removeExcludedNodes(chat: Chat): Promise<void> {
+    const nodes = await this.chatService.fetchNodes(chat.id);
+    const excludedIds = new Set(nodes
+      .filter(node => !node.deletedAt && node.isCurrent && node.excludeFromContext)
+      .map(node => node.id));
+    if (!excludedIds.size) return;
+
+    // Delete top-down and promote descendants so removing an excluded section
+    // never silently removes ordinary story text beneath it.
+    const depth = (node: ChatNode): number => {
+      let result = 0;
+      let parentId = node.parentId;
+      const seen = new Set<string>();
+      while (parentId && !seen.has(parentId)) {
+        seen.add(parentId);
+        result++;
+        parentId = nodes.find(parent => parent.id === parentId)?.parentId ?? null;
+      }
+      return result;
+    };
+    const excluded = nodes
+      .filter(node => excludedIds.has(node.id))
+      .sort((a, b) => depth(a) - depth(b));
+    for (const node of excluded) {
+      await this.api.deleteNode(chat.id, node.id, { keepChildren: true });
+    }
+
+    const remaining = await this.chatService.fetchNodes(chat.id);
+    await this.chatService.repairChatNodeCount(chat.id, remaining.length);
+    if (this.currentChatId() === chat.id) {
+      await this.chatService.loadNodes(chat.id);
+      this.chatService.restoreMostRecentPath();
+      await this.chatService.ensureDraftAtLeaf(chat.id);
+    }
+  }
+
   async attachOrphanRootsToSystemPrompt(chat: Chat): Promise<void> {
     const nodes = await this.chatService.fetchNodes(chat.id);
     const project = chat.projectId ? this.projectService.getProject(chat.projectId) : undefined;
@@ -402,26 +445,8 @@ export class SideBarComponent implements OnInit {
     const [leftNodes, rightNodes] = await Promise.all(ids.map(id => this.chatService.fetchNodes(id)));
     const leftChat = this.chatService.chats().find(chat => chat.id === ids[0]);
     const rightChat = this.chatService.chats().find(chat => chat.id === ids[1]);
-    const readerDocuments = (nodes: ChatNode[], chat: Chat | undefined, id: string) => {
-      const documents = enumerateStoryDocuments(nodes).map(path => path.map(node => {
-        const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
-        const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
-        const content = node.content?.trim() ?? '';
-        const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
-          .map(attachment => `Attachment: ${attachment.name}`);
-        return [`<!-- ${meta} -->`, content, ...files].filter(Boolean).join('\n\n');
-      }).filter(Boolean).join('\n\n'))
-      .filter(Boolean);
-      const title = chat?.title ?? id;
-      if (!documents.length) documents.push('');
-      return documents.map((text, index) => ({
-        id: `${id}:reader:${index}`,
-        label: `${title} · ${this.i18n.t('sidebar.readerDocument', { current: index + 1, total: documents.length })}`,
-        text
-      }));
-    };
-    const leftDocuments = readerDocuments(leftNodes, leftChat, ids[0]);
-    const rightDocuments = readerDocuments(rightNodes, rightChat, ids[1]);
+    const leftDocuments = this.readerDocuments(leftNodes, leftChat, ids[0]);
+    const rightDocuments = this.readerDocuments(rightNodes, rightChat, ids[1]);
     void this.textDiff.open({
       title: this.i18n.t('sidebar.readerCompareTitle'),
       newText: rightDocuments[0]?.text ?? '',
@@ -431,6 +456,40 @@ export class SideBarComponent implements OnInit {
       modifiedTexts: rightDocuments,
       readOnly: true
     });
+  }
+
+  async compareChatReaderVariants(chat: Chat): Promise<void> {
+    const nodes = await this.chatService.fetchNodes(chat.id);
+    const documents = this.readerDocuments(nodes, chat, chat.id);
+    if (documents.length < 2) return;
+    void this.textDiff.open({
+      title: this.i18n.t('sidebar.compareChatVariantsTitle', { title: chat.title }),
+      newText: documents[0].text,
+      originalLabel: chat.title,
+      modifiedLabel: chat.title,
+      texts: documents,
+      modifiedTexts: documents,
+      readOnly: true
+    });
+  }
+
+  private readerDocuments(nodes: ChatNode[], chat: Chat | undefined, id: string) {
+    const documents = enumerateStoryDocuments(nodes).map(path => path.map(node => {
+      const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
+      const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
+      const content = node.content?.trim() ?? '';
+      const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
+        .map(attachment => `Attachment: ${attachment.name}`);
+      return [`<!-- ${meta} -->`, content, ...files].filter(Boolean).join('\n\n');
+    }).filter(Boolean).join('\n\n'))
+      .filter(Boolean);
+    const title = chat?.title ?? id;
+    if (!documents.length) documents.push('');
+    return documents.map((text, index) => ({
+      id: `${id}:reader:${index}`,
+      label: `${title} · ${this.i18n.t('sidebar.readerDocument', { current: index + 1, total: documents.length })}`,
+      text
+    }));
   }
 
   private escapeHtml(value: string): string {
