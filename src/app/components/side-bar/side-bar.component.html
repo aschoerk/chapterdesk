@@ -139,6 +139,9 @@
       <span [class.match]="comparison.structureIdentical" [class.mismatch]="!comparison.structureIdentical">
         {{ i18n.t(comparison.structureIdentical ? 'sidebar.compareStructureSame' : 'sidebar.compareStructureDifferent') }}
       </span>
+      <span [class.match]="comparison.olderVersionsIdentical" [class.mismatch]="!comparison.olderVersionsIdentical">
+        {{ i18n.t(comparison.olderVersionsIdentical ? 'sidebar.compareVersionsSame' : 'sidebar.compareVersionsDifferent') }}
+      </span>
       <span [class.match]="comparison.contentsIdentical" [class.mismatch]="!comparison.contentsIdentical">
         {{ i18n.t(comparison.contentsIdentical ? 'sidebar.compareContentSame' : 'sidebar.compareContentDifferent') }}
       </span>

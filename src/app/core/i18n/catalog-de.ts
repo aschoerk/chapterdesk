@@ -363,6 +363,8 @@ export const DE: typeof EN = {
     compareResultTitle: 'Vergleich:',
     compareStructureSame: 'Struktur identisch',
     compareStructureDifferent: 'Struktur unterschiedlich',
+    compareVersionsSame: 'Ältere Versionen identisch',
+    compareVersionsDifferent: 'Ältere Versionen unterschiedlich',
     compareContentSame: 'Inhalt identisch',
     compareContentDifferent: 'Inhalt unterschiedlich',
     compareAttachmentsSame: 'Anhänge identisch',

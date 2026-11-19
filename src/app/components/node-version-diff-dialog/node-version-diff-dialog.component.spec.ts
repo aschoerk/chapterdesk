@@ -125,6 +125,7 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
 
   beforeEach(async () => {
     fakeDiffUpdate = null;
+    localStorage.clear();
     fakeState = {
       changes: [change],
       originalValue: 'line1\nold line\nline3',
@@ -445,5 +446,41 @@ describe('NodeVersionDiffDialogComponent (Monaco)', () => {
     expect(component.resizing()).toBe(false);
     component.dialog.cancel();
     void p;
+  });
+
+  it('remembers the resized dialog dimensions for the next comparison', () => {
+    const p = dialog.open({ newText: 'a', versions: [node({ id: 'v1', version: 1, content: 'a' })] });
+    fixture.detectChanges();
+    const dialogElement = fixture.nativeElement.querySelector('.nvd-dialog') as HTMLElement;
+    vi.spyOn(dialogElement, 'getBoundingClientRect').mockReturnValue({
+      width: 1060,
+      height: 680,
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 1060,
+      bottom: 680,
+      left: 0,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    component.startResize({
+      clientX: 100,
+      clientY: 100,
+      preventDefault: () => {},
+    } as unknown as MouseEvent);
+    component.onDocMouseMove({ clientX: 300, clientY: 260 } as MouseEvent);
+    component.onDocMouseUp();
+
+    expect(component.size()).toEqual({ w: 1260, h: 840 });
+    expect(JSON.parse(localStorage.getItem('chat.nodeVersionDiffDialog.size')!)).toEqual({ w: 1260, h: 840 });
+
+    component.dialog.cancel();
+    void p;
+    fixture.destroy();
+    fixture = TestBed.createComponent(NodeVersionDiffDialogComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    expect(component.size()).toEqual({ w: 1260, h: 840 });
   });
 });

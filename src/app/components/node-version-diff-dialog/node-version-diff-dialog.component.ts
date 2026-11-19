@@ -19,6 +19,8 @@ import {
 } from '../../core/dialogs/node-version-diff-dialog.service';
 import { ChatNode } from '../../models/chat';
 
+const LS_DIFF_DIALOG_SIZE = 'chat.nodeVersionDiffDialog.size';
+
 /** Change navigation / summary info derived from Monaco's line changes. */
 interface ChangeInfo {
   count: number;
@@ -463,7 +465,7 @@ export class NodeVersionDiffDialogComponent {
   // Resizable window
   // -------------------------------------------------------------------------
 
-  readonly size = signal<{ w: number; h: number } | null>(null);
+  readonly size = signal<{ w: number; h: number } | null>(this.readStoredSize());
   readonly resizing = signal(false);
   private resizeStart: { x: number; y: number; w: number; h: number } | null = null;
 
@@ -484,10 +486,12 @@ export class NodeVersionDiffDialogComponent {
   onDocMouseMove(ev: MouseEvent): void {
     if (!this.resizeStart) return;
     const rs = this.resizeStart;
-    this.size.set({
+    const nextSize = {
       w: Math.max(560, rs.w + ev.clientX - rs.x),
       h: Math.max(400, rs.h + ev.clientY - rs.y),
-    });
+    };
+    this.size.set(nextSize);
+    this.persistSize(nextSize);
   }
 
   @HostListener('document:mouseup')
@@ -495,6 +499,27 @@ export class NodeVersionDiffDialogComponent {
     if (!this.resizeStart) return;
     this.resizeStart = null;
     this.resizing.set(false);
+  }
+
+  private readStoredSize(): { w: number; h: number } | null {
+    try {
+      const raw = localStorage.getItem(LS_DIFF_DIALOG_SIZE);
+      if (!raw) return null;
+      const value = JSON.parse(raw) as { w?: unknown; h?: unknown };
+      if (typeof value.w !== 'number' || typeof value.h !== 'number' ||
+          !Number.isFinite(value.w) || !Number.isFinite(value.h)) return null;
+      return { w: Math.max(560, value.w), h: Math.max(400, value.h) };
+    } catch {
+      return null;
+    }
+  }
+
+  private persistSize(size: { w: number; h: number }): void {
+    try {
+      localStorage.setItem(LS_DIFF_DIALOG_SIZE, JSON.stringify(size));
+    } catch {
+      // Storage may be disabled or unavailable in private browsing.
+    }
   }
 
   // -------------------------------------------------------------------------

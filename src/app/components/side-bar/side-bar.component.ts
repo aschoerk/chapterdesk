@@ -29,6 +29,7 @@ const SORT_PAGE = 'sidebar';
 
 interface ChatComparison {
   structureIdentical: boolean;
+  olderVersionsIdentical: boolean;
   contentsIdentical: boolean;
   attachmentsIdentical: boolean;
 }
@@ -337,11 +338,8 @@ export class SideBarComponent implements OnInit {
     const currentRoots = nodes.filter(node => node.isCurrent && !node.deletedAt && !node.parentId);
     const existing = currentRoots.find(node => node.role === 'system');
     if (existing) {
-      const content = existing.content?.trim();
-      if (!content?.startsWith(prompt)) {
-        await this.chatService.patchNode(chat.id, existing.id, {
-          content: content ? `${prompt}\n\n${content}` : prompt
-        });
+      if ((existing.content ?? '') !== prompt) {
+        await this.chatService.patchNode(chat.id, existing.id, { content: prompt });
       }
     } else {
       const rootNodes = currentRoots;
@@ -1135,15 +1133,19 @@ export class SideBarComponent implements OnInit {
 }
 
 function compareChatNodes(left: ChatNode[], right: ChatNode[]): ChatComparison {
-  const normalize = (nodes: ChatNode[]) => {
+  type ProjectionMode = 'structure' | 'versions' | 'content' | 'attachments';
+  const project = (nodes: ChatNode[], mode: ProjectionMode) => {
     const byParent = new Map<string | null, ChatNode[]>();
+    const byId = new Map(nodes.map(node => [node.id, node]));
     for (const node of nodes) {
       const siblings = byParent.get(node.parentId) ?? [];
       siblings.push(node);
       byParent.set(node.parentId, siblings);
     }
 
-    const groupsForParent = (parentId: string | null) => {
+    const visited = new Set<string>();
+    let invalid = false;
+    const groupsForParent = (parentId: string | null, ancestors: Set<string>): unknown[] => {
       const siblings = byParent.get(parentId) ?? [];
       const siblingIds = new Set(siblings.map(node => node.id));
       const nextVersion = new Map<string, ChatNode>();
@@ -1167,58 +1169,58 @@ function compareChatNodes(left: ChatNode[], right: ChatNode[]): ChatComparison {
         if (chain.length) groups.push(chain);
       };
       roots.forEach(addChain);
-      // Preserve malformed/cyclic version records as standalone groups so
-      // they cannot disappear from an equality result.
       siblings.filter(node => !used.has(node.id))
         .sort((a, b) => a.version - b.version)
         .forEach(addChain);
 
-      return groups.sort((a, b) => {
-        const aPosition = Math.min(...a.map(node => node.position ?? Number.MAX_SAFE_INTEGER));
-        const bPosition = Math.min(...b.map(node => node.position ?? Number.MAX_SAFE_INTEGER));
-        return aPosition - bPosition || a[0].version - b[0].version;
-      });
+      // Siblings are an unordered set for comparison purposes. Canonicalize
+      // each branch by its selected comparison data rather than relying on
+      // position, insertion order, or database IDs to align its counterpart.
+      const projected = groups.map(group => group.map(node => {
+        if (ancestors.has(node.id) || visited.has(node.id)) {
+          invalid = true;
+          return { cycle: true };
+        }
+        visited.add(node.id);
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(node.id);
+        const result: Record<string, unknown> = {
+          role: node.role,
+          children: groupsForParent(node.id, nextAncestors)
+        };
+        if (mode !== 'versions') result['current'] = node.isCurrent;
+        if (mode === 'versions') result['version'] = node.version ?? 1;
+        if ((mode === 'content' && node.isCurrent) || (mode === 'versions' && !node.isCurrent)) {
+          result['content'] = node.content ?? '';
+        }
+        if ((mode === 'attachments' && node.isCurrent) || (mode === 'versions' && !node.isCurrent)) {
+          result['attachments'] = (node.attachments ?? []).map(({ id: _id, ...attachment }) => attachment);
+        }
+        return result;
+      }));
+      projected.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      return projected;
     };
 
-    const ordered: ChatNode[] = [];
-    const visited = new Set<string>();
-    let hasCycle = false;
-    const shapeForParent = (parentId: string | null, ancestorIds = new Set<string>()): unknown[] =>
-      groupsForParent(parentId).map(group => ({
-        versions: group.map(node => {
-          if (ancestorIds.has(node.id)) {
-            hasCycle = true;
-            return { role: node.role, current: node.isCurrent, cyclic: true, children: [] };
-          }
-          if (visited.has(node.id)) {
-            hasCycle = true;
-            return { role: node.role, current: node.isCurrent, duplicate: true, children: [] };
-          }
-          visited.add(node.id);
-          ordered.push(node);
-          const nextAncestors = new Set(ancestorIds);
-          nextAncestors.add(node.id);
-          return {
-            role: node.role,
-            current: node.isCurrent,
-            children: shapeForParent(node.id, nextAncestors)
-          };
-        })
-      }));
-
-    const shape = shapeForParent(null);
-    return { shape, ordered, allReachable: !hasCycle && ordered.length === nodes.length };
+    const shape = groupsForParent(null, new Set());
+    return { shape, valid: !invalid && visited.size === nodes.length };
   };
 
-  const a = normalize(left);
-  const b = normalize(right);
-  const structureIdentical = a.allReachable && b.allReachable && JSON.stringify(a.shape) === JSON.stringify(b.shape);
-  const contentsIdentical = structureIdentical && a.ordered.every((node, index) =>
-    (node.content ?? '') === (b.ordered[index].content ?? '')
-  );
-  const attachmentsIdentical = structureIdentical && a.ordered.every((node, index) =>
-    JSON.stringify((node.attachments ?? []).map(({ id: _id, ...attachment }) => attachment)) ===
-    JSON.stringify((b.ordered[index].attachments ?? []).map(({ id: _id, ...attachment }) => attachment))
-  );
-  return { structureIdentical, contentsIdentical, attachmentsIdentical };
+  const leftStructure = project(left, 'structure');
+  const rightStructure = project(right, 'structure');
+  const structureIdentical = leftStructure.valid && rightStructure.valid &&
+    JSON.stringify(leftStructure.shape) === JSON.stringify(rightStructure.shape);
+  const leftVersions = project(left, 'versions');
+  const rightVersions = project(right, 'versions');
+  const olderVersionsIdentical = structureIdentical && leftVersions.valid && rightVersions.valid &&
+    JSON.stringify(leftVersions.shape) === JSON.stringify(rightVersions.shape);
+  const leftContent = project(left, 'content');
+  const rightContent = project(right, 'content');
+  const contentsIdentical = structureIdentical && leftContent.valid && rightContent.valid &&
+    JSON.stringify(leftContent.shape) === JSON.stringify(rightContent.shape);
+  const leftAttachments = project(left, 'attachments');
+  const rightAttachments = project(right, 'attachments');
+  const attachmentsIdentical = structureIdentical && leftAttachments.valid && rightAttachments.valid &&
+    JSON.stringify(leftAttachments.shape) === JSON.stringify(rightAttachments.shape);
+  return { structureIdentical, olderVersionsIdentical, contentsIdentical, attachmentsIdentical };
 }

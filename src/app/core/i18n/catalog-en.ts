@@ -358,6 +358,8 @@ export const EN = {
     compareResultTitle: 'Comparison:',
     compareStructureSame: 'Structure identical',
     compareStructureDifferent: 'Structure differs',
+    compareVersionsSame: 'Older versions identical',
+    compareVersionsDifferent: 'Older versions differ',
     compareContentSame: 'Content identical',
     compareContentDifferent: 'Content differs',
     compareAttachmentsSame: 'Attachments identical',

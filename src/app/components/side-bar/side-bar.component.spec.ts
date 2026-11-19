@@ -1285,6 +1285,7 @@ describe('SideBarComponent', () => {
       await settleDeep();
       expect(component.chatComparison()).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
         attachmentsIdentical: true
       });
@@ -1326,6 +1327,26 @@ describe('SideBarComponent', () => {
       expect(nodes.find(node => node.id === 'root-user')?.parentId).toBe(system.id);
       expect(nodes.find(node => node.id === 'root-answer')?.parentId).toBe(system.id);
       expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(3);
+    });
+
+    it('updates an existing root system prompt to the current topic prompt without adding a node', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A', mainTopicId: 't-1' }));
+        a.topics.push(topic({ id: 't-1', name: 'Topic A', projectIds: ['p-1'], defaultSystemPrompt: 'Updated topic rules' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1', node_number: 2 }));
+        a.nodes.push(
+          makeNode({ id: 'system-root', chatId: 'c1', role: 'system', content: 'Old prompt text', parentId: null }),
+          makeNode({ id: 'user-root', chatId: 'c1', role: 'user', content: 'Opening direction', parentId: 'system-root' })
+        );
+      });
+
+      await component.prependProjectSystemPrompt(chatService.chats().find(item => item.id === 'c1')!);
+      const nodes = await chatService.fetchNodes('c1');
+
+      expect(nodes).toHaveLength(2);
+      expect(nodes.find(node => node.id === 'system-root')?.content).toBe('Updated topic rules');
+      expect(nodes.find(node => node.id === 'user-root')?.parentId).toBe('system-root');
+      expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(2);
     });
 
     it('corrects a stale node_number from the actual non-deleted node count', async () => {
@@ -1450,11 +1471,13 @@ describe('SideBarComponent', () => {
 
       expect(component.chatComparison()).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: false,
         attachmentsIdentical: false
       });
       const result = fixture.nativeElement.querySelector('.chat-comparison') as HTMLElement;
       expect(result.textContent).toContain(i18n.t('sidebar.compareStructureSame'));
+      expect(result.textContent).toContain(i18n.t('sidebar.compareVersionsSame'));
       expect(result.textContent).toContain(i18n.t('sidebar.compareContentDifferent'));
       expect(result.textContent).toContain(i18n.t('sidebar.compareAttachmentsDifferent'));
     });
@@ -1463,6 +1486,7 @@ describe('SideBarComponent', () => {
       const result = await compareNodeSets([], []);
       expect(result).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
         attachmentsIdentical: true
       });
@@ -1481,6 +1505,7 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(left, right)).toEqual({
         structureIdentical: false,
+        olderVersionsIdentical: false,
         contentsIdentical: false,
         attachmentsIdentical: false
       });
@@ -1502,8 +1527,33 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(left, right)).toEqual({
         structureIdentical: false,
+        olderVersionsIdentical: false,
         contentsIdentical: false,
         attachmentsIdentical: false
+      });
+    });
+
+    it('reports older versions separately when the current nodes match', async () => {
+      const left = [
+        makeNode({ id: 'left-question', chatId: 'c1', role: 'user', content: 'Question', position: 1 }),
+        makeNode({ id: 'left-old', chatId: 'c1', parentId: 'left-question', role: 'assistant', content: 'Earlier wording',
+          version: 1, isCurrent: false, position: 1 }),
+        makeNode({ id: 'left-current', chatId: 'c1', parentId: 'left-question', role: 'assistant', content: 'Current answer',
+          version: 2, previousVersionId: 'left-old', isCurrent: true, position: 1 })
+      ];
+      const right = [
+        makeNode({ id: 'right-question', chatId: 'c2', role: 'user', content: 'Question', position: 1 }),
+        makeNode({ id: 'right-old', chatId: 'c2', parentId: 'right-question', role: 'assistant', content: 'Different prior wording',
+          version: 1, isCurrent: false, position: 1 }),
+        makeNode({ id: 'right-current', chatId: 'c2', parentId: 'right-question', role: 'assistant', content: 'Current answer',
+          version: 2, previousVersionId: 'right-old', isCurrent: true, position: 1 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        olderVersionsIdentical: false,
+        contentsIdentical: true,
+        attachmentsIdentical: true
       });
     });
 
@@ -1521,6 +1571,7 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(left, right)).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: false,
         attachmentsIdentical: true
       });
@@ -1538,6 +1589,7 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(left, right)).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
         attachmentsIdentical: false
       });
@@ -1559,6 +1611,7 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(left, right)).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
         attachmentsIdentical: true
       });
@@ -1590,7 +1643,56 @@ describe('SideBarComponent', () => {
 
       expect(await compareNodeSets(tree('left', 'c1'), tree('right', 'c2'))).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('matches equivalent siblings when their persisted order differs between chats', async () => {
+      const left = [
+        makeNode({ id: 'l-root', chatId: 'c1', role: 'user', content: 'Root', position: 1 }),
+        makeNode({ id: 'l-a', chatId: 'c1', parentId: 'l-root', role: 'user', content: 'Branch A', position: 1 }),
+        makeNode({ id: 'l-a-answer', chatId: 'c1', parentId: 'l-a', role: 'assistant', content: 'Answer A', position: 1,
+          attachments: [makeAttachment({ id: 'l-attachment-a', name: 'a.txt', dataUrl: 'data:text/plain;base64,YQ==' })] }),
+        makeNode({ id: 'l-b', chatId: 'c1', parentId: 'l-root', role: 'user', content: 'Branch B', position: 2 }),
+        makeNode({ id: 'l-b-answer', chatId: 'c1', parentId: 'l-b', role: 'assistant', content: 'Answer B', position: 1,
+          attachments: [makeAttachment({ id: 'l-attachment-b', name: 'b.txt', dataUrl: 'data:text/plain;base64,Yg==' })] })
+      ];
+      const right = [
+        makeNode({ id: 'r-root', chatId: 'c2', role: 'user', content: 'Root', position: 1 }),
+        makeNode({ id: 'r-b', chatId: 'c2', parentId: 'r-root', role: 'user', content: 'Branch B', position: 1 }),
+        makeNode({ id: 'r-b-answer', chatId: 'c2', parentId: 'r-b', role: 'assistant', content: 'Answer B', position: 1,
+          attachments: [makeAttachment({ id: 'r-attachment-b', name: 'b.txt', dataUrl: 'data:text/plain;base64,Yg==' })] }),
+        makeNode({ id: 'r-a', chatId: 'c2', parentId: 'r-root', role: 'user', content: 'Branch A', position: 2 }),
+        makeNode({ id: 'r-a-answer', chatId: 'c2', parentId: 'r-a', role: 'assistant', content: 'Answer A', position: 1,
+          attachments: [makeAttachment({ id: 'r-attachment-a', name: 'a.txt', dataUrl: 'data:text/plain;base64,YQ==' })] })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        olderVersionsIdentical: true,
+        contentsIdentical: true,
+        attachmentsIdentical: true
+      });
+    });
+
+    it('still detects a content change in one matched sibling regardless of order', async () => {
+      const left = [
+        makeNode({ id: 'l-root', chatId: 'c1', role: 'user', content: 'Root' }),
+        makeNode({ id: 'l-a', chatId: 'c1', parentId: 'l-root', role: 'user', content: 'Branch A', position: 1 }),
+        makeNode({ id: 'l-b', chatId: 'c1', parentId: 'l-root', role: 'user', content: 'Branch B', position: 2 })
+      ];
+      const right = [
+        makeNode({ id: 'r-root', chatId: 'c2', role: 'user', content: 'Root' }),
+        makeNode({ id: 'r-b', chatId: 'c2', parentId: 'r-root', role: 'user', content: 'Branch B', position: 1 }),
+        makeNode({ id: 'r-a', chatId: 'c2', parentId: 'r-root', role: 'user', content: 'Changed A', position: 2 })
+      ];
+
+      expect(await compareNodeSets(left, right)).toEqual({
+        structureIdentical: true,
+        olderVersionsIdentical: true,
+        contentsIdentical: false,
         attachmentsIdentical: true
       });
     });
@@ -1645,6 +1747,7 @@ describe('SideBarComponent', () => {
 
       expect(component.chatComparison()).toEqual({
         structureIdentical: true,
+        olderVersionsIdentical: true,
         contentsIdentical: true,
         attachmentsIdentical: true
       });
