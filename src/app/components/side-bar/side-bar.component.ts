@@ -17,6 +17,11 @@ import { TopicSelectionService } from '../../core/settings/topic-selection.servi
 import { SortPreferencesService, SortMode } from '../../core/settings/sort-preferences.service';
 import { ChatUsageService } from '../../core/chat/chat-usage.service';
 import { StoryClipboardService } from '../../core/clipboard/story-clipboard.service';
+import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
+import { enumerateStoryDocuments } from '../../core/chat/story-paths';
+import { resolveCurrentTopic } from '../../core/llm/llm-context';
+import { isPromptRecordAttachment } from '../../core/llm/llm-message';
+import { MarkdownService } from '../../core/chat/markdown.service';
 import type { ParsedUsage } from '../../core/llm/usage';
 
 const LS_EXPANDED_KEY = 'chat-client.projects.expanded';
@@ -37,8 +42,9 @@ type SidebarContextTarget =
 type SidebarContextAction =
   | 'project-edit' | 'project-create' | 'project-delete' | 'project-paste'
   | 'chat-rename' | 'chat-unassign' | 'chat-reassign' | 'chat-clone' | 'chat-delete' | 'chat-cost'
+  | 'chat-prepend-system' | 'chat-fix-count' | 'chat-attach-orphans'
   | 'selection-copy' | 'selection-cut' | 'selection-delete' | 'selection-clear'
-  | 'clipboard-cancel' | 'selection-compare';
+  | 'clipboard-cancel' | 'selection-compare' | 'selection-reader-compare';
 
 interface SidebarContextItem {
   action: SidebarContextAction;
@@ -75,6 +81,8 @@ export class SideBarComponent implements OnInit {
   private readonly sortPrefs = inject(SortPreferencesService);
   private readonly usage = inject(ChatUsageService);
   private readonly storyClipboard = inject(StoryClipboardService);
+  private readonly textDiff = inject(NodeVersionDiffDialogService);
+  private readonly markdown = inject(MarkdownService);
 
   /** Reactive alias so the template can use `clipboard.hasContent()` etc. */
   readonly clipboard = this.storyClipboard;
@@ -214,6 +222,11 @@ export class SideBarComponent implements OnInit {
         { action: 'chat-reassign', label: this.i18n.t('sidebar.moveEnvironment') },
         { action: 'chat-clone', label: this.i18n.t('sidebar.cloneStory') },
         { action: 'chat-cost', label: this.i18n.t('sidebar.sumTotalCost') },
+        ...(target.chat.projectId
+          ? [{ action: 'chat-prepend-system' as const, label: this.i18n.t('sidebar.prependSystemPrompt') }]
+          : []),
+        { action: 'chat-fix-count', label: this.i18n.t('sidebar.repairNodeNumber') },
+        { action: 'chat-attach-orphans', label: this.i18n.t('sidebar.attachRootNodesToSystem') },
         { action: 'chat-delete', label: this.i18n.t('common.delete'), danger: true, separatorBefore: true }
       );
     }
@@ -226,7 +239,10 @@ export class SideBarComponent implements OnInit {
         { action: 'selection-clear', label: this.i18n.t('sidebar.clearSelection') }
       );
       if (this.selectedCount() === 2) {
-        items.push({ action: 'selection-compare', label: this.i18n.t('sidebar.compareSelected') });
+        items.push(
+          { action: 'selection-compare', label: this.i18n.t('sidebar.compareSelected') },
+          { action: 'selection-reader-compare', label: this.i18n.t('sidebar.compareReaderViews') }
+        );
       }
     }
     if (this.clipboard.hasContent()) {
@@ -256,12 +272,16 @@ export class SideBarComponent implements OnInit {
       case 'chat-clone': if (target.kind === 'chat') await this.cloneChat(target.chat, event); break;
       case 'chat-delete': if (target.kind === 'chat') await this.deleteChat(target.chat, event); break;
       case 'chat-cost': if (target.kind === 'chat') await this.recomputeChatCost(target.chat.id, event); break;
+      case 'chat-prepend-system': if (target.kind === 'chat') await this.prependProjectSystemPrompt(target.chat); break;
+      case 'chat-fix-count': if (target.kind === 'chat') await this.repairChatNodeNumber(target.chat); break;
+      case 'chat-attach-orphans': if (target.kind === 'chat') await this.attachOrphanRootsToSystemPrompt(target.chat); break;
       case 'selection-copy': this.copySelectedStories(); break;
       case 'selection-cut': this.cutSelectedStories(); break;
       case 'selection-delete': await this.deleteSelectedStories(); break;
       case 'selection-clear': this.clearSelection(); break;
       case 'clipboard-cancel': this.cancelClipboard(); break;
       case 'selection-compare': await this.compareSelectedChats(); break;
+      case 'selection-reader-compare': await this.compareSelectedReaderViews(); break;
     }
   }
 
@@ -298,6 +318,119 @@ export class SideBarComponent implements OnInit {
     } finally {
       this.comparingChats.set(false);
     }
+  }
+
+  async prependProjectSystemPrompt(chat: Chat): Promise<void> {
+    if (!chat.projectId) return;
+    const project = this.projectService.getProject(chat.projectId);
+    if (!project) return;
+    const topic = resolveCurrentTopic(
+      project.id,
+      project.mainTopicId,
+      this.selectedTopicId(),
+      this.topics()
+    );
+    const prompt = topic?.defaultSystemPrompt?.trim();
+    if (!prompt) {
+      alert(this.i18n.t('sidebar.noEnvironmentPrompt'));
+      return;
+    }
+    const nodes = await this.chatService.fetchNodes(chat.id);
+    const currentRoots = nodes.filter(node => node.isCurrent && !node.deletedAt && !node.parentId);
+    const existing = currentRoots.find(node => node.role === 'system');
+    if (existing) {
+      const content = existing.content?.trim();
+      if (!content?.startsWith(prompt)) {
+        await this.chatService.patchNode(chat.id, existing.id, {
+          content: content ? `${prompt}\n\n${content}` : prompt
+        });
+      }
+    } else {
+      const rootNodes = currentRoots;
+      const position = Math.min(...rootNodes.map(node => node.position ?? Number.MAX_SAFE_INTEGER), 1);
+      const systemNode = await this.chatService.addNode(chat.id, {
+        parentId: null,
+        role: 'system',
+        content: prompt,
+        position: Number.isFinite(position) && position !== Number.MAX_SAFE_INTEGER ? position : 1
+      });
+      if (rootNodes.length) {
+        await this.chatService.reparentNodes(chat.id, rootNodes.map(node => node.id), systemNode.id);
+        this.chatService.setActiveChild(systemNode.id, rootNodes[0].id);
+      }
+      this.chatService.setActiveChild(null, systemNode.id);
+    }
+    await this.chatService.repairChatNodeCount(chat.id, (await this.chatService.fetchNodes(chat.id)).length);
+  }
+
+  async repairChatNodeNumber(chat: Chat): Promise<void> {
+    const count = (await this.chatService.fetchNodes(chat.id)).length;
+    await this.chatService.repairChatNodeCount(chat.id, count);
+  }
+
+  async attachOrphanRootsToSystemPrompt(chat: Chat): Promise<void> {
+    const nodes = await this.chatService.fetchNodes(chat.id);
+    const project = chat.projectId ? this.projectService.getProject(chat.projectId) : undefined;
+    const topic = project ? resolveCurrentTopic(project.id, project.mainTopicId, this.selectedTopicId(), this.topics()) : undefined;
+    const prompt = topic?.defaultSystemPrompt?.trim() || '';
+    const rootSystem = nodes.find(node => !node.deletedAt && node.isCurrent && !node.parentId && node.role === 'system');
+    const roots = nodes.filter(node => !node.deletedAt && node.isCurrent && !node.parentId);
+    const orphans = nodes.filter(node => !node.deletedAt && node.isCurrent && node.parentId && !nodes.some(parent => parent.id === node.parentId));
+    const attachIds = [...new Set([
+      ...roots.filter(node => node.id !== rootSystem?.id).map(node => node.id),
+      ...orphans.map(node => node.id)
+    ])];
+    if (!attachIds.length) return;
+
+    let systemNode = rootSystem;
+    if (!systemNode) {
+      systemNode = await this.chatService.addNode(chat.id, {
+        parentId: null,
+        role: 'system',
+        content: prompt,
+        position: 1
+      });
+    } else if (prompt && !systemNode.content.trim()) {
+      await this.chatService.patchNode(chat.id, systemNode.id, { content: prompt });
+    }
+    await this.chatService.reparentNodes(chat.id, attachIds, systemNode.id);
+    this.chatService.setActiveChild(null, systemNode.id);
+    const firstAttached = attachIds[0];
+    if (firstAttached) this.chatService.setActiveChild(systemNode.id, firstAttached);
+    await this.chatService.repairChatNodeCount(chat.id, (await this.chatService.fetchNodes(chat.id)).length);
+  }
+
+  async compareSelectedReaderViews(): Promise<void> {
+    const ids = this.selectedChatIds();
+    if (ids.length !== 2) return;
+    const [leftNodes, rightNodes] = await Promise.all(ids.map(id => this.chatService.fetchNodes(id)));
+    const leftChat = this.chatService.chats().find(chat => chat.id === ids[0]);
+    const rightChat = this.chatService.chats().find(chat => chat.id === ids[1]);
+    const readerText = (nodes: ChatNode[]) => enumerateStoryDocuments(nodes)
+      .map(path => path.map(node => {
+        const role = node.role === 'user' ? this.i18n.t('reader.roleUser') : this.i18n.t('reader.roleAssistant');
+        const meta = [role, node.modelId, `v${node.version}`].filter(Boolean).join(' · ');
+        const content = node.content?.trim() ?? '';
+        const files = (node.attachments ?? []).filter(attachment => !isPromptRecordAttachment(attachment))
+          .map(attachment => `<div class="book-file">${this.escapeHtml(attachment.name)}</div>`).join('');
+        return `<section class="book-node book-${node.role}"><header class="book-kicker">${this.escapeHtml(meta)}</header><div class="book-body">${this.markdown.toHtml(content)}</div>${files}</section>`;
+      }).filter(Boolean).join('\n\n'))
+      .filter(Boolean)
+      .join('\n\n--- next reader document ---\n\n');
+    void this.textDiff.open({
+      title: this.i18n.t('sidebar.readerCompareTitle'),
+      newText: readerText(rightNodes),
+      originalLabel: leftChat?.title ?? ids[0],
+      modifiedLabel: rightChat?.title ?? ids[1],
+      texts: [{ id: ids[0], label: leftChat?.title ?? ids[0], text: readerText(leftNodes) }],
+      readOnly: true
+    });
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]!);
   }
 
   /** Copy the selected stories (they can be pasted/duplicated elsewhere). */

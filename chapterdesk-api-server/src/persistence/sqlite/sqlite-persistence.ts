@@ -957,7 +957,7 @@ export class SqlitePersistence implements PersistencePort {
     const old = this.chat(id);
     if (data.projectId) this.requireRow('project', data.projectId, 'projects');
     this.db
-      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,reading_marks=?,handled_names=?,updated_at=? WHERE id=?')
+      .prepare('UPDATE chats SET title=?,project_id=?,chat_parameters_id=?,lore=?,auto_exclude_directions=?,reading_marks=?,handled_names=?,node_number=?,updated_at=? WHERE id=?')
       .run(
         data.title ?? old.title,
         data.projectId !== undefined ? data.projectId : old.projectId,
@@ -970,6 +970,7 @@ export class SqlitePersistence implements PersistencePort {
         data.handledNames !== undefined
           ? JSON.stringify(data.handledNames)
           : JSON.stringify(old.handledNames ?? []),
+        data.node_number !== undefined ? Math.max(0, Math.floor(data.node_number)) : old.node_number,
         now(),
         id,
       );

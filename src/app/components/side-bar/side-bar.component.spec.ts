@@ -11,6 +11,7 @@ import { PersonaService } from '../../core/persona.service';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { SortPreferencesService } from '../../core/settings/sort-preferences.service';
+import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import {
   makeAttachment, makeChat, makeModel, makeNode, makePersona, makeProject, makeTopic
@@ -32,6 +33,7 @@ describe('SideBarComponent', () => {
   let confirm: ConfirmService;
   let i18n: I18nService;
   let sortPrefs: SortPreferencesService;
+  let textDiff: NodeVersionDiffDialogService;
   const router = { navigate: vi.fn(async () => true) };
 
   // ------------------------------------------------------------------
@@ -71,6 +73,7 @@ describe('SideBarComponent', () => {
     projectService = TestBed.inject(ProjectService);
     confirm = TestBed.inject(ConfirmService);
     sortPrefs = TestBed.inject(SortPreferencesService);
+    textDiff = TestBed.inject(NodeVersionDiffDialogService);
 
     fixture = TestBed.createComponent(SideBarComponent);
     component = fixture.componentInstance;
@@ -1276,6 +1279,7 @@ describe('SideBarComponent', () => {
       rightClick(chatItem('Env A', 'Story 1')!);
       labels = Array.from(contextMenu()!.querySelectorAll('button')).map(button => button.textContent?.trim());
       expect(labels).toContain(i18n.t('sidebar.compareSelected'));
+      expect(labels).toContain(i18n.t('sidebar.compareReaderViews'));
       expect(labels).toContain(i18n.t('sidebar.copySelected'));
       clickContextItem(i18n.t('sidebar.compareSelected'));
       await settleDeep();
@@ -1300,6 +1304,94 @@ describe('SideBarComponent', () => {
         .toContain(i18n.t('sidebar.cancelClipboard'));
       clickContextItem(i18n.t('sidebar.cancelClipboard'));
       expect(component.clipboard.hasContent()).toBe(false);
+    });
+
+    it('prepends the current topic system prompt and nests existing root nodes beneath it', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A', mainTopicId: 't-1' }));
+        a.topics.push(topic({ id: 't-1', name: 'Topic A', projectIds: ['p-1'], defaultSystemPrompt: 'Topic rules' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1', node_number: 2 }));
+        a.nodes.push(
+          makeNode({ id: 'root-user', chatId: 'c1', role: 'user', content: 'Opening direction', parentId: null }),
+          makeNode({ id: 'root-answer', chatId: 'c1', role: 'assistant', content: 'Opening answer', parentId: null, position: 2 })
+        );
+      });
+
+      await component.prependProjectSystemPrompt(chatService.chats().find(item => item.id === 'c1')!);
+      const nodes = await chatService.fetchNodes('c1');
+      const system = nodes.find(node => node.role === 'system')!;
+
+      expect(system.content).toBe('Topic rules');
+      expect(system.parentId).toBeNull();
+      expect(nodes.find(node => node.id === 'root-user')?.parentId).toBe(system.id);
+      expect(nodes.find(node => node.id === 'root-answer')?.parentId).toBe(system.id);
+      expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(3);
+    });
+
+    it('corrects a stale node_number from the actual non-deleted node count', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1', node_number: 99 }));
+        a.nodes.push(
+          makeNode({ id: 'node-1', chatId: 'c1' }),
+          makeNode({ id: 'node-2', chatId: 'c1', parentId: 'node-1' })
+        );
+      });
+      const story = chatService.chats().find(item => item.id === 'c1')!;
+
+      await component.repairChatNodeNumber(story);
+
+      expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(2);
+      expect(api.chats.find(item => item.id === 'c1')?.node_number).toBe(2);
+    });
+
+    it('attaches parentless and dangling-parent current nodes beneath a system node', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A', mainTopicId: 't-1' }));
+        a.topics.push(topic({ id: 't-1', name: 'Topic A', projectIds: ['p-1'], defaultSystemPrompt: 'Topic rules' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1', node_number: 2 }));
+        a.nodes.push(
+          makeNode({ id: 'system-root', chatId: 'c1', role: 'system', content: 'Topic rules', parentId: null }),
+          makeNode({ id: 'root-without-parent', chatId: 'c1', role: 'assistant', content: 'Orphan root', parentId: null }),
+          makeNode({ id: 'dangling-parent', chatId: 'c1', role: 'user', content: 'Dangling orphan', parentId: 'missing-parent' })
+        );
+      });
+
+      await component.attachOrphanRootsToSystemPrompt(chatService.chats().find(item => item.id === 'c1')!);
+      const nodes = await chatService.fetchNodes('c1');
+
+      expect(nodes.find(node => node.id === 'root-without-parent')?.parentId).toBe('system-root');
+      expect(nodes.find(node => node.id === 'dangling-parent')?.parentId).toBe('system-root');
+      expect(chatService.chats().find(item => item.id === 'c1')?.node_number).toBe(3);
+    });
+
+    it('opens a read-only Monaco diff for the two reader views', async () => {
+      await setup(a => {
+        a.projects.push(project({ id: 'p-1', name: 'Env A' }));
+        a.chats.push(chat({ id: 'c1', title: 'Story 1', projectId: 'p-1' }));
+        a.chats.push(chat({ id: 'c2', title: 'Story 2', projectId: 'p-1' }));
+        a.nodes.push(
+          makeNode({ id: 'a-system', chatId: 'c1', role: 'system', content: 'Rules', parentId: null }),
+          makeNode({ id: 'a-user', chatId: 'c1', role: 'user', content: 'Direction', parentId: 'a-system' }),
+          makeNode({ id: 'a-answer', chatId: 'c1', role: 'assistant', content: '# Chapter\n\nHello reader.', parentId: 'a-user' }),
+          makeNode({ id: 'b-system', chatId: 'c2', role: 'system', content: 'Rules', parentId: null }),
+          makeNode({ id: 'b-user', chatId: 'c2', role: 'user', content: 'Direction', parentId: 'b-system' }),
+          makeNode({ id: 'b-answer', chatId: 'c2', role: 'assistant', content: '# Chapter\n\nDifferent reader text.', parentId: 'b-user' })
+        );
+      });
+      component.selectedChatIds.set(['c1', 'c2']);
+      const openSpy = vi.spyOn(textDiff, 'open').mockResolvedValue(null);
+
+      await component.compareSelectedReaderViews();
+
+      expect(openSpy).toHaveBeenCalledOnce();
+      const state = openSpy.mock.calls[0][0];
+      expect(state.readOnly).toBe(true);
+      expect(state.originalLabel).toBe('Story 1');
+      expect(state.modifiedLabel).toBe('Story 2');
+      expect(state.texts?.[0].text).toContain('<h1>Chapter</h1>');
+      expect(state.texts?.[0].text).toContain('Direction');
+      expect(state.newText).toContain('Different reader text.');
     });
 
     it('pastes staged stories through the target environment context menu', async () => {

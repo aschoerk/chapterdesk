@@ -87,16 +87,18 @@ describe('IdbChatApiService (IndexedDB data layer)', () => {
       expect(await svc.searchChatIds('needle')).toEqual([chat.id]);
     });
 
-    it('patches title / project / lore / autoExcludeDirections', async () => {
+    it('patches title / project / lore / autoExcludeDirections / node_number', async () => {
       const chat = await svc.createChat('Title');
       const updated = await svc.patchChat(chat.id, {
         title: 'Renamed',
         lore: 'lore text',
         autoExcludeDirections: true,
+        node_number: 7,
       });
       expect(updated.title).toBe('Renamed');
       expect(updated.lore).toBe('lore text');
       expect(updated.autoExcludeDirections).toBe(true);
+      expect(updated.node_number).toBe(7);
     });
 
     it('cloneChat deep-copies nodes with remapped ids', async () => {

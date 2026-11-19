@@ -607,6 +607,12 @@ export class ChatTreeWriterService {
     return chat;
   }
 
+  async repairChatNodeCount(chatId: string, count: number): Promise<Chat> {
+    const chat = await this.api.patchChat(chatId, { node_number: Math.max(0, Math.floor(count)) });
+    this.state.chats.update(list => list.map(item => item.id === chatId ? chat : item));
+    return chat;
+  }
+
   /** Patch per-chat meta (lore text, auto-exclude-directions mode, reading marks, handled names) and refresh the local list. */
   async patchChatMeta(
     chatId: string,

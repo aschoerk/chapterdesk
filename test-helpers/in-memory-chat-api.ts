@@ -125,6 +125,7 @@ class InMemoryChatApi implements Pick<
     id: string,
     data: {
       title?: string;
+      node_number?: number;
       projectId?: string | null;
       chatParametersId?: string | null;
       lore?: string | null;

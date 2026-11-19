@@ -30,6 +30,8 @@ export type UpdateProjectRequest = Partial<{
 
 export interface PatchChatRequest {
   title?: string;
+  /** Repairable count of the chat's current non-deleted nodes. */
+  node_number?: number;
   projectId?: string | null;
   chatParametersId?: string | null;
   /** Per-story lore text (nullable to clear). */

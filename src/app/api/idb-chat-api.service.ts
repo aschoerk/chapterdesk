@@ -299,6 +299,7 @@ export class IdbChatApiService implements ChatApiPort {
       const next: Chat = {
         ...row,
         title: data.title?.trim() ? data.title.trim() : row.title,
+        node_number: data.node_number !== undefined ? Math.max(0, Math.floor(data.node_number)) : row.node_number,
         projectId: data.projectId !== undefined ? data.projectId : row.projectId,
         chatParametersId: data.chatParametersId !== undefined ? data.chatParametersId : row.chatParametersId,
         lore: data.lore !== undefined ? data.lore : row.lore,

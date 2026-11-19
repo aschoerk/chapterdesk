@@ -274,12 +274,13 @@ describe('API Routes (in-memory SQLite)', () => {
       expect(res.body.id).toBe(chatId);
     });
 
-    test('PATCH /api/chats/:id updates title', async () => {
+    test('PATCH /api/chats/:id updates title and repairable node count', async () => {
       const res = await request(app)
         .patch(`/api/chats/${chatId}`)
-        .send({ title: 'Renamed Chat' });
+        .send({ title: 'Renamed Chat', node_number: 42 });
       expect(res.status).toBe(200);
       expect(res.body.title).toBe('Renamed Chat');
+      expect(res.body.node_number).toBe(42);
     });
 
     test('POST /api/chats/:chatId/nodes adds a question', async () => {

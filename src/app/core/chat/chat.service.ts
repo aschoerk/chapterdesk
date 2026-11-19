@@ -251,6 +251,9 @@ export class ChatService {
   reassignChatParams(chatId: string, chatParametersId: string | null): Promise<Chat> {
     return this.writer.reassignChatParams(chatId, chatParametersId);
   }
+  repairChatNodeCount(chatId: string, count: number): Promise<Chat> {
+    return this.writer.repairChatNodeCount(chatId, count);
+  }
   patchChatMeta(
     chatId: string,
     changes: {

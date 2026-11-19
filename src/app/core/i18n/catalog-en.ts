@@ -362,6 +362,12 @@ export const EN = {
     compareContentDifferent: 'Content differs',
     compareAttachmentsSame: 'Attachments identical',
     compareAttachmentsDifferent: 'Attachments differ',
+    prependSystemPrompt: 'Prepend topic system prompt',
+    noEnvironmentPrompt: 'This story has no topic system prompt to prepend.',
+    repairNodeNumber: 'Correct section count',
+    attachRootNodesToSystem: 'Attach root sections to system prompt',
+    compareReaderViews: 'Compare reader views (Monaco)',
+    readerCompareTitle: 'Compare reader views',
   },
   node: {
     dir: 'Dir',

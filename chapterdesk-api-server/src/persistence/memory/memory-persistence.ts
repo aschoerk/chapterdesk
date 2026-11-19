@@ -462,6 +462,7 @@ export class MemoryPersistence implements PersistencePort {
   async patchChat(id: string, data: PatchChatRequest): Promise<Chat> {
     const chat = this.requireChat(id);
     if (data.title !== undefined) chat.title = data.title;
+    if (data.node_number !== undefined) chat.node_number = Math.max(0, Math.floor(data.node_number));
     if (data.projectId !== undefined) {
       if (data.projectId && !this.projects.has(data.projectId)) {
         throw notFound('project', data.projectId);

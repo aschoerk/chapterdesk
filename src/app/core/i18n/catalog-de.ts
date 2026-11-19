@@ -367,6 +367,12 @@ export const DE: typeof EN = {
     compareContentDifferent: 'Inhalt unterschiedlich',
     compareAttachmentsSame: 'Anhänge identisch',
     compareAttachmentsDifferent: 'Anhänge unterschiedlich',
+    prependSystemPrompt: 'Systemprompt des Themas voranstellen',
+    noEnvironmentPrompt: 'Für diese Story gibt es keinen Systemprompt des Themas.',
+    repairNodeNumber: 'Abschnittszahl korrigieren',
+    attachRootNodesToSystem: 'Wurzelabschnitte an Systemprompt anhängen',
+    compareReaderViews: 'Reader-Ansichten mit Monaco vergleichen',
+    readerCompareTitle: 'Reader-Ansichten vergleichen',
   },
   node: {
     dir: 'An',
