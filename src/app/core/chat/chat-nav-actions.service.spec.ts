@@ -11,6 +11,7 @@ import { TopicSelectionService } from '../settings/topic-selection.service';
 import { I18nService } from '../i18n/i18n.service';
 import { ChatService } from './chat.service';
 import { NodeClipboardService } from '../clipboard/node-clipboard.service';
+import { isChatLoreNode } from './chat-lore.service';
 import { ConfirmService } from '../dialogs/confirm.service';
 import { ChatNavSelectionService } from './chat-nav-selection.service';
 import { ChatNavMenuService, type ChatNavMenuHost } from './chat-nav-menu.service';
@@ -131,6 +132,24 @@ describe('ChatNavActionsService', () => {
     for (let i = 0; i < 12; i++) await Promise.resolve();
   }
 
+  /** Active-path ids without the auto-created trailing composer leaf. */
+  function pathIds(): string[] {
+    return chatService
+      .getActivePath()
+      .filter(n => !chatService.isDraftQuestion(n))
+      .map(n => n.id);
+  }
+
+  /** The navbar's visibility rule (ChatNavBarComponent.isNavVisible). */
+  function navVisibleIds(): string[] {
+    return chatService.getActivePath()
+      .filter(n => !chatService.isDraftQuestion(n))
+      .filter(n => isChatLoreNode(n)
+        || !n.excludeFromContext
+        || chatService.getChildren(n.parentId ?? null).length > 1)
+      .map(n => n.id);
+  }
+
   beforeEach(() => {
     localStorage.clear();
   });
@@ -195,7 +214,8 @@ describe('ChatNavActionsService', () => {
     chatService.setActiveChild(null, 'q1');
     chatService.setActiveChild('q1', 'p');
     chatService.setActiveChild('p', 'c1');
-    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'p', 'c1']);
+    // The chat selection auto-creates the empty composer leaf — not part of the chain.
+    expect(pathIds()).toEqual(['q1', 'p', 'c1']);
     expect(chatService.getSiblingsOf(chatService.nodes().find(n => n.id === 'c1')!).map(n => n.id))
       .toEqual(['c1', 'c2']);
   }
@@ -264,7 +284,8 @@ describe('ChatNavActionsService', () => {
     chatService.setActiveChild('q1', 'g');
     chatService.setActiveChild('g', 'p');
     chatService.setActiveChild('p', 'h1');
-    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'g', 'p', 'h1']);
+    // The chat selection auto-creates the empty composer leaf — not part of the chain.
+    expect(pathIds()).toEqual(['q1', 'g', 'p', 'h1']);
   }
 
   it('cutNavSelection of a grandparent promotes the parent and keeps its off-path child', async () => {
@@ -285,6 +306,7 @@ describe('ChatNavActionsService', () => {
   it('deleteNavNodes of a grandparent promotes the parent and keeps its off-path child', async () => {
     await open(grandparentStory());
     activateGrandparentStory();
+    mockConfirm();
     const g = chatService.nodes().find(n => n.id === 'g')!;
 
     await service.deleteNavNodes(g);
@@ -292,6 +314,141 @@ describe('ChatNavActionsService', () => {
     expect(chatService.deletedNodes().some(n => n.id === 'g')).toBe(true);
     expect(chatService.nodes().find(n => n.id === 'p')?.parentId).toBe('q1');
     expect(chatService.getChildren('p').map(n => n.id)).toEqual(['h1', 'h2']);
+  });
+
+  it('cutNavSelection of a grandparent AND its child cuts the whole chain, off-path child intact', async () => {
+    await open(grandparentStory());
+    activateGrandparentStory();
+    mockConfirm();
+    navSelection.toggle('g', chatService.getActivePath(), () => false);
+    navSelection.toggle('p', chatService.getActivePath(), () => false);
+    expect(navSelection.selectedIds()).toEqual(['g', 'p']);
+
+    await service.cutNavSelection();
+
+    // The whole selected chain leaves the story…
+    expect(chatService.deletedNodes().some(n => n.id === 'g')).toBe(true);
+    expect(chatService.deletedNodes().some(n => n.id === 'p')).toBe(true);
+    expect(chatService.nodes().some(n => n.id === 'g' || n.id === 'p')).toBe(false);
+    // …and lands on the clipboard in path order.
+    expect(clipboard.clipboard()!.nodes.map(n => n.id)).toEqual(['g', 'p']);
+    // Both children re-hang on the topmost surviving ancestor, the off-path one
+    // included.
+    expect(chatService.getChildren('q1').map(n => n.id)).toEqual(['h1', 'h2']);
+    expect(chatService.nodes().find(n => n.id === 'h2')?.parentId).toBe('q1');
+    expect(pathIds()).toEqual(['q1', 'h1']);
+    expect(navSelection.selectedIds()).toEqual([]);
+  });
+
+  it('cutNavSelection of grandparent, parent AND the active node cuts to the fork, off-path child survives', async () => {
+    await open(grandparentStory());
+    activateGrandparentStory();
+    mockConfirm();
+    // Ctrl+click g then h1 → the selection normalises to the contiguous chain
+    // g → p → h1 (the whole visible run down to where the story continued).
+    navSelection.toggle('g', chatService.getActivePath(), () => false);
+    navSelection.toggle('h1', chatService.getActivePath(), () => false);
+    expect(navSelection.selectedIds()).toEqual(['g', 'p', 'h1']);
+
+    await service.cutNavSelection();
+
+    expect(chatService.deletedNodes().some(n => n.id === 'g')).toBe(true);
+    expect(chatService.deletedNodes().some(n => n.id === 'p')).toBe(true);
+    expect(chatService.deletedNodes().some(n => n.id === 'h1')).toBe(true);
+    expect(clipboard.clipboard()!.nodes.map(n => n.id)).toEqual(['g', 'p', 'h1']);
+    // Only the root and the branch that was NOT on the active path remain —
+    // h2 hangs directly under q1 now (the composer leaf is not a story node).
+    expect(chatService.nodes().filter(n => !chatService.isDraftQuestion(n)).map(n => n.id).sort())
+      .toEqual(['h2', 'q1']);
+    expect(chatService.nodes().find(n => n.id === 'h2')?.parentId).toBe('q1');
+    // The active path no longer runs through any cut node.
+    expect(pathIds()).toEqual(['q1']);
+    expect(navSelection.selectedIds()).toEqual([]);
+  });
+
+  // --- arbitrary trees: ONLY a sequential chain is ever cut --------------
+  //
+  //   q1 ─┬─ a1 ─┬─ lore1 ── q2 ─┬─ a2 ─┬─ lore2 ── q3       (active path)
+  //       │      │                │     └─ lore2b (identical lore, deduped)
+  //       │      │                └─ a2b  (off-path, excluded)
+  //       │      └─ a1d           (off-path)
+  //       ├─ a1b                  (off-path, excluded → pill stays, it forks)
+  //       └─ a1c                  (off-path)
+  //
+  // plus RETIRED VERSIONS (q2-old, a2-old) and every navbar visibility kind:
+  // plain pills, a HIDDEN pill (q2 — excluded and its only current child), an
+  // armed lore pill (lore1) and a documented lore pill (lore2 — excluded but
+  // still visible because lore is the path's anatomy).
+
+  /** A convoluted story: forks + retired versions + all visibility kinds. */
+  function messyStory(): ReturnType<typeof makeNode>[] {
+    return [
+      makeNode({ id: 'q1', role: 'user', content: 'Q1', position: 1 }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', position: 1 }),
+      makeNode({ id: 'a1b', parentId: 'q1', role: 'assistant', content: 'A1 sibling', position: 2, excludeFromContext: true }),
+      makeNode({ id: 'a1c', parentId: 'q1', role: 'assistant', content: 'A1 other branch', position: 3 }),
+
+      makeNode({ id: 'lore1', parentId: 'a1', role: 'lore', content: 'Ashley is married.', position: 1, excludeAfterSend: true }),
+      makeNode({ id: 'a1d', parentId: 'a1', role: 'assistant', content: 'A1 off path', position: 2 }),
+
+      makeNode({ id: 'q2', parentId: 'lore1', role: 'user', content: 'Q2', position: 1, excludeFromContext: true }),
+      makeNode({ id: 'q2-old', parentId: 'lore1', role: 'user', content: 'Q2 (old)', position: 2, isCurrent: false }),
+
+      makeNode({ id: 'a2', parentId: 'q2', role: 'assistant', content: 'A2', position: 1, previousVersionId: 'a2-old' }),
+      makeNode({ id: 'a2-old', parentId: 'q2', role: 'assistant', content: 'A2 (old)', position: 2, isCurrent: false }),
+      makeNode({ id: 'a2b', parentId: 'q2', role: 'assistant', content: 'A2 off path', position: 3, excludeFromContext: true }),
+
+      makeNode({ id: 'lore2', parentId: 'a2', role: 'lore', content: 'Harvey is dead.', position: 1, excludeFromContext: true }),
+      makeNode({ id: 'lore2b', parentId: 'a2', role: 'lore', content: 'Harvey is dead.', position: 2, excludeFromContext: true }),
+
+      makeNode({ id: 'q3', parentId: 'lore2', role: 'user', content: 'Q3', position: 1 }),
+    ];
+  }
+
+  /** Walk the active path of {@link messyStory}. */
+  function activateMessyStory(): void {
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'lore1');
+    chatService.setActiveChild('lore1', 'q2');
+    chatService.setActiveChild('q2', 'a2');
+    chatService.setActiveChild('a2', 'lore2');
+    chatService.setActiveChild('lore2', 'q3');
+    expect(pathIds()).toEqual(['q1', 'a1', 'lore1', 'q2', 'a2', 'lore2', 'q3']);
+  }
+
+  it('cuts only the contiguous run — across forks, versions and visibility kinds', async () => {
+    await open(messyStory());
+    activateMessyStory();
+
+    // The bar really hides q2 (excluded, no sibling) and keeps BOTH lore pills.
+    expect(navVisibleIds()).toEqual(['q1', 'a1', 'lore1', 'a2', 'lore2', 'q3']);
+    expect(navVisibleIds()).not.toContain('q2');
+    expect(navVisibleIds()).toContain('lore2'); // excluded, but lore stays visible
+
+    mockConfirm();
+    // Ctrl+click the two bounding PILLS: the hidden q2 in between is part of
+    // the normalised chain, the off-path siblings are not.
+    navSelection.toggle('a1', chatService.getActivePath(), () => false);
+    navSelection.toggle('lore2', chatService.getActivePath(), () => false);
+    expect(navSelection.selectedIds()).toEqual(['a1', 'lore1', 'q2', 'a2', 'lore2']);
+
+    await service.cutNavSelection();
+
+    // Exactly that run left the story, and it is what sits on the clipboard…
+    expect(api.nodes.filter(n => !!n.deletedAt).map(n => n.id).sort())
+      .toEqual(['a1', 'a2', 'lore1', 'lore2', 'q2'].sort());
+    expect(clipboard.clipboard()!.nodes.map(n => n.id)).toEqual(['a1', 'lore1', 'q2', 'a2', 'lore2']);
+    // …nothing else was touched: off-path siblings, the deduped lore repeat,
+    // the still-running story tail and BOTH retired versions are intact.
+    const survivors = ['a1b', 'a1c', 'a1d', 'a2b', 'lore2b', 'q3', 'q2-old', 'a2-old'];
+    expect(chatService.nodes().filter(n => !chatService.isDraftQuestion(n)).map(n => n.id).sort())
+      .toEqual(['q1', ...survivors].sort());
+    // All of them now hang on the run's topmost surviving ancestor.
+    for (const id of survivors) {
+      expect(chatService.nodes().find(n => n.id === id)?.parentId).toBe('q1');
+    }
+    expect(navSelection.selectedIds()).toEqual([]);
   });
 
   it('extractNavSelection creates a new chat with the selected chain and opens it', async () => {

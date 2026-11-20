@@ -8,6 +8,7 @@ import { ChatService } from '../chat/chat.service';
 import { ProjectService } from '../settings/project.service';
 import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { makeAttachment, seedApi } from '../../../../test-helpers/factories';
+import { isChatLoreNode } from '../chat/chat-lore.service';
 import type { Chat, ChatNode } from '../../models/chat';
 
 const CHAT_ID = 'chat-1';
@@ -104,6 +105,15 @@ describe('NodeClipboardService', () => {
     return e!;
   }
 
+  /** Payload ids of the STORY nodes — an empty composer node is not content
+   *  (`ClipboardNode` carries no chatId, so this cannot use isDraftQuestion). */
+  function payloadIds(): string[] {
+    return entry()
+      .nodes
+      .filter(n => !(n.role === 'user' && !n.content?.trim() && !(n.attachments?.length)))
+      .map(n => n.id);
+  }
+
   /** Stored payload as plain JSON (persistence assertions). */
   function stored(): any {
     const raw = localStorage.getItem(LS_KEY);
@@ -114,6 +124,21 @@ describe('NodeClipboardService', () => {
   /** Node ids of a chat's nodes, whether or not they are still current. */
   function nodeIds(chatId: string): string[] {
     return api.nodes.filter(n => n.chatId === chatId && !n.deletedAt).map(n => n.id);
+  }
+
+  /** Node ids of the STORY nodes (the empty composer leaf is not content). */
+  function storyIds(chatId: string): string[] {
+    return api.nodes
+      .filter(n => n.chatId === chatId && !n.deletedAt && !chatService.isDraftQuestion(n))
+      .map(n => n.id);
+  }
+
+  /** Active-path ids without the auto-created trailing composer leaf. */
+  function pathIds(): string[] {
+    return chatService
+      .getActivePath()
+      .filter(n => !chatService.isDraftQuestion(n))
+      .map(n => n.id);
   }
 
   /** The chain contents of a chat, walked from its single root. */
@@ -320,7 +345,8 @@ describe('NodeClipboardService', () => {
     chatService.setActiveChild(null, 'q1');
     chatService.setActiveChild('q1', 'p');
     chatService.setActiveChild('p', 'c1');
-    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'p', 'c1']);
+    // The selection auto-creates the empty composer leaf — not part of the chain.
+    expect(pathIds()).toEqual(['q1', 'p', 'c1']);
   }
 
   it('cut(node) re-hangs the off-path child too — only the cut node leaves', async () => {
@@ -344,7 +370,7 @@ describe('NodeClipboardService', () => {
 
     expect(entry().nodes.map(n => n.id)).toEqual(['q1', 'p']);
     // Both selected nodes are gone; both children become roots.
-    expect(nodeIds(CHAT_ID)).toEqual(['c1', 'c2']);
+    expect(storyIds(CHAT_ID)).toEqual(['c1', 'c2']);
     expect(nut('c1').parentId).toBeNull();
     expect(nut('c2').parentId).toBeNull();
   });
@@ -354,8 +380,10 @@ describe('NodeClipboardService', () => {
 
     await service.cutSubtree(nut('p'));
 
-    expect(entry().nodes.map(n => n.id)).toEqual(['p', 'c1', 'c2']);
-    expect(nodeIds(CHAT_ID)).toEqual(['q1']);
+    // (the empty composer leaf travels with the subtree — it is no story content)
+    expect(payloadIds()).toEqual(['p', 'c1', 'c2']);
+    // Only the root is left (the composer leaf under c1 went with the subtree).
+    expect(storyIds(CHAT_ID)).toEqual(['q1']);
   });
 
   // --- cutting a GRANDPARENT above an off-path branch -------------------
@@ -383,7 +411,8 @@ describe('NodeClipboardService', () => {
     chatService.setActiveChild('q1', 'g');
     chatService.setActiveChild('g', 'p');
     chatService.setActiveChild('p', 'h1');
-    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'g', 'p', 'h1']);
+    // The selection auto-creates the empty composer leaf — not part of the chain.
+    expect(pathIds()).toEqual(['q1', 'g', 'p', 'h1']);
   }
 
   it('cut(grandparent) promotes the parent and keeps its off-path child', async () => {
@@ -408,7 +437,7 @@ describe('NodeClipboardService', () => {
 
     expect(entry().nodes.map(n => n.id)).toEqual(['q1', 'g']);
     // q1 and g are gone; the parent becomes a root…
-    expect(nodeIds(CHAT_ID)).toEqual(['p', 'h1', 'h2']);
+    expect(storyIds(CHAT_ID)).toEqual(['p', 'h1', 'h2']);
     expect(nut('p').parentId).toBeNull();
     // …with both children intact.
     expect(chatService.getChildren('p').map(n => n.id)).toEqual(['h1', 'h2']);
@@ -419,9 +448,185 @@ describe('NodeClipboardService', () => {
 
     await service.cutSubtree(nut('g'));
 
-    expect(entry().nodes.map(n => n.id)).toEqual(['g', 'p', 'h1', 'h2']);
-    expect(nodeIds(CHAT_ID)).toEqual(['q1']);
+    // (the empty composer leaf travels with the subtree — it is no story content)
+    expect(payloadIds()).toEqual(['g', 'p', 'h1', 'h2']);
+    expect(storyIds(CHAT_ID)).toEqual(['q1']);
   });
+
+  it('cutSequence(grandparent + parent) cuts the whole chain above the branch, off-path child intact', async () => {
+    await openGrandparentChain();
+
+    await service.cutSequence([nut('g'), nut('p')]);
+
+    // Both cut nodes travel on the clipboard, in path order…
+    expect(entry().nodes.map(n => n.id)).toEqual(['g', 'p']);
+    expect(api.nodes.find(n => n.id === 'g')?.deletedAt).toBeTruthy();
+    expect(api.nodes.find(n => n.id === 'p')?.deletedAt).toBeTruthy();
+    // …the children of the cut chain re-hang on the topmost surviving ancestor…
+    expect(storyIds(CHAT_ID)).toEqual(['q1', 'h1', 'h2']);
+    expect(nut('h1').parentId).toBe('q1');
+    // …including the child that is NOT on the active path.
+    expect(nut('h2').parentId).toBe('q1');
+    // The active continuation still runs through h1, not the off-path h2.
+    expect(pathIds()).toEqual(['q1', 'h1']);
+  });
+
+  it('cutSequence(grandparent + parent) in reverse order leaves the same tree', async () => {
+    await openGrandparentChain();
+
+    // Bottom-up: p's children re-hang on g first, then g's remaining children
+    // (h1, h2) re-hang on q1 — the same result as the path order above.
+    await service.cutSequence([nut('p'), nut('g')]);
+
+    expect(entry().nodes.map(n => n.id)).toEqual(['p', 'g']);
+    expect(storyIds(CHAT_ID)).toEqual(['q1', 'h1', 'h2']);
+    expect(nut('h1').parentId).toBe('q1');
+    expect(nut('h2').parentId).toBe('q1');
+  });
+
+  it('cutSequence(grandparent + parent + the active node) empties the chain, off-path child survives', async () => {
+    await openGrandparentChain();
+
+    await service.cutSequence([nut('g'), nut('p'), nut('h1')]);
+
+    // The whole selected chain — grandparent, parent and the node the story
+    // continued through — travels on the clipboard, in path order.
+    expect(entry().nodes.map(n => n.id)).toEqual(['g', 'p', 'h1']);
+    expect(api.nodes.find(n => n.id === 'g')?.deletedAt).toBeTruthy();
+    expect(api.nodes.find(n => n.id === 'p')?.deletedAt).toBeTruthy();
+    expect(api.nodes.find(n => n.id === 'h1')?.deletedAt).toBeTruthy();
+    // Nothing of the cut chain is left; only the root and the branch that was
+    // NOT on the active path remain.
+    expect(storyIds(CHAT_ID)).toEqual(['q1', 'h2']);
+    expect(nut('h2').parentId).toBe('q1');
+    expect(chatService.getChildren('q1').map(n => n.id)).toContain('h2');
+    // The re-hung empty composer leaf takes over as the continuation — the
+    // off-path h2 is not activated behind the user's back.
+    expect(chatService.isDraftQuestion(chatService.getActivePath().at(-1)!)).toBe(true);
+    expect(pathIds()).toEqual(['q1']);
+  });
+
+  // --- arbitrary trees: ONLY a sequential chain is ever cut -------------
+  //
+  // A deliberately convoluted story. Its ACTIVE path is
+  //
+  //   q1 → a1 → lore1 → q2 → a2 → lore2 → q3
+  //
+  // and it mixes everything the navbar has to cope with:
+  //   – several forks whose siblings are OFF the path (a1b/a1c under q1,
+  //     a1d under a1, a2b under q2, lore2b under a2),
+  //   – RETIRED VERSIONS (`isCurrent: false`) hanging off the same parents,
+  //   – three kinds of navbar visibility: plainly visible nodes, a node whose
+  //     pill is HIDDEN because it is excluded from the context and has no
+  //     sibling (q2), an ARMED lore pill (lore1) and a DOCUMENTED lore pill
+  //     that stays visible although it is excluded (lore2).
+  //
+  // However the tree forks, hides and versions, a cut may only ever take ONE
+  // contiguous run of the active path — never a sibling, never a retired
+  // version, never a neighbour outside the run.
+
+  const MESSY_PATH = ['q1', 'a1', 'lore1', 'q2', 'a2', 'lore2', 'q3'];
+
+  function messyTree(): Partial<ChatNode>[] {
+    return [
+      { id: 'q1', parentId: null, role: 'user', content: 'Q1', position: 1 },
+      { id: 'a1', parentId: 'q1', role: 'assistant', content: 'A1', position: 1 },
+      // Off-path sibling of a1: excluded from the context, yet shown in the
+      // bar because it has siblings (a fork anchor).
+      { id: 'a1b', parentId: 'q1', role: 'assistant', content: 'A1 sibling', position: 2, excludeFromContext: true },
+      // Off-path third branch of the root fork.
+      { id: 'a1c', parentId: 'q1', role: 'assistant', content: 'A1 other branch', position: 3 },
+
+      { id: 'lore1', parentId: 'a1', role: 'lore', content: 'Ashley is married.', position: 1, excludeAfterSend: true },
+      { id: 'a1d', parentId: 'a1', role: 'assistant', content: 'A1 off path', position: 2 },
+
+      // Excluded AND the only current child → no pill in the navbar at all.
+      { id: 'q2', parentId: 'lore1', role: 'user', content: 'Q2', position: 1, excludeFromContext: true },
+      // Retired version of q2 — same parent, never on the active path.
+      { id: 'q2-old', parentId: 'lore1', role: 'user', content: 'Q2 (old)', position: 2, isCurrent: false },
+
+      { id: 'a2', parentId: 'q2', role: 'assistant', content: 'A2', position: 1, previousVersionId: 'a2-old' },
+      // Retired version of a2.
+      { id: 'a2-old', parentId: 'q2', role: 'assistant', content: 'A2 (old)', position: 2, isCurrent: false },
+      { id: 'a2b', parentId: 'q2', role: 'assistant', content: 'A2 off path', position: 3, excludeFromContext: true },
+
+      // Documented lore (excluded) — still a visible ⟡ pill, plus an identical
+      // repeat that the bar deduplicates.
+      { id: 'lore2', parentId: 'a2', role: 'lore', content: 'Harvey is dead.', position: 1, excludeFromContext: true },
+      { id: 'lore2b', parentId: 'a2', role: 'lore', content: 'Harvey is dead.', position: 2, excludeFromContext: true },
+
+      { id: 'q3', parentId: 'lore2', role: 'user', content: 'Q3', position: 1 },
+    ];
+  }
+
+  /** Walk the active path of {@link messyTree}. */
+  function activateMessyTree(): void {
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'a1');
+    chatService.setActiveChild('a1', 'lore1');
+    chatService.setActiveChild('lore1', 'q2');
+    chatService.setActiveChild('q2', 'a2');
+    chatService.setActiveChild('a2', 'lore2');
+    chatService.setActiveChild('lore2', 'q3');
+    expect(pathIds()).toEqual(MESSY_PATH);
+  }
+
+  /** The navbar's visibility rule — ChatNavBarComponent.isNavVisible(). */
+  function navVisible(n: ChatNode): boolean {
+    if (isChatLoreNode(n)) return true;
+    return !n.excludeFromContext || chatService.getChildren(n.parentId ?? null).length > 1;
+  }
+
+  it('cuts ONLY the selected run — in every span of a messy, forked, versioned tree', async () => {
+    // --- sanity: the fixture really exercises the visibility kinds -------
+    await openSelected(messyTree());
+    activateMessyTree();
+    const visible = chatService.getActivePath()
+      .filter(n => !chatService.isDraftQuestion(n) && navVisible(n))
+      .map(n => n.id);
+    expect(visible).toEqual(['q1', 'a1', 'lore1', 'a2', 'lore2', 'q3']);
+    expect(visible).not.toContain('q2'); // excluded + no sibling → hidden pill
+    expect(visible).toContain('lore1');  // armed lore pill
+    expect(visible).toContain('lore2');  // documented lore pill (excluded)
+    expect(chatService.getChildren('q1').map(n => n.id)).toEqual(['a1', 'a1b', 'a1c']);
+    expect(api.nodes.filter(n => !n.isCurrent).map(n => n.id).sort()).toEqual(['a2-old', 'q2-old']);
+
+    const allIds = messyTree().map(n => n.id!);
+    let spans = 0;
+    for (let lo = 0; lo < MESSY_PATH.length; lo++) {
+      for (let hi = lo; hi < MESSY_PATH.length; hi++) {
+        const run = MESSY_PATH.slice(lo, hi + 1);
+
+        // Fresh module + fresh API + fresh tree for every span.
+        TestBed.resetTestingModule();
+        await openSelected(messyTree());
+        activateMessyTree();
+        // Children of the DEEPEST cut node, captured before the cut.
+        const below = chatService.getChildren(run.at(-1)!)
+          .map(n => n.id)
+          .filter(id => !run.includes(id));
+
+        await service.cutSequence(run.map(id => nut(id)));
+
+        // 1. The clipboard holds exactly the run — no sibling, no version.
+        expect(entry().nodes.map(n => n.id)).toEqual(run);
+        // 2. Exactly the run was removed. Every other node — off-path sibling,
+        //    hidden neighbour, retired version, lore — is still in the story.
+        expect(api.nodes.filter(n => !!n.deletedAt).map(n => n.id).sort())
+          .toEqual([...run].sort());
+        expect(storyIds(CHAT_ID).sort())
+          .toEqual(allIds.filter(id => !run.includes(id)).sort());
+        // 3. The children below the run re-hang on the run's topmost surviving
+        //    ancestor (or become roots when the run starts at the story root).
+        const ancestor = lo > 0 ? MESSY_PATH[lo - 1] : null;
+        for (const id of below) {
+          expect(nut(id).parentId).toBe(ancestor);
+        }
+        spans++;
+      }
+    }
+    expect(spans).toBe((MESSY_PATH.length * (MESSY_PATH.length + 1)) / 2);
+  }, 60000);
 
   // ------------------------------------------------------------------
   // Clear + persistence
@@ -598,7 +803,7 @@ describe('NodeClipboardService', () => {
     expect(chatService.getChildren('c2').map(n => n.id)).toEqual([created!.id]);
     expect(chatService.getActiveChildId('c2')).toBe(created!.id);
     // The active path is untouched — c2 is still off the path.
-    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'p', 'c1']);
+    expect(pathIds()).toEqual(['q1', 'p', 'c1']);
   });
 
   it('the exclude-from-context flag travels with a copied chain through paste', async () => {
@@ -936,7 +1141,8 @@ describe('NodeClipboardService', () => {
     // …while the fully moved leaf h1 was really cut.
     expect(ids).not.toContain('h1');
     expect(nut('p').parentId).toBe('g');
-    expect(chatService.getChildren('p').map(n => n.id)).toEqual(['h2']);
+    expect(chatService.getChildren('p').filter(n => !chatService.isDraftQuestion(n)).map(n => n.id))
+      .toEqual(['h2']);
   });
 
   // --- extract: a GRANDPARENT above an empty connector ------------------
