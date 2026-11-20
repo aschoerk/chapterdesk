@@ -32,20 +32,37 @@ in-memory API and drives the page through its public handlers.
 
 Guarantees worth knowing before touching the page:
 
-* **Navigation and selection.** The navbar shows the active path, marks the node
-  being edited with a dot, keeps excluded nodes visible while they still have
-  siblings (so branches stay reachable), and never selects the empty terminal
-  draft. `Ctrl+click` toggles one node, `Ctrl+drag` selects a range in navbar
-  order, and a copied selection becomes an ordered sequence.
+* **Navigation and selection.** The navbar renders the **active path as a
+  single chain**: exactly one sibling per parent (the active continuation), so
+  the bar always reads root→leaf. A retired version (`!isCurrent`, i.e. an old
+  `previousVersionId` link) never appears, even when a stale path still carries
+  one. A node that has siblings carries the `n/m` **branch count** — that is the
+  fork; switching the continuation (node menu *Previous/Next fork*, or the
+  tree's own switcher) re-computes the path and the bar then **reveals the
+  newly active branch's own forks**, so every root→leaf path of the chat is
+  reachable by switching. Fork anchors are never hidden: a lore node that is the
+  active child of a fork keeps its pill and `n/m` badge even when its lore text
+  repeats an earlier pill (repeats elsewhere are still hidden) — otherwise the
+  fork would have no switch affordance. Excluded nodes stay visible while they
+  have siblings, the node being edited is marked with a dot, viewport-visible
+  nodes get the "current" frame, and the empty terminal draft is never
+  selectable. `Ctrl+click` toggles one node, `Ctrl+drag` selects a range in
+  navbar order, and a copied selection becomes an ordered sequence. The
+  selection-tools row sticks to the top of the bar's scrollport (with a small
+  gap so selected-pill outlines stay clear of it), so the actions remain usable
+  on paths longer than the bar's capped height.
 * **Navbar context menus** (rows + geometry asserted in `SVC_NAVMENU`, the
-  *actions* stay in the page spec): the two menus are mutually exclusive, the
-  terminal empty draft gets **no** node menu, and nothing may be pasted to its
-  left — the ⤵ button disappears after the node before it. Paste-offer rows
-  dispatch *Insert* (splice into the visible chain) vs *Append* (parallel
-  branch) through the page, and the node menu offers *branch here*, the
-  continuation switches **only when there are siblings**, select/unselect +
-  clear, copy/cut/delete, and paste in front/behind — the latter disabled where
-  impossible.
+  *actions* stay in the page spec): the two menus are mutually exclusive. The
+  terminal empty draft normally gets **no** node menu — the sole exception is a
+  draft that is itself a fork participant (its parent has other current
+  children): it then opens a **switch-only** menu (branch here + previous/next
+  fork, no select/copy/cut/delete/paste) while staying the terminal input
+  target. Nothing may be pasted to the draft's left — the ⤵ button disappears
+  after the node before it. Paste-offer rows dispatch *Insert* (splice into the
+  visible chain) vs *Append* (parallel branch) through the page, and the node
+  menu offers *branch here*, the continuation switches **only when there are
+  siblings**, select/unselect + clear, copy/cut/delete, and paste in
+  front/behind — the latter disabled where impossible.
 * **Search scope.** "Node" search reads the **live draft** of a node that is
   being edited and the committed content of every other node, then scrolls both
   the textarea and the tree to the hit.
