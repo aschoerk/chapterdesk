@@ -230,6 +230,51 @@ builder"` is the lore specification. The assertions that matter:
 * `send-regenerate`, `send-rewrite` and `send-insert` clear the exclude flag
   before the answer, so regenerating does not silently lose the canon.
 
+### 2.5 `CLIP_NODE` — the node clipboard (copy / cut / paste)
+
+`node-clipboard.service.spec.ts` pins the navbar's section clipboard. It runs
+the real `ChatService` on the in-memory API; `open()` only *loads* the nodes (no
+auto-draft), `openSelected()` selects the chat where `currentChatId()` or the
+active path is needed.
+
+* **Payload.** `copy` stages one node, `copySubtree` the node plus every
+  descendant (parent links kept as-is), `copySequence` an ordered list *without*
+  subtrees. The staged node keeps its data (`thinking`, model, attachments,
+  `exclude*` flags) and is written to `localStorage`
+  (`chapterdesk.nodeClipboard`, version 1) so it survives reloads; a malformed or
+  foreign payload (wrong format/version/action) is ignored.
+* **Cut is "copy now, delete now".** `cut` / `cutSequence` remove only the
+  selected nodes and re-hang their children under the nearest surviving
+  ancestor (`keepChildren`); `cutSubtree` removes the whole subtree. The staged
+  payload is marked `copy` on purpose — the source nodes are already gone, so a
+  later paste must re-create them. A **hidden parent** (excluded from the
+  context, so not rendered in the navbar) is never touched:
+  cutting/deleting a node below it leaves the connector in place and re-hangs
+  the following chain on it, while a hidden connector that lies *inside* the
+  selected span is cut along with the rest.
+* **Paste remaps, never shares.** Copied nodes are re-created with new ids and
+  remapped parent pointers; a pasted node starts its own history (version 1, no
+  `previousVersionId`). `paste(parent, afterNode)` inserts right after the given
+  sibling and activates the new root; with no current chat or an empty clipboard
+  it is a no-op.
+* **Splicing vs. branching.** `insertIntoPath(left, right)` rebuilds the visible
+  chain `left → [chain] → right` (the right node is re-hung under the chain's
+  last node, the chain root becomes `left`'s active child), while
+  `appendIntoPath` keeps `left → right` untouched and adds the copy as a
+  parallel sibling before `right` — only at the very end (no right node) does
+  the copy become the active continuation.
+* **Extract moves into a new story.** `extractSequence` creates a new chat
+  (title = source title or the `title` option, suffixed with the selection's
+  index on the active path), copies the story lore, and re-creates the chain
+  there. A node is only **cut** from the source when its *entire* subtree moved;
+  a node with a branch that stays behind is copied and kept (removing it would
+  orphan that branch). Empty composer leaves **and empty hidden leaves** never
+  count as a staying branch — but a hidden branch that still carries content
+  does, so the parent is copied instead of cut.
+  With `withVisibleSubtree` the visible continuation is taken along — still
+  excluding the terminal empty draft. Extract never stages anything on the
+  clipboard.
+
 ---
 
 ## 3. LLM layer

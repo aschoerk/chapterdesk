@@ -78,7 +78,7 @@ They only exist in the diagrams — nothing in the code is renamed.
 | `SVC_USAGE` / `SVC_IMAGES` / `SVC_MARKS` / `SVC_NAVSEL` / `SVC_VIEWPREFS` | usage, images, reading marks, nav selection, view prefs | one spec each |
 | `SVC_NAVMENU` | `ChatNavMenuService` — navbar context menus (paste insert/append, node menu) | `chat-nav-menu.service.spec.ts` |
 | `SVC_ELABDLG` / `SVC_PARAMS` | elaborate dialog state, chat parameters | via page/editor specs |
-| `CLIP_NODE` / `CLIP_STORY` / `CLIP_ATT` | node / story / attachment clipboard | 2 specs (node via `flows.spec`) |
+| `CLIP_NODE` / `CLIP_STORY` / `CLIP_ATT` | node / story / attachment clipboard | 3 specs |
 | `SET_MAIN` / `SET_GEN` / `SET_SORT` / `SET_OTHER` / `SET_ENV` | settings, generation settings, sort prefs, projects/topics/theme, environment profile | 3 specs + page specs |
 | `PR_DEFAULTS` / `PR_API` / `NAMES` | prompt defaults, prompt API + pricing, name replacement | 5 specs |
 | `IO_DOCX_OUT` / `IO_DOCX_IN` / `IO_EPUB` / `IO_BUNDLE` / `IO_TEXTS` | docx/epub import + export, story bundles, text versions | 4 specs |

@@ -173,6 +173,127 @@ describe('ChatNavActionsService', () => {
     expect(navSelection.selectedIds()).toEqual([]);
   });
 
+  // --- off-path branches (nodes NOT on the active path) -----------------
+  //
+  //   q1 → p → { c1 (active continuation), c2 (off-path sibling) }
+  //
+  // `c2` exists in the tree but is NOT on the active path, so the navbar never
+  // renders it. Cutting/deleting a node above it must not lose it.
+
+  /** q1 → p → { c1 (active), c2 (off-path). } */
+  function offPathStory(): ReturnType<typeof makeNode>[] {
+    return [
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'p', parentId: 'q1', role: 'assistant', content: 'Parent', isCurrent: true }),
+      makeNode({ id: 'c1', parentId: 'p', role: 'user', content: 'C1', isCurrent: true, position: 1 }),
+      makeNode({ id: 'c2', parentId: 'p', role: 'assistant', content: 'C2 (off path)', isCurrent: true, position: 2 }),
+    ];
+  }
+
+  /** Activate q1 → p → c1, leaving c2 off the active path. */
+  function activateOffPathStory(): void {
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'p');
+    chatService.setActiveChild('p', 'c1');
+    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'p', 'c1']);
+    expect(chatService.getSiblingsOf(chatService.nodes().find(n => n.id === 'c1')!).map(n => n.id))
+      .toEqual(['c1', 'c2']);
+  }
+
+  it('cutNavSelection of a parent re-hangs BOTH children — including the off-path one', async () => {
+    await open(offPathStory());
+    activateOffPathStory();
+    mockConfirm();
+    navSelection.toggle('p', chatService.getActivePath(), () => false);
+
+    await service.cutNavSelection();
+
+    expect(chatService.deletedNodes().some(n => n.id === 'p')).toBe(true);
+    // The off-path branch is not part of the selection → it stays, re-hung.
+    expect(chatService.nodes().some(n => n.id === 'c2')).toBe(true);
+    expect(chatService.nodes().find(n => n.id === 'c2')?.parentId).toBe('q1');
+    expect(chatService.nodes().find(n => n.id === 'c1')?.parentId).toBe('q1');
+  });
+
+  it('deleteNavSelection of a parent re-hangs BOTH children — including the off-path one', async () => {
+    await open(offPathStory());
+    activateOffPathStory();
+    navSelection.toggle('p', chatService.getActivePath(), () => false);
+
+    await service.deleteNavSelection();
+
+    expect(chatService.deletedNodes().some(n => n.id === 'p')).toBe(true);
+    expect(chatService.nodes().some(n => n.id === 'c2')).toBe(true);
+    expect(chatService.nodes().find(n => n.id === 'c2')?.parentId).toBe('q1');
+  });
+
+  it('cutNavNodes on an off-path node cuts only that node (the active chain stays)', async () => {
+    await open(offPathStory());
+    activateOffPathStory();
+    mockConfirm();
+    const c2 = chatService.nodes().find(n => n.id === 'c2')!;
+
+    await service.cutNavNodes(c2);
+
+    expect(chatService.deletedNodes().some(n => n.id === 'c2')).toBe(true);
+    expect(chatService.nodes().some(n => n.id === 'p')).toBe(true);
+    expect(chatService.nodes().find(n => n.id === 'c1')?.parentId).toBe('p');
+  });
+
+  // --- cutting a GRANDPARENT above an off-path branch --------------------
+  //
+  //   q1 → g → p → { h1 (active), h2 (off-path) }
+  //
+  // `g` is a visible pill, so it can be selected and cut from the navbar. The
+  // whole branch below it must survive — including the off-path child.
+
+  /** q1 → g → p → { h1 (active), h2 (off-path). } */
+  function grandparentStory(): ReturnType<typeof makeNode>[] {
+    return [
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'g', parentId: 'q1', role: 'assistant', content: 'Grandparent' }),
+      makeNode({ id: 'p', parentId: 'g', role: 'user', content: 'Parent' }),
+      makeNode({ id: 'h1', parentId: 'p', role: 'assistant', content: 'H1', isCurrent: true, position: 1 }),
+      makeNode({ id: 'h2', parentId: 'p', role: 'assistant', content: 'H2 (off path)', isCurrent: true, position: 2 }),
+    ];
+  }
+
+  /** Activate q1 → g → p → h1, leaving h2 off the active path. */
+  function activateGrandparentStory(): void {
+    chatService.setActiveChild(null, 'q1');
+    chatService.setActiveChild('q1', 'g');
+    chatService.setActiveChild('g', 'p');
+    chatService.setActiveChild('p', 'h1');
+    expect(chatService.getActivePath().map(n => n.id)).toEqual(['q1', 'g', 'p', 'h1']);
+  }
+
+  it('cutNavSelection of a grandparent promotes the parent and keeps its off-path child', async () => {
+    await open(grandparentStory());
+    activateGrandparentStory();
+    mockConfirm();
+    navSelection.toggle('g', chatService.getActivePath(), () => false);
+
+    await service.cutNavSelection();
+
+    expect(chatService.deletedNodes().some(n => n.id === 'g')).toBe(true);
+    // The parent takes g's place in the chain…
+    expect(chatService.nodes().find(n => n.id === 'p')?.parentId).toBe('q1');
+    // …and keeps BOTH children, the off-path one included.
+    expect(chatService.getChildren('p').map(n => n.id)).toEqual(['h1', 'h2']);
+  });
+
+  it('deleteNavNodes of a grandparent promotes the parent and keeps its off-path child', async () => {
+    await open(grandparentStory());
+    activateGrandparentStory();
+    const g = chatService.nodes().find(n => n.id === 'g')!;
+
+    await service.deleteNavNodes(g);
+
+    expect(chatService.deletedNodes().some(n => n.id === 'g')).toBe(true);
+    expect(chatService.nodes().find(n => n.id === 'p')?.parentId).toBe('q1');
+    expect(chatService.getChildren('p').map(n => n.id)).toEqual(['h1', 'h2']);
+  });
+
   it('extractNavSelection creates a new chat with the selected chain and opens it', async () => {
     await open(story());
     activateStory();

@@ -83,7 +83,7 @@ package "Domain — chat" as DOM_CHAT {
 }
 
 package "Domain — clipboard" as DOM_CLIP {
-  component "NodeClipboardService\ncopy/cut sequences\n(via flows.spec)" as CLIP_NODE
+  component "NodeClipboardService\ncopy/cut sequences\n(node-clipboard.service.spec)" as CLIP_NODE
   component "StoryClipboardService\n(story-clipboard.service.spec)" as CLIP_STORY
   component "AttachmentClipboardService\n(attachment-clipboard.service.spec)" as CLIP_ATT
 }
