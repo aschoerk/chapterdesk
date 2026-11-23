@@ -270,7 +270,7 @@ The `.exe` installer is written to the `dist/` folder.
 
 ### Prerequisites
 
-- Node.js 22+
+- Node.js 24+
 - npm
 
 ### Setup
