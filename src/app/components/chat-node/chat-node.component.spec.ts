@@ -29,6 +29,7 @@ import { LlmUseCaseRunner, LlmOrchestratorService } from '../../core/llm/orchest
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
 import { MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { ChatViewPrefsService } from '../../core/chat/chat-view-prefs.service';
+import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -1795,6 +1796,32 @@ describe('ChatNodeComponent', () => {
       expect(answers.length).toBeGreaterThanOrEqual(1);
       expect(answers[0].content).toBe('Generated.');
       expect(component.isEditing()).toBe(false);
+    });
+
+    it('continues the story from an assistant chapter: materializes a direction leaf under it and streams', async () => {
+      const q1 = node({ id: 'q1', content: 'Question' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+        modelId: 'alpha/model', providerId: 'prov-1',
+      });
+      await openChat([q1, a1]);
+      createFixture(a1);
+
+      await component.continueFromChapter();
+      fixture.detectChanges();
+
+      // A fresh direction (user) leaf is materialized UNDER the chapter, with
+      // the Continue template as its content.
+      const direction = chatService.nodes().find(
+        (n) => n.role === 'user' && n.parentId === 'a1' && !!n.content?.trim()
+      );
+      expect(direction).toBeTruthy();
+      expect(direction!.content.trim()).toBe('continue');
+      expect(chatService.getActiveChildId('a1')).toBe(direction!.id);
+      // The answer streams under it (the composer's `append` use case).
+      const answer = chatService.nodes().find((n) => n.role === 'assistant' && n.parentId === direction!.id);
+      expect(answer).toBeTruthy();
+      expect(answer!.content).toBe('Generated.');
     });
 
     it('updates the chat title from the first line when the chat is still "New Chat"', async () => {
@@ -5276,6 +5303,9 @@ describe('ChatNodeComponent', () => {
         'Rewrite in place',
         'Illustrate',
         'Create image of selection…',
+        'Continue',
+        'Multiple Characters',
+        'Elaborate',
         'Set next read position here',
         'Mark this position (notice)',
         'Add notice to the marked text',
@@ -5285,6 +5315,30 @@ describe('ChatNodeComponent', () => {
       expect(items.filter((i) => i.divider).length).toBe(3);
       // The regenerate action is enabled (nothing is generating).
       expect(items.find((i) => i.label === 'Regenerate')?.disabled).toBe(false);
+    });
+
+    it('opens the elaborate dialog anchored at the right-clicked assistant chapter', () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter',
+      });
+      createFixture(a1);
+      const elaborate = TestBed.inject(ChatElaborateService);
+      const openSpy = vi.spyOn(elaborate, 'openElaborateDialog').mockImplementation(() => undefined);
+
+      const item = component.ctxMenuItems().find((i) => i.label === 'Elaborate')!;
+      expect(item).toBeTruthy();
+      component.runCtxAction(item);
+
+      expect(openSpy).toHaveBeenCalledWith(a1);
+      vi.restoreAllMocks();
+    });
+
+    it('disables the chapter authoring actions on an empty assistant chapter', () => {
+      createFixture(node({ id: 'a1', role: 'assistant', content: '' }));
+      const items = component.ctxMenuItems();
+      for (const label of ['Continue', 'Multiple Characters', 'Elaborate']) {
+        expect(items.find((i) => i.label === label)?.disabled, label).toBe(true);
+      }
     });
 
     it('gives an unsent question the Continue and Multiple Characters items and no Prepend', async () => {

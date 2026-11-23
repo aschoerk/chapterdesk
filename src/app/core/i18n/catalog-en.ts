@@ -620,6 +620,7 @@ export const EN = {
     ctxCompareSiblings: 'Compare siblings…',
     ctxContinue: 'Continue',
     ctxSwitchCharacters: 'Multiple Characters',
+    ctxElaborate: 'Elaborate',
     ctxHeading: 'Add heading',
     ctxRegenerate: 'Regenerate',
     ctxRegenerateInPlace: 'Rewrite in place',

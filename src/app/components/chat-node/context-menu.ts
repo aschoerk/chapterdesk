@@ -77,6 +77,12 @@ export interface CtxMenuContext {
     markSelection: () => void;
     remove: () => void;
     delete: () => void;
+    /** Continue the STORY from an assistant chapter (chapter-scoped composer shortcut). */
+    continueChapter: () => void;
+    /** Multiple-characters from an assistant chapter (chapter-scoped composer shortcut). */
+    switchCharactersChapter: () => void;
+    /** Open the elaborate dialog anchored at this assistant chapter. */
+    elaborate: () => void;
   };
 }
 
@@ -129,7 +135,13 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
       { label: ctx.t('node.ctxRegenerate'), action: () => ctx.actions.regenerate(), disabled: ctx.busy },
       { label: ctx.t('node.ctxRegenerateInPlace'), action: () => ctx.actions.regenerateInPlace(), disabled: ctx.busy },
       { label: ctx.t('node.ctxIllustrate'), action: () => ctx.actions.illustrate(), disabled: ctx.busy || !ctx.canIllustrate },
-      { label: ctx.t('node.ctxCreateImage'), action: () => ctx.actions.createImage(), disabled: ctx.busy || !n.content?.trim() }
+      { label: ctx.t('node.ctxCreateImage'), action: () => ctx.actions.createImage(), disabled: ctx.busy || !n.content?.trim() },
+      // Story-authoring shortcuts, chapter-scoped: continue the story from
+      // THIS chapter (Continue / Multiple characters fill a fresh direction
+      // leaf right after this chapter), and elaborate THIS chapter.
+      { label: ctx.t('node.ctxContinue'), action: () => ctx.actions.continueChapter(), disabled: ctx.busy || !n.content?.trim() },
+      { label: ctx.t('node.ctxSwitchCharacters'), action: () => ctx.actions.switchCharactersChapter(), disabled: ctx.busy || !n.content?.trim() },
+      { label: ctx.t('node.ctxElaborate'), action: () => ctx.actions.elaborate(), disabled: ctx.busy || !n.content?.trim() }
     );
   } else if (n.role === 'user') {
     if (ctx.showClosedContinue) {

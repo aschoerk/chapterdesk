@@ -18,6 +18,7 @@ const LABELS: Record<string, string> = {
   'node.ctxCreateImage': 'Create image of selection…',
   'node.ctxContinue': 'Continue',
   'node.ctxSwitchCharacters': 'Multiple Characters',
+  'node.ctxElaborate': 'Elaborate',
   'node.ctxChapterDescriptions': 'Chapter descriptions',
   'node.ctxPrepend': 'Prepend director',
   'node.ctxSetReadPosition': 'Set next read position here',
@@ -42,7 +43,8 @@ function ctx(
     illustrate: noop, createImage: noop, continueDraft: noop, switchCharacters: noop,
     chapterDescriptions: noop, prepend: noop, setReadPosition: noop,
     clearReadPosition: noop, markPosition: noop, markSelection: noop,
-    remove: noop, delete: noop,
+    remove: noop, delete: noop, continueChapter: noop, switchCharactersChapter: noop,
+    elaborate: noop,
   };
   return {
     node: makeNode({ role: 'assistant', content: 'Chapter' }),
@@ -115,6 +117,7 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     expect(labels(items)).toEqual([
       'Copy', 'Edit', 'Rewrite selection…', 'Prior versions', 'Compare versions…', 'Compare siblings…',
       'Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…',
+      'Continue', 'Multiple Characters', 'Elaborate',
       'Set next read position here', 'Mark this position (notice)', 'Add notice to the marked text',
       'Remove section', 'Delete section & following',
     ]);
@@ -134,7 +137,7 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     expect(items.find(i => i.label === 'Copy')?.disabled).not.toBe(true);
     expect(items.find(i => i.label === 'Edit')?.disabled).not.toBe(true);
     // Role + destructive actions are all greyed out.
-    for (const label of ['Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…', 'Remove section', 'Delete section & following']) {
+    for (const label of ['Add heading', 'Regenerate', 'Rewrite in place', 'Illustrate', 'Create image of selection…', 'Continue', 'Multiple Characters', 'Elaborate', 'Remove section', 'Delete section & following']) {
       expect(items.find(i => i.label === label)?.disabled, label).toBe(true);
     }
   });

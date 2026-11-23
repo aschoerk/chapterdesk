@@ -49,24 +49,39 @@ export class ChatElaborateService implements ChatElaborateActions {
   /** True while the sequential elaboration chain is running. */
   readonly isElaborating = signal(false);
 
+  /**
+   * When the elaborate dialog was opened from an assistant CHAPTER's context
+   * menu, elaboration anchors at that chapter instead of the visible tree's
+   * last assistant answer. Reset by the next `openElaborateDialog()`.
+   */
+  private anchorOverride: ChatNode | null = null;
+
   // ------------------------------------------------------------------
   // Open / cancel / dialog helpers
   // ------------------------------------------------------------------
 
-  /** Open the dialog, continuing where the last elaboration for THIS chat
-   *  left off (First = previous Last + 1, characters = last used). */
-  openElaborateDialog(): void {
+  /**
+   * Open the dialog, continuing where the last elaboration for THIS chat
+   * left off (First = previous Last + 1, characters = last used). With
+   * `anchor` (an assistant chapter right-clicked in a node context menu) the
+   * elaboration anchors AT that chapter: First/Last default to its chapter
+   * number and the chain starts below it.
+   */
+  openElaborateDialog(anchor?: ChatNode): void {
+    this.anchorOverride = anchor ?? null;
     const chatId = this.chatService.currentChatId();
     if (!chatId || this.isElaborating()) return;
-    const anchor = this.activeTreeAssistantNode();
-    if (!anchor) {
+    const anchorNode = anchor ?? this.activeTreeAssistantNode();
+    if (!anchorNode) {
       alert(this.i18n.t('chat.elaborateNoAnchor'));
       return;
     }
 
     // Each chat keeps its own state (not a global default).
     const state = this.dialog.loadState(chatId);
-    const next = state.lastChapter + 1;
+    const next = anchor
+      ? this.chapterNumber(anchorNode)
+      : state.lastChapter + 1;
     this.dialog.first.set(next);
     this.dialog.last.set(next);
     this.dialog.names.set(state.characters);
@@ -83,7 +98,7 @@ export class ChatElaborateService implements ChatElaborateActions {
     this.dialog.usePlan.set(!!this.dialog.activePlan() && state.usePlanOff !== true);
 
     // initial model = the one that created the visible tree's last answer
-    const model = this.resolveElaborateModel(anchor);
+    const model = this.resolveElaborateModel(anchorNode);
     this.dialog.modelId.set(model?.modelId ?? '');
     this.dialog.show.set(true);
   }
@@ -119,6 +134,18 @@ export class ChatElaborateService implements ChatElaborateActions {
       if (n.role === 'assistant' && n.content?.trim()) return n;
     }
     return null;
+  }
+
+  /** 1-based chapter number of an assistant node on the active path (used to
+   *  default First/Last when elaborating a specific right-clicked chapter). */
+  private chapterNumber(node: ChatNode): number {
+    const path = this.chatService.getActivePath();
+    let n = 0;
+    for (const p of path) {
+      if (p.role === 'assistant' && p.content?.trim()) n++;
+      if (p.id === node.id) return n;
+    }
+    return Math.max(n, 1);
   }
 
   /** Model of the visible tree's last assistant answer, resolvable to a ModelEntry. */
@@ -181,7 +208,7 @@ export class ChatElaborateService implements ChatElaborateActions {
     const prefix = this.dialog.prefix().trim();
     const hints = this.dialog.hintsText();
 
-    const anchor = this.activeTreeAssistantNode();
+    const anchor = this.anchorOverride ?? this.activeTreeAssistantNode();
     if (!anchor) return;
 
     const resolved = this.resolveSelectedElaborateModel();

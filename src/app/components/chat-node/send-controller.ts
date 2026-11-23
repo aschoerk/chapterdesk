@@ -243,6 +243,65 @@ export class SendController {
   }
 
   // ------------------------------------------------------------------
+  // Chapter-scoped Continue / Multiple characters
+  // ------------------------------------------------------------------
+
+  /**
+   * Continue the STORY from an assistant chapter: materialize a fresh
+   * direction (user) leaf right under THIS chapter, fill it with the
+   * Continue / Multiple-characters template and stream the answer — the
+   * chapter-scoped equivalent of the composer's Continue / Switch characters
+   * shortcuts (which only act on the terminal unsent question leaf).
+   */
+  async continueFromChapter(
+    direction: 'continue' | 'switchCharacters',
+  ): Promise<void> {
+    const host = this.host;
+    if (!host) return;
+    const chapter = host.node();
+    if (chapter.role !== 'assistant' || !host.actions.idle) return;
+    if (!chapter.content?.trim()) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+
+    const template = direction === 'continue'
+      ? (this.promptDefaults.effective('structure.continue') || 'continue')
+      : (this.promptDefaults.effective('structure.switchCharacters') || 'switch characters');
+
+    const modelId = chapter.modelId || host.resolvePreferredModelId(chapter);
+    const model = host.enabledModels().find(
+      m => m.modelId === modelId || m.id === modelId,
+    );
+    if (!model) {
+      this.toast.error(this.i18n.t('node.modelMissing'));
+      return;
+    }
+    const provider = host.providers().find(p => p.id === model.providerId);
+    if (!provider) {
+      this.toast.error(this.i18n.t('node.providerMissing'));
+      return;
+    }
+
+    // A fresh direction leaf under THIS chapter becomes the active
+    // continuation, so the story continues exactly from here.
+    const draft = await this.chatService.addNode(chatId, {
+      parentId: chapter.id,
+      role: 'user',
+      content: template,
+      modelId: model.modelId,
+      providerId: model.providerId,
+    });
+    this.chatService.setActiveChild(chapter.id, draft.id);
+
+    await this.runSend(chatId, direction, async () => {
+      await this.streamAppendOrchestrated(chatId, draft, template, model, provider);
+      // Like the composer's meta directions, this auto-generated direction is
+      // excluded from history after it has been sent.
+      await this.chatService.patchNode(chatId, draft.id, { excludeFromContext: true });
+    });
+  }
+
+  // ------------------------------------------------------------------
   // Single (raw) stream
   // ------------------------------------------------------------------
 

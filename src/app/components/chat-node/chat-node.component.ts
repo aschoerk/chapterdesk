@@ -33,6 +33,7 @@ import { IllustrateDialogService } from '../../core/dialogs/illustrate-dialog.se
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
+import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
 import { IllustrateOptions } from '../../models/illustrate-options';
 import { LightboxService } from '../../core/dialogs/lightbox.service';
 import { LlmFlowRunner } from '../../core/llm/orchestration';
@@ -150,6 +151,8 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly dialogActions = inject(DialogActionsController);
   /** The read-mode text actions: heading, English check, rewrite, image. */
   private readonly textActions = inject(TextActionsController);
+  /** The elaborate dialog — anchored at THIS chapter when opened from its menu. */
+  private readonly chatElaborate = inject(ChatElaborateService);
 
   /** True while any action of this card runs (see `NodeActionState`). */
   readonly isLoading = this.actions.loading;
@@ -1231,6 +1234,9 @@ export class ChatNodeComponent implements OnDestroy {
         markSelection: () => void this.markSelection(),
         remove: () => void this.deleteNodeOnly(),
         delete: () => void this.deleteNode(),
+        continueChapter: () => void this.continueFromChapter(),
+        switchCharactersChapter: () => void this.switchCharactersFromChapter(),
+        elaborate: () => void this.elaborateThisChapter(),
       },
     });
   }
@@ -2102,6 +2108,24 @@ export class ChatNodeComponent implements OnDestroy {
   /** Composer shortcut: fill the "switch characters" template and send. */
   async switchCharactersDraft(): Promise<void> {
     await this.editor.switchCharactersDraft();
+  }
+
+  /** Chapter-scoped: continue the STORY from this chapter (fills a fresh
+   *  direction leaf right under it and streams the answer). */
+  async continueFromChapter(): Promise<void> {
+    await this.sender.continueFromChapter('continue');
+  }
+
+  /** Chapter-scoped: multiple-characters version of the Continue shortcut. */
+  async switchCharactersFromChapter(): Promise<void> {
+    await this.sender.continueFromChapter('switchCharacters');
+  }
+
+  /** Chapter-scoped: open the elaborate dialog anchored at THIS chapter. */
+  async elaborateThisChapter(): Promise<void> {
+    const n = this.node();
+    if (n.role !== 'assistant' || !n.content?.trim()) return;
+    this.chatElaborate.openElaborateDialog(n);
   }
 
   decRepeat(): void {

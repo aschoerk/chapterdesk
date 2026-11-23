@@ -26,6 +26,7 @@ import { chapterPlanRecord, parseStrictChapterPlan } from '../../core/llm/chapte
 import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { LlmOrchestratorService } from '../../core/llm/orchestration';
+import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { NodeClipboardService } from '../../core/clipboard/node-clipboard.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
@@ -1347,6 +1348,41 @@ describe('Chat', () => {
     expect(component.elaborateLast()).toBe(4);  // defaults to First
     expect(component.elaborateNames()).toBe('Anna, Ben'); // last used characters
     expect(component.elaborateHints()).toBe('keep it atmospheric'); // last used hints
+  });
+
+  it('anchors the elaborate dialog at a right-clicked assistant chapter (context-menu open)', async () => {
+    // A two-chapter story, so chapter numbers are distinct.
+    seedApi(api, {
+      chats: [{ id: 'chat-1', title: 'Story' }],
+      nodes: [
+        { id: 'q0', parentId: null, role: 'user', content: 'Chapters' },
+        { id: 'a1', parentId: 'q0', role: 'assistant', content: 'Chapter 1 text', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'q1', parentId: 'a1', role: 'user', content: 'continue' },
+        { id: 'a2', parentId: 'q1', role: 'assistant', content: 'Chapter 2 text', createdAt: '2025-01-02T00:00:00Z' },
+      ]
+    });
+    await chatService.loadChats();
+    await chatService.selectChat('chat-1');
+    chatService.setActiveChild(null, 'q0');
+    chatService.setActiveChild('q0', 'a1');
+    chatService.setActiveChild('a1', 'q1');
+    chatService.setActiveChild('q1', 'a2');
+
+    const elaborate = TestBed.inject(ChatElaborateService);
+    const anchor = chatService.nodes().find(n => n.id === 'a1')!;
+    elaborate.openElaborateDialog(anchor);
+
+    // Anchored at chapter 1 of 2 → First/Last default to 1, not the normal
+    // "continue after the last + 1" default.
+    expect(component.elaborateFirst()).toBe(1);
+    expect(component.elaborateLast()).toBe(1);
+    expect(component.elaborateNames()).toBe('');
+
+    // Opening it again WITHOUT an anchor (toolbar) returns to the default
+    // continuation (nothing elaborated yet → chapter 1).
+    elaborate.openElaborateDialog();
+    expect(component.elaborateFirst()).toBe(1);
+    expect(component.elaborateLast()).toBe(1);
   });
 
   it('toggling stick-to-last points First/Last at the stored last chapter and restores the continuation when unchecked', async () => {
