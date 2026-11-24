@@ -5585,6 +5585,69 @@ describe('ChatNodeComponent', () => {
       expect(component.nodeMarks()).toHaveLength(0);
     });
 
+    it('marks a finished section while its card runs a stream (busy) — the mark stays enabled', async () => {
+      // "Continue" from a chapter (and every composer send) keeps the card that
+      // STARTED the send busy until the new answer has finished streaming, so
+      // the marks must not be gated on the busy state.
+      const a1 = node({ id: 'a1', role: 'assistant', content: 'Chapter text here' });
+      await openChat([node({ id: 'q1', content: 'Q' }), a1]);
+      createFixture(a1);
+      vi.spyOn(component as any, 'captureRoClickOffset').mockReturnValue(8);
+
+      const actions = (component as any).actions;
+      actions.loading.set(true);
+      actions.pending.set('continue');
+      chatService.startGeneration('a2'); // the answer being streamed
+      chatService.setPresentedNode('a2');
+
+      component.openNodeMenu(ctxEvent());
+      const item = component.ctxMenuItems().find((i) => i.label === 'Mark this position (notice)')!;
+      expect(item.disabled ?? false).toBe(false);
+
+      const dialog = TestBed.inject(MarkNoteDialogService) as MarkNoteDialogService;
+      const creating = component.markPosition();
+      await fixture.whenStable();
+      dialog.submit('note taken mid-stream');
+      await creating;
+      fixture.detectChanges();
+
+      expect(component.nodeMarks()).toHaveLength(1);
+      expect(component.nodeMarks()[0]).toMatchObject({ nodeId: 'a1', start: 8, note: 'note taken mid-stream' });
+
+      actions.end();
+      chatService.stopGeneration();
+      chatService.setPresentedNode(null);
+    });
+
+    it('does not auto-follow while a notice is being typed, and resumes after it closes', async () => {
+      const cn = node({ id: 'a1', role: 'assistant', content: 'Streaming chapter' });
+      await openChat([cn]);
+      chatService.setPresentedNode(cn.id);
+      createFixture(cn);
+      await fixture.whenStable();
+      await new Promise(r => setTimeout(r, 0));
+
+      const follow = vi.spyOn(component as any, 'followLive');
+      const dialog = TestBed.inject(MarkNoteDialogService) as MarkNoteDialogService;
+      void dialog.open({ isPosition: true, note: '' });
+      await fixture.whenStable();
+
+      // A chunk arrives while the modal is open — the view must stay put.
+      component.renderedHtml.set('<p>more text</p>');
+      fixture.detectChanges();
+      await new Promise(r => setTimeout(r, 0));
+      expect(follow).not.toHaveBeenCalled();
+
+      // Closed again → the next chunk follows normally.
+      dialog.cancel();
+      component.renderedHtml.set('<p>even more text</p>');
+      fixture.detectChanges();
+      await new Promise(r => setTimeout(r, 0));
+      expect(follow).toHaveBeenCalled();
+
+      chatService.setPresentedNode(null);
+    });
+
     it('shows … at the reveal position while the paced read is paused', async () => {
       const a1 = node({
         id: 'a1',

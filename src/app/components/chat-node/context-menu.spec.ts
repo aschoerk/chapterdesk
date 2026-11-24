@@ -142,6 +142,37 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     }
   });
 
+  it('keeps the reading / mark commands enabled while busy (annotating a section during a stream)', () => {
+    // The card that STARTED a send (composer, or "Continue" from a chapter)
+    // stays busy until the streamed answer finishes. Marks and notices only
+    // write chat meta, so they must stay usable — including for a finished
+    // section that is not the one being streamed.
+    const items = buildCtxMenuItems(ctx({
+      node: makeNode({ role: 'assistant', content: 'Chapter' }),
+      busy: true,
+      hasReadPosition: true,
+      canMarkSelection: true,
+    }));
+    for (const label of [
+      'Set next read position here',
+      'Clear next read position',
+      'Mark this position (notice)',
+      'Add notice to the marked text',
+    ]) {
+      expect(items.find(i => i.label === label)?.disabled ?? false, label).toBe(false);
+    }
+
+    // Without a text selection the selection entry stays disabled — that is a
+    // DOM state, not the busy flag.
+    const noSelection = buildCtxMenuItems(ctx({
+      node: makeNode({ role: 'assistant', content: 'Chapter' }),
+      busy: true,
+      canMarkSelection: false,
+    }));
+    expect(noSelection.find(i => i.label === 'Add notice to the marked text')?.disabled).toBe(true);
+    expect(noSelection.find(i => i.label === 'Mark this position (notice)')?.disabled ?? false).toBe(false);
+  });
+
   it('gives an unsent question Continue + Multiple Characters and no Prepend', () => {
     const items = buildCtxMenuItems(ctx({
       node: makeNode({ role: 'user', content: '' }),

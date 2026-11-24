@@ -1561,6 +1561,12 @@ export class ChatNodeComponent implements OnDestroy {
             && (this.chatService.isGenerating(n.id)
               || this.chatService.generatingNodeId() === n.id));
       if (!live) return;
+      // Annotation in progress (the node's context menu is open, or a notice
+      // is being typed): do NOT yank the view to the stream's end. The section
+      // the user is marking has to stay where it is until they are done —
+      // marking a finished chapter while another one streams is a supported
+      // combination. Follow resumes with the next chunk.
+      if (ChatNodeComponent.openMenu || this.markNoteDialog.current()) return;
       // Auto-follow (content + thinking) is ONLY active when the "follow
       // streaming" checkbox is checked. When it is off, the user scrolls
       // freely — the thinking body can grow large, so we must never fight

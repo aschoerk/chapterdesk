@@ -31,7 +31,13 @@ export interface CtxMenuItem {
 export interface CtxMenuContext {
   /** The node the menu was opened on. */
   node: ChatNode;
-  /** True while a generation/operation runs on the node (disables most actions). */
+  /**
+   * True while a generation/operation runs on the node (disables most
+   * actions). The READING commands (next read position / marks + notices) are
+   * deliberately exempt: they only write chat meta and never touch the text
+   * being streamed, so the user can annotate the story while a chapter is
+   * still being written.
+   */
   busy: boolean;
   /** True while the editor itself is busy (Continue / Switch / … disables). */
   loading: boolean;
@@ -172,12 +178,15 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
 
   // Reading: mark where the NEXT paced read (Ctrl+R / Read) should start, and
   // keep PERSISTENT marks (positions / selections + notices) on the text.
+  // These are ANNOTATIONS: they never mutate the section or the running
+  // stream, so they stay available while a chapter streams (the generating
+  // card is "busy" for the whole stream). Only the selection entry additionally
+  // needs an actual text selection.
   const readItems: CtxMenuItem[] = [];
   if (n.content?.trim()) {
     readItems.push({
       label: ctx.t('node.ctxSetReadPosition'),
-      action: () => ctx.actions.setReadPosition(),
-      disabled: ctx.busy
+      action: () => ctx.actions.setReadPosition()
     });
     if (ctx.hasReadPosition) {
       readItems.push({
@@ -187,13 +196,12 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
     }
     readItems.push({
       label: ctx.t('node.ctxMarkPosition'),
-      action: () => ctx.actions.markPosition(),
-      disabled: ctx.busy
+      action: () => ctx.actions.markPosition()
     });
     readItems.push({
       label: ctx.t('node.ctxMarkSelection'),
       action: () => ctx.actions.markSelection(),
-      disabled: ctx.busy || !ctx.canMarkSelection
+      disabled: !ctx.canMarkSelection
     });
   }
 
