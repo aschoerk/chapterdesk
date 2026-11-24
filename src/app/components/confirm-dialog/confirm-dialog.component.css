@@ -51,7 +51,24 @@
 
 .confirm-prompt {
   display: block;
+  margin-bottom: 0.85rem;
+}
+
+.confirm-model {
+  display: block;
   margin-bottom: 1.25rem;
+}
+
+.confirm-model select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
 }
 
 .confirm-prompt-label {

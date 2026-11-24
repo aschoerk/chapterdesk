@@ -447,6 +447,9 @@ export const EN = {
       'Rewriting replaces only this answer. You can also change the original prompt below.',
     rewritePromptLabel: 'Original prompt (editable)',
     rewritePromptPh: 'The direction that produced this answer — edit it to change what is written',
+    rewriteModelLabel: 'Model',
+    rewriteModelTitle:
+      'Model that rewrites this answer (default: the one that created it)',
     copy: 'Copy',
     copied: 'Copied',
     copyTitle: 'Copy to clipboard',

@@ -28,6 +28,20 @@
             (ngModelChange)="onPromptInput($event)"
           ></textarea>
         </label>
+        @if (d.prompt.model; as model) {
+          <label class="confirm-model">
+            <span class="confirm-prompt-label">{{ model.label }}</span>
+            <select
+              [ngModel]="modelValue()"
+              (ngModelChange)="onModelInput($event)"
+              [title]="model.title ?? ''"
+            >
+              @for (option of model.options; track option.id) {
+                <option [value]="option.id">{{ option.label }}</option>
+              }
+            </select>
+          </label>
+        }
       }
 
       <div class="confirm-actions">

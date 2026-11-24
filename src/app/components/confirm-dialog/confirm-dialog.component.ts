@@ -22,6 +22,13 @@ export class ConfirmDialogComponent {
   private readonly draft = signal('');
   private draftEntry: unknown = null;
 
+  /**
+   * The user's model choice, remembered per pending confirmation exactly like
+   * the prompt draft: a new confirmation starts from its own `model.value`.
+   */
+  private readonly modelDraft = signal('');
+  private modelDraftEntry: unknown = null;
+
   /** The text the prompt textarea shows (the request's value until edited). */
   promptValue(): string {
     const d = this.confirm.current();
@@ -34,6 +41,22 @@ export class ConfirmDialogComponent {
     this.draft.set(value ?? '');
   }
 
+  /** The model id the picker shows (the request's value until changed). */
+  modelValue(): string {
+    const d = this.confirm.current();
+    const model = d?.prompt?.model;
+    if (!model) return '';
+    if (this.modelDraftEntry === d) return this.modelDraft();
+    const selected = model.value ?? '';
+    return model.options.some(o => o.id === selected) ? selected : (model.options[0]?.id ?? '');
+  }
+
+  /** Remember the chosen model for the OPEN confirmation. */
+  onModelInput(value: string): void {
+    this.modelDraftEntry = this.confirm.current();
+    this.modelDraft.set(value ?? '');
+  }
+
   /** True when the pending request shows the editable prompt field. */
   hasPrompt(): boolean {
     return !!this.confirm.current()?.prompt;
@@ -44,10 +67,18 @@ export class ConfirmDialogComponent {
     return this.hasPrompt() && !this.promptValue().trim();
   }
 
-  /** Confirm: resolve with the edited prompt text, or `true` without one. */
+  /** Confirm: resolve with the edited prompt (+ chosen model), or `true` without one. */
   submit(): void {
     if (this.promptBlank()) return;
-    const result: ConfirmOutcome = this.hasPrompt() ? this.promptValue() : true;
+    const d = this.confirm.current();
+    if (!d) return;
+    if (!this.hasPrompt()) {
+      this.confirm.close(true);
+      return;
+    }
+    const modelId = this.modelValue();
+    const providerId = d.prompt?.model?.options.find(o => o.id === modelId)?.providerId ?? '';
+    const result: ConfirmOutcome = { text: this.promptValue(), modelId, providerId };
     this.confirm.close(result);
   }
 

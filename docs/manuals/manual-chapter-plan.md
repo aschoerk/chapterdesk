@@ -34,10 +34,12 @@ a numbered item) and every entry to carry a real description.
 
 !!! tip "Rewrite in place can change the request"
     The **Rewrite in place** confirmation contains a text area with the original
-    direction that produced the answer. Edit it to ask for something different —
-    e.g. "10 chapters instead of 6" — and only that answer is rewritten with the
-    edited direction; the following text stays attached. Leave it unchanged to
-    simply regenerate the answer with the same request.
+    direction that produced the answer — and a **Model** picker. Edit the
+    direction to ask for something different — e.g. "10 chapters instead of 6" —
+    and only that answer is rewritten with the edited direction; the following
+    text stays attached. Leave it unchanged to simply regenerate the answer with
+    the same request. The picker defaults to the model that created the answer
+    (or the one last chosen here) and lets you rewrite with a different model.
 
 ## Step 2 — use it in the Elaborate dialog
 

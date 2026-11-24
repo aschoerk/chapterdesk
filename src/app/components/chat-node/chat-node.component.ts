@@ -8,6 +8,7 @@ import { ChatService } from '../../core/chat/chat.service';
 import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
+import type { ModelEntry } from '../../models/chat-config';
 import { MarkdownService } from '../../core/chat/markdown.service';
 import { markFragmentInSource } from '../../core/util/mark-fragment';
 import { NodeEditSession} from '../../core/chat/node-edit-session';
@@ -78,6 +79,13 @@ import {
  *  sent when a generated message did not end like a proper sentence, so the
  *  model finishes that message before the batch continues. */
 const COMPLETE_PRECEDING_MESSAGE_FALLBACK = 'complete the preceding message';
+
+/**
+ * localStorage key remembering the model the user last chose in the
+ * "Rewrite in place" confirmation. When set (and the model is still enabled)
+ * it takes precedence over the answer's own model.
+ */
+export const REWRITE_IN_PLACE_MODEL_KEY = 'chat.rewriteInPlace.model.v1';
 
 @Component({
   selector: 'app-chat-node',
@@ -842,9 +850,11 @@ export class ChatNodeComponent implements OnDestroy {
     }
 
     // Ask in the confirmation dialog — which also carries an EDITABLE copy of
-    // the original prompt (the direction that produced this answer), so the
-    // rewrite can run against an adapted direction. Cancel resolves null.
+    // the original prompt (the direction that produced this answer) plus a
+    // model picker, so the rewrite can run against an adapted direction with a
+    // different model. Cancel resolves null.
     const children = this.chatService.getChildren(node.id);
+    const models = this.enabledModels();
     const edited = await this.confirm.askWithPrompt({
       title: this.i18n.t('node.regenerateInPlaceTitleAsk'),
       message: children.length > 0
@@ -856,12 +866,26 @@ export class ChatNodeComponent implements OnDestroy {
       prompt: {
         label: this.i18n.t('node.rewritePromptLabel'),
         value: question.content ?? '',
-        placeholder: this.i18n.t('node.rewritePromptPh')
+        placeholder: this.i18n.t('node.rewritePromptPh'),
+        model: models.length
+          ? {
+              label: this.i18n.t('node.rewriteModelLabel'),
+              title: this.i18n.t('node.rewriteModelTitle'),
+              value: this.rewriteInPlaceModelId(node, question, models),
+              options: models.map(m => ({
+                id: m.modelId,
+                label: m.displayName,
+                providerId: m.providerId
+              }))
+            }
+          : undefined
       }
     });
     if (edited == null) return; // cancelled
-    const content = edited.trim();
+    const content = edited.text.trim();
     if (!content) return; // the dialog keeps Confirm disabled while blank
+    const modelId = edited.modelId;
+    if (modelId) this.rememberRewriteInPlaceModel(modelId);
 
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
@@ -874,7 +898,44 @@ export class ChatNodeComponent implements OnDestroy {
       // under its parent question, re-adopting the preserved children.
       build.vars['keepChildren'] = true;
       if (changed) build.vars['content'] = content;
+      // A model chosen in the dialog overrides the node's own write model.
+      if (modelId) {
+        build.vars['modelId'] = modelId;
+        if (edited.providerId) build.vars['providerId'] = edited.providerId;
+      }
     });
+  }
+
+  /**
+   * The model pre-selected in the "Rewrite in place" confirmation: the last
+   * remembered choice when still enabled, else the model that produced the
+   * answer (or the direction that asked for it), else the first enabled model.
+   */
+  private rewriteInPlaceModelId(
+    answer: ChatNode,
+    question: ChatNode,
+    models: readonly ModelEntry[]
+  ): string {
+    let remembered = '';
+    try {
+      remembered = localStorage.getItem(REWRITE_IN_PLACE_MODEL_KEY) ?? '';
+    } catch {
+      /* best-effort — memory is non-fatal */
+    }
+    const match = models.find(m => m.modelId === remembered || m.id === remembered)
+      ?? models.find(m => m.modelId === answer.modelId || m.id === answer.modelId)
+      ?? models.find(m => m.modelId === question.modelId || m.id === question.modelId)
+      ?? models[0];
+    return match?.modelId ?? '';
+  }
+
+  /** Remember the model chosen in the "Rewrite in place" confirmation. */
+  private rememberRewriteInPlaceModel(modelId: string): void {
+    try {
+      localStorage.setItem(REWRITE_IN_PLACE_MODEL_KEY, modelId);
+    } catch {
+      /* best-effort — memory is non-fatal */
+    }
   }
 
   async deleteNodeOnly(): Promise<void> {

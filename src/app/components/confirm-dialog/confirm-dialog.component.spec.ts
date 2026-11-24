@@ -131,7 +131,7 @@ describe('ConfirmDialogComponent', () => {
 
     const primary = fixture.nativeElement.querySelector('.confirm-actions .btn.primary') as HTMLButtonElement;
     primary.click();
-    expect(await promise).toBe('Write a much darker opening.');
+    expect(await promise).toEqual({ text: 'Write a much darker opening.', modelId: '', providerId: '' });
     expect(confirm.current()).toBeNull();
   });
 
@@ -175,6 +175,86 @@ describe('ConfirmDialogComponent', () => {
     expect(confirm.current()).not.toBeNull();
 
     backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
-    expect(await promise).toBe('Text');
+    expect(await promise).toEqual({ text: 'Text', modelId: '', providerId: '' });
+  });
+
+  // ------------------------------------------------------------------
+  // Optional model picker ("Rewrite in place")
+  // ------------------------------------------------------------------
+
+  it('shows the model picker with the request\'s preselect', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: {
+        label: 'Prompt', value: 'Text',
+        model: {
+          label: 'Model',
+          value: 'b/model',
+          title: 'Pick one',
+          options: [
+            { id: 'a/model', label: 'Alpha', providerId: 'prov-a' },
+            { id: 'b/model', label: 'Beta', providerId: 'prov-b' },
+          ],
+        },
+      },
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const select = fixture.nativeElement.querySelector('.confirm-model select') as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    expect(select.title).toBe('Pick one');
+    expect(Array.from(select.options).map(o => o.value)).toEqual(['a/model', 'b/model']);
+    expect(select.value).toBe('b/model');
+    expect(fixture.nativeElement.querySelector('.confirm-model .confirm-prompt-label').textContent)
+      .toContain('Model');
+
+    confirm.close(null);
+    expect(await promise).toBeNull();
+  });
+
+  it('falls back to the first model when the preselect is not selectable', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: {
+        label: 'Prompt', value: 'Text',
+        model: {
+          label: 'Model', value: 'gone/model',
+          options: [{ id: 'a/model', label: 'Alpha', providerId: 'prov-a' }],
+        },
+      },
+    });
+    fixture.detectChanges();
+
+    expect(component.modelValue()).toBe('a/model');
+
+    confirm.close(null);
+    expect(await promise).toBeNull();
+  });
+
+  it('resolves with the chosen model and its provider', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: {
+        label: 'Prompt', value: 'Text',
+        model: {
+          label: 'Model', value: 'a/model',
+          options: [
+            { id: 'a/model', label: 'Alpha', providerId: 'prov-a' },
+            { id: 'b/model', label: 'Beta', providerId: 'prov-b' },
+          ],
+        },
+      },
+    });
+    fixture.detectChanges();
+
+    component.onModelInput('b/model');
+    const primary = fixture.nativeElement.querySelector('.confirm-actions .btn.primary') as HTMLButtonElement;
+    primary.click();
+
+    expect(await promise).toEqual({
+      text: 'Text', modelId: 'b/model', providerId: 'prov-b',
+    });
   });
 });

@@ -283,13 +283,21 @@ describe('ChatNodeComponent', () => {
     // default it confirms with the UNCHANGED prompt (echoing the pre-filled
     // text), or cancels with null.
     vi.spyOn(confirm, 'askWithPrompt').mockImplementation(
-      async (req) => (value ? req.prompt.value : null),
+      async (req) => (value
+        ? { text: req.prompt.value, modelId: '', providerId: '' }
+        : null),
     );
   }
 
   /** Make the next rewrite-in-place confirmation resolve with EDITED text (or cancel with null). */
-  function rewritePromptResolves(value: string | null): void {
-    vi.spyOn(confirm, 'askWithPrompt').mockResolvedValue(value);
+  function rewritePromptResolves(
+    value: string | null,
+    modelId = '',
+    providerId = '',
+  ): void {
+    vi.spyOn(confirm, 'askWithPrompt').mockResolvedValue(
+      value == null ? null : { text: value, modelId, providerId },
+    );
   }
 
   /** Make the next Prepend dialog resolve with the given director text. */
@@ -3192,9 +3200,39 @@ describe('ChatNodeComponent', () => {
       const req = spy.mock.calls[0][0];
       expect(req.prompt.value).toBe('Original direction');
       expect(req.prompt.label).toBeTruthy();
+      // The dialog also offers a model picker, preselected with the answer's model.
+      expect(req.prompt.model).toBeDefined();
+      expect(req.prompt.model!.options.length).toBeGreaterThan(0);
+      expect(req.prompt.model!.value).toBe('alpha/model');
       // Cancel → nothing runs, the answer stays.
       expect(runner.run).not.toHaveBeenCalled();
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+    });
+
+    it('passes the model chosen in the dialog to the rewrite flow', async () => {
+      const older = new Date(Date.now() - 60_000).toISOString();
+      const newer = new Date().toISOString();
+      const q1 = node({ id: 'q1', content: 'Original direction', createdAt: older, updatedAt: older });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model', createdAt: older, updatedAt: older,
+      });
+      const q2 = node({ id: 'q2', parentId: 'q1', content: 'Question 2', createdAt: newer, updatedAt: newer });
+      await openChat([q1, a1, q2]);
+      createFixture(a1);
+      const other = settings.enabledModels().find((m) => m.modelId !== 'alpha/model');
+      expect(other).toBeDefined();
+      rewritePromptResolves('Original direction', other!.modelId, other!.providerId);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      const answer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
+      expect(answer).toBeDefined();
+      expect(answer.modelId).toBe(other!.modelId);
+      // The chosen model also reached the transport request.
+      const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
+      expect(req.model?.modelId).toBe(other!.modelId);
     });
 
     it('uses the EDITED prompt as the new direction (stored as a new version)', async () => {

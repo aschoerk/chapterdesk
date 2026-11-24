@@ -453,6 +453,9 @@ export const DE: typeof EN = {
       'Neu schreiben ersetzt nur diese Antwort. Sie können unten auch die ursprüngliche Anweisung ändern.',
     rewritePromptLabel: 'Ursprüngliche Anweisung (bearbeitbar)',
     rewritePromptPh: 'Die Anweisung, aus der diese Antwort entstand – ändern Sie sie, um den Inhalt zu ändern',
+    rewriteModelLabel: 'Modell',
+    rewriteModelTitle:
+      'Modell, das diese Antwort neu schreibt (Standard: das, das sie erzeugt hat)',
     copy: 'Kopieren',
     copied: 'Kopiert',
     copyTitle: 'In die Zwischenablage kopieren',
