@@ -13,10 +13,15 @@ import {
   ChatBundle,
   ImportPolicy,
 } from '../../core/import-export/bundle.service';
-import { Project, ChatNode } from '../../models/chat';
+import { Project, Chat, ChatNode } from '../../models/chat';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { newId } from '../../core/util/helpers';
 import { TopicSelectionService } from '../../core/settings/topic-selection.service';
+import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
+import {
+  BACK_MATTER_PROMPT_ID,
+  FRONT_MATTER_PROMPT_ID,
+} from '../../models/prompt-default';
 import { parseDocxBook } from '../../core/import-export/docx-import';
 import { parseEpubBook } from '../../core/import-export/epub-import';
 import {
@@ -24,6 +29,7 @@ import {
   buildMarkdown,
   enumerateDocumentPaths,
   pickDocumentPath,
+  type DocMatter,
 } from '../../core/import-export/docx-export';
 
 export interface ParsedTurn {
@@ -91,6 +97,7 @@ export class ImportComponent {
   private readonly topicSelection = inject(TopicSelectionService);
   private readonly personaService = inject(PersonaService);
   private readonly bundleService = inject(BundleService);
+  private readonly promptDefaults = inject(PromptDefaultsService);
   private readonly router = inject(Router);
   private readonly demoData = inject(DemoDataService);
 
@@ -197,6 +204,7 @@ export class ImportComponent {
     title: string;
     nodes: ChatNode[];
     paths: ChatNode[][];
+    matter: DocMatter;
   } | null = null;
 
   constructor() {
@@ -1917,11 +1925,12 @@ export class ImportComponent {
       if (paths.length === 0) {
         throw new Error(this.i18n.t('import.docxEmpty'));
       }
+      const matter = await this.exportMatterFor(chat);
       if (paths.length > 1) {
-        this.beginDocPick('docx', chat.title, nodes, paths);
+        this.beginDocPick('docx', chat.title, nodes, paths, matter);
         return;
       }
-      this.downloadDoc('docx', chat.title, nodes, pickDocumentPath(paths));
+      this.downloadDoc('docx', chat.title, nodes, pickDocumentPath(paths), matter);
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {
@@ -1950,11 +1959,12 @@ export class ImportComponent {
       if (paths.length === 0) {
         throw new Error(this.i18n.t('import.mdEmpty'));
       }
+      const matter = await this.exportMatterFor(chat);
       if (paths.length > 1) {
-        this.beginDocPick('markdown', chat.title, nodes, paths);
+        this.beginDocPick('markdown', chat.title, nodes, paths, matter);
         return;
       }
-      this.downloadDoc('markdown', chat.title, nodes, pickDocumentPath(paths));
+      this.downloadDoc('markdown', chat.title, nodes, pickDocumentPath(paths), matter);
     } catch (err: any) {
       this.globalError.set(err?.message || String(err));
     } finally {
@@ -1987,6 +1997,7 @@ export class ImportComponent {
     title: string,
     nodes: ChatNode[],
     paths: ChatNode[][],
+    matter: DocMatter,
   ): void {
     const recent = pickDocumentPath(paths);
     const recentId = recent.map((n) => n.id).join('|');
@@ -2002,7 +2013,7 @@ export class ImportComponent {
       this.docPickOptions().findIndex((o) => o.isRecent),
     );
     this.docPickIndex.set(defaultIdx);
-    this.pendingDocExport = { kind, title, nodes, paths };
+    this.pendingDocExport = { kind, title, nodes, paths, matter };
     this.showDocPicker.set(true);
   }
 
@@ -2032,7 +2043,7 @@ export class ImportComponent {
     if (pending.kind === 'docx') {
       this.isDocxExporting.set(true);
       try {
-        this.downloadDoc('docx', pending.title, pending.nodes, path);
+        this.downloadDoc('docx', pending.title, pending.nodes, path, pending.matter);
       } catch (err: any) {
         this.globalError.set(err?.message || String(err));
       } finally {
@@ -2041,7 +2052,7 @@ export class ImportComponent {
     } else {
       this.isMarkdownExporting.set(true);
       try {
-        this.downloadDoc('markdown', pending.title, pending.nodes, path);
+        this.downloadDoc('markdown', pending.title, pending.nodes, path, pending.matter);
       } catch (err: any) {
         this.globalError.set(err?.message || String(err));
       } finally {
@@ -2050,15 +2061,37 @@ export class ImportComponent {
     }
   }
 
+  /**
+   * Front/back matter for a book export: the MARKDOWN templates
+   * `export.frontMatter` / `export.backMatter` from Settings → Prompt defaults
+   * (topic-aware, like every other template). The DOCX export converts them
+   * with the same markdown → Word mapping as the chapters; the Markdown export
+   * inserts them verbatim. Both may be empty → nothing is inserted.
+   */
+  private async exportMatterFor(chat: Chat): Promise<DocMatter> {
+    try {
+      await this.promptDefaults.load();
+    } catch {
+      /* built-in defaults (empty) stay usable */
+    }
+    const project = this.projects().find((p) => p.id === chat.projectId);
+    const topicId = project?.mainTopicId ?? null;
+    return {
+      frontMatter: this.promptDefaults.effective(FRONT_MATTER_PROMPT_ID, topicId),
+      backMatter: this.promptDefaults.effective(BACK_MATTER_PROMPT_ID, topicId),
+    };
+  }
+
   /** Build the file and trigger the browser download. */
   private downloadDoc(
     kind: 'docx' | 'markdown',
     title: string,
     nodes: ChatNode[],
     path: ChatNode[],
+    matter?: DocMatter,
   ): void {
     if (kind === 'docx') {
-      const blob = buildDocxBlob(title, nodes, { path });
+      const blob = buildDocxBlob(title, nodes, { path, matter });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${this.safeFileStem(title) || 'chapterdesk'}.docx`;
@@ -2071,7 +2104,7 @@ export class ImportComponent {
         }),
       );
     } else {
-      const markdown = buildMarkdown(title, nodes, { path });
+      const markdown = buildMarkdown(title, nodes, { path, matter });
       const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);

@@ -473,8 +473,43 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(slots.flow?.value?.activateId).toBe('q1');
   });
 
-  it('send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture', async () => {
-    // send-rewrite with an image-generation writing model: the chat
+  it('send-rewrite: an EDITED prompt (vars.content) becomes a new version of the question', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Rewritten ', 'answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Original direction' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'Continues here', isCurrent: true })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-rewrite',
+      vars: { content: 'A much darker direction.' }
+    });
+
+    // The edited direction was stored as a NEW VERSION of the question…
+    const questionId = slots.flow!.value!.questionNodeId;
+    expect(questionId).not.toBe('q1');
+    const question = chatService.nodes().find(n => n.id === questionId)!;
+    expect(question.content).toBe('A much darker direction.');
+    expect(question.role).toBe('user');
+    // …the request carried the edited text…
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    expect(body.messages.find(m => m.role === 'user')!.content).toContain('A much darker direction.');
+    // …and the fresh answer + preserved following text hang under it.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Rewritten answer.');
+    expect(answerNode.parentId).toBe(questionId);
+    expect(chatService.nodes().find(n => n.id === 'd1')!.parentId).toBe(answerId);
+  });
+
+  it('send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture', async () => {    // send-rewrite with an image-generation writing model: the chat
     // completions attempt fails (model lives only on /images) → routed there
     // → the fresh answer carries the picture as an attachment.
     fetchMock

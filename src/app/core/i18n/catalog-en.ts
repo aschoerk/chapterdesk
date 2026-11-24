@@ -443,6 +443,10 @@ export const EN = {
     regenerateInPlaceTitleAsk: 'Rewrite this answer in place?',
     regenerateInPlaceMsgExtra:
       'This answer has {{count}} following text(s). Rewriting replaces only this answer — the following text stays attached to the new version.',
+    regenerateInPlaceMsg:
+      'Rewriting replaces only this answer. You can also change the original prompt below.',
+    rewritePromptLabel: 'Original prompt (editable)',
+    rewritePromptPh: 'The direction that produced this answer — edit it to change what is written',
     copy: 'Copy',
     copied: 'Copied',
     copyTitle: 'Copy to clipboard',

@@ -833,25 +833,47 @@ export class ChatNodeComponent implements OnDestroy {
       return;
     }
 
-    const children = this.chatService.getChildren(node.id);
-    if (children.length > 0) {
-      const ok = await this.confirm.ask({
-        title: this.i18n.t('node.regenerateInPlaceTitleAsk'),
-        message: this.i18n.t('node.regenerateInPlaceMsgExtra', { count: children.length }),
-        confirmLabel: this.i18n.t('node.regenerateInPlace'),
-        cancelLabel: this.i18n.t('common.cancel'),
-        danger: true
-      });
-      if (!ok) return;
+    const question = node.parentId
+      ? this.chatService.nodes().find(n => n.id === node.parentId)
+      : undefined;
+    if (!question || question.role !== 'user') {
+      this.toast.error(this.i18n.t('node.regenerateNoParent'));
+      return;
     }
+
+    // Ask in the confirmation dialog — which also carries an EDITABLE copy of
+    // the original prompt (the direction that produced this answer), so the
+    // rewrite can run against an adapted direction. Cancel resolves null.
+    const children = this.chatService.getChildren(node.id);
+    const edited = await this.confirm.askWithPrompt({
+      title: this.i18n.t('node.regenerateInPlaceTitleAsk'),
+      message: children.length > 0
+        ? this.i18n.t('node.regenerateInPlaceMsgExtra', { count: children.length })
+        : this.i18n.t('node.regenerateInPlaceMsg'),
+      confirmLabel: this.i18n.t('node.regenerateInPlace'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      danger: true,
+      prompt: {
+        label: this.i18n.t('node.rewritePromptLabel'),
+        value: question.content ?? '',
+        placeholder: this.i18n.t('node.rewritePromptPh')
+      }
+    });
+    if (edited == null) return; // cancelled
+    const content = edited.trim();
+    if (!content) return; // the dialog keeps Confirm disabled while blank
 
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
 
+    // Only an actually EDITED prompt is sent as an override — an unchanged one
+    // must not create a pointless new version of the question.
+    const changed = content !== (question.content ?? '').trim();
     await this.runFlow('send-rewrite', 'send', build => {
       // The flow deletes only THIS answer (keeping children) and re-streams
       // under its parent question, re-adopting the preserved children.
       build.vars['keepChildren'] = true;
+      if (changed) build.vars['content'] = content;
     });
   }
 

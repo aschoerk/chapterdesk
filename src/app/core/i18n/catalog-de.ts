@@ -449,6 +449,10 @@ export const DE: typeof EN = {
     regenerateInPlaceTitleAsk: 'Diese Antwort an Ort und Stelle neu schreiben?',
     regenerateInPlaceMsgExtra:
       'Diese Antwort hat {{count}} Folgetexte. Neu schreiben ersetzt nur diese Antwort – die Folgetexte hängen weiterhin am neuen Ergebnis.',
+    regenerateInPlaceMsg:
+      'Neu schreiben ersetzt nur diese Antwort. Sie können unten auch die ursprüngliche Anweisung ändern.',
+    rewritePromptLabel: 'Ursprüngliche Anweisung (bearbeitbar)',
+    rewritePromptPh: 'Die Anweisung, aus der diese Antwort entstand – ändern Sie sie, um den Inhalt zu ändern',
     copy: 'Kopieren',
     copied: 'Kopiert',
     copyTitle: 'In die Zwischenablage kopieren',

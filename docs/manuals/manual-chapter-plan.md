@@ -32,6 +32,13 @@ stories, or an answer regenerated before this was fixed — its own text is
 parsed instead; that fallback requires the list to *be* the node (first line is
 a numbered item) and every entry to carry a real description.
 
+!!! tip "Rewrite in place can change the request"
+    The **Rewrite in place** confirmation contains a text area with the original
+    direction that produced the answer. Edit it to ask for something different —
+    e.g. "10 chapters instead of 6" — and only that answer is rewritten with the
+    edited direction; the following text stays attached. Leave it unchanged to
+    simply regenerate the answer with the same request.
+
 ## Step 2 — use it in the Elaborate dialog
 
 **Elaborate** → **Chapter descriptions → lore** is already on whenever the story

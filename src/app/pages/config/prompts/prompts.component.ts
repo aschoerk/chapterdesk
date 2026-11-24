@@ -26,6 +26,11 @@ const CATEGORY_TITLES: Record<PromptDefaultCategory, { title: string; hint: stri
   language: {
     title: 'Language',
     hint: 'Prompts for the grammar / language check of writing directions.'
+  },
+  export: {
+    title: 'Export',
+    hint:
+      'Markdown inserted into DOCX / Markdown exports — after the title (front matter) and after the last chapter (back matter). Not sent to a language model.'
   }
 };
 

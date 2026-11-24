@@ -8,6 +8,7 @@
   >
     <div
       class="confirm-dialog"
+      [class.with-prompt]="!!d.prompt"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="confirm-title"
@@ -16,6 +17,19 @@
     >
       <h3 id="confirm-title">{{ d.title }}</h3>
       <p id="confirm-message" class="confirm-message">{{ d.message }}</p>
+
+      @if (d.prompt) {
+        <label class="confirm-prompt">
+          <span class="confirm-prompt-label">{{ d.prompt.label }}</span>
+          <textarea
+            [rows]="d.prompt.rows ?? 6"
+            [placeholder]="d.prompt.placeholder ?? ''"
+            [ngModel]="promptValue()"
+            (ngModelChange)="onPromptInput($event)"
+          ></textarea>
+        </label>
+      }
+
       <div class="confirm-actions">
         <button class="btn" type="button" (click)="confirm.close(false)">
           {{ d.cancelLabel }}
@@ -24,7 +38,8 @@
           class="btn primary"
           type="button"
           [class.danger]="d.danger"
-          (click)="confirm.close(true)"
+          [disabled]="promptBlank()"
+          (click)="submit()"
         >
           {{ d.confirmLabel }}
         </button>

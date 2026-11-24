@@ -95,6 +95,23 @@ Markdown, ChapterDesk turns the tree into **documents**:
 So "read your story as a book" really means: *walk the tree, and read each
 branch as its own document.* A story with three forks reads as three documents.
 
+## Front and back matter
+
+An export can carry **front matter** (right after the title — or before all
+other content when the story has no title) and **back matter** (after the last
+chapter, on its own page in the DOCX). Both are **Markdown templates** you edit
+in *Settings → Prompt defaults → Export*:
+
+| Template | Where it lands |
+| --- | --- |
+| Front matter (`export.frontMatter`) | directly after the title |
+| Back matter (`export.backMatter`) | after the last chapter |
+
+They are ordinary Markdown — headings, lists, emphasis, block quotes — and are
+converted to Word when you export a `.docx`; the Markdown export inserts them
+as written. Leave a template empty (the default) and nothing is inserted. Like
+all templates they can have named versions, globally or per topic.
+
 !!! tip "The Reader is your Word view"
     If you want the familiar feeling of a clean, linear manuscript, use the
     **Reader view**. It hides the editing chrome and shows the current branch

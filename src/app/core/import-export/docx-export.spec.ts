@@ -359,4 +359,87 @@ describe('docx-export · buildMarkdown', () => {
     expect(md).not.toContain('>old<');
     expect(md).not.toContain('\nold\n');
   });
+
+  it('inserts front matter after the title and back matter after the last chapter', () => {
+    const nodes = bookNodes();
+    const md = buildMarkdown('Fallback', nodes, {
+      matter: { frontMatter: 'For Anna.', backMatter: 'Thanks for reading.' },
+    });
+
+    expect(md.startsWith('# Book Title')).toBe(true);
+    const title = md.indexOf('# Book Title');
+    const front = md.indexOf('For Anna.');
+    const story = md.indexOf('Story text.');
+    const back = md.indexOf('Thanks for reading.');
+
+    expect(front).toBeGreaterThan(title);
+    expect(front).toBeLessThan(story);
+    expect(back).toBeGreaterThan(story);
+  });
+
+  it('puts front matter at the very start when the book has no title', () => {
+    const nodes = [
+      node({ id: 'q1', chatId: 'c1', parentId: null, role: 'user', content: 'Q' }),
+      node({ id: 'a1', chatId: 'c1', parentId: 'q1', role: 'assistant', content: 'Story text.' }),
+    ];
+    const md = buildMarkdown('', nodes, {
+      matter: { frontMatter: 'A dedication.', backMatter: '' },
+    });
+
+    expect(md.startsWith('A dedication.')).toBe(true);
+  });
+
+  it('inserts nothing when the templates are empty', () => {
+    const withMatter = buildMarkdown('Fallback', bookNodes(), {
+      matter: { frontMatter: '   ', backMatter: '\n' },
+    });
+    expect(withMatter).toBe(buildMarkdown('Fallback', bookNodes()));
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Front / back matter (markdown templates converted for the DOCX)
+// ---------------------------------------------------------------------------
+
+/** A minified book: title, one chapter, one introduction. */
+function bookNodes(): ChatNode[] {
+  return [
+    node({ id: 'q0', chatId: 'c1', parentId: null, role: 'user', content: 'Q' }),
+    node({ id: 'sTitle', chatId: 'c1', parentId: 'q0', role: 'structural', content: 'Book Title' }),
+    node({ id: 'q1', chatId: 'c1', parentId: 'sTitle', role: 'user', content: 'Q' }),
+    node({ id: 'h1', chatId: 'c1', parentId: 'q1', role: 'structural', content: 'Ch One' }),
+    node({ id: 'a1', chatId: 'c1', parentId: 'h1', role: 'assistant', content: 'Story text.' }),
+    node({ id: 'q2', chatId: 'c1', parentId: 'a1', role: 'user', content: 'Q' }),
+    node({ id: 'sIntro', chatId: 'c1', parentId: 'q2', role: 'structural', content: 'Intro words.' }),
+  ];
+}
+
+describe('docx-export · front / back matter', () => {
+  it('places front matter after the title and back matter after the last chapter (DOCX)', async () => {
+    const blob = buildDocxBlob('Fallback', bookNodes(), {
+      matter: {
+        frontMatter: '**Dedication**\n\nFor Anna.',
+        backMatter: '## The End\n\nThanks for reading.',
+      },
+    });
+    const text = new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer()));
+
+    const title = text.indexOf('Book Title');
+    const dedication = text.indexOf('Dedication');
+    const chapter = text.indexOf('Story text.');
+    const back = text.indexOf('The End');
+
+    expect(title).toBeGreaterThan(-1);
+    expect(dedication).toBeGreaterThan(title);
+    expect(dedication).toBeLessThan(chapter);
+    expect(back).toBeGreaterThan(chapter);
+
+    // The markdown template was CONVERTED to Word (bold run, heading style),
+    // not inserted as literal markdown.
+    expect(text).toContain('</w:rPr><w:t xml:space="preserve">Dedication');
+    expect(text).toContain('<w:pStyle w:val="Heading2"/>');
+    expect(text).not.toContain('**Dedication**');
+    expect(text).not.toContain('## The End');
+  });
+});
+

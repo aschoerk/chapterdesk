@@ -15,6 +15,11 @@
  *        structural node before a chapter → chapter heading
  *        last structural node             → introduction part
  *  - `buildDocxBlob` produces a Word .docx (OpenXML in a stored-entry ZIP).
+ *
+ * Both exporters accept optional `matter` MARKDOWN (`DocMatter`): front matter
+ * right after the title and back matter after the last chapter. It comes from
+ * the editable `export.frontMatter` / `export.backMatter` templates and is
+ * converted to Word with the same markdown → Word mapping as the chapters.
  */
 import { marked, type Token } from 'marked';
 import { ChatNode, NodeAttachment } from '../../models/chat';
@@ -58,6 +63,17 @@ export function pickDocumentPath(
 export interface DocChapter {
   heading: string;
   content: ChatNode | null;
+}
+
+/**
+ * Optional MARKDOWN that wraps the book: front matter right after the title
+ * (or before all other content when the book has no title) and back matter
+ * after the last chapter. Both are converted with the same markdown → Word
+ * mapping the chapters use; in the Markdown export they are inserted as-is.
+ */
+export interface DocMatter {
+  frontMatter?: string | null;
+  backMatter?: string | null;
 }
 
 export interface DocStructure {
@@ -541,11 +557,23 @@ function imageDrawing(media: ImageMedia, index: number): string {
   );
 }
 
-function buildDocumentXml(doc: DocStructure, media: ImageMedia[]): string {
+function buildDocumentXml(
+  doc: DocStructure,
+  media: ImageMedia[],
+  matter: DocMatter = {},
+): string {
   const body: string[] = [];
+  const frontMatter = (matter.frontMatter ?? '').trim();
+  const backMatter = (matter.backMatter ?? '').trim();
 
   if (doc.title) {
     body.push(paragraph(run(doc.title, { b: true }), 'Title'));
+  }
+
+  // Front matter: directly after the title (or at the very start when the
+  // book has no title — the title paragraph above is simply skipped then).
+  if (frontMatter) {
+    body.push(...markdownParagraphs(frontMatter, 'BodyText'));
   }
 
   if (doc.intro) {
@@ -579,6 +607,12 @@ function buildDocumentXml(doc: DocStructure, media: ImageMedia[]): string {
       body.push(paragraph(imageDrawing(mediaEntry, media.length - 1)));
     }
   });
+
+  // Back matter: its own page after the last chapter.
+  if (backMatter) {
+    body.push(PAGE_BREAK);
+    body.push(...markdownParagraphs(backMatter, 'BodyText'));
+  }
 
   const sectPr =
     '<w:sectPr>' +
@@ -827,7 +861,7 @@ export function resolveDocStructure(
 export function buildDocxBlob(
   chatTitle: string,
   allNodes: ChatNode[],
-  options?: { index?: number; path?: ChatNode[] },
+  options?: { index?: number; path?: ChatNode[]; matter?: DocMatter },
 ): Blob {
   const { doc } = resolveDocStructure(chatTitle, allNodes, options);
   const now = new Date().toISOString();
@@ -838,7 +872,7 @@ export function buildDocxBlob(
   const media: ImageMedia[] = [];
   // Build document.xml FIRST: it populates `media` with the image parts, so
   // the content-types / relationships below see the real extensions.
-  const documentXml = strBytes(buildDocumentXml(doc, media));
+  const documentXml = strBytes(buildDocumentXml(doc, media, options?.matter));
 
   const entries: ZipEntry[] = [
     { name: '[Content_Types].xml', data: strBytes(contentTypesXml(media.map(m => imageExt(m.mimeType)))) },
@@ -867,22 +901,35 @@ export function buildDocxBlob(
  *
  *     # Title
  *
+ *     …front matter…
+ *
  *     ## Introduction
  *     …
  *
  *     # Chapter heading
  *     …
+ *
+ *     ---
+ *     …back matter…
  */
 export function buildMarkdown(
   chatTitle: string,
   allNodes: ChatNode[],
-  options?: { index?: number; path?: ChatNode[] },
+  options?: { index?: number; path?: ChatNode[]; matter?: DocMatter },
 ): string {
   const { doc } = resolveDocStructure(chatTitle, allNodes, options);
   const out: string[] = [];
+  const frontMatter = (options?.matter?.frontMatter ?? '').trim();
+  const backMatter = (options?.matter?.backMatter ?? '').trim();
 
   if (doc.title) {
     out.push(`# ${doc.title}`, '');
+  }
+
+  // Front matter: directly after the title (or at the very start when the
+  // book has no title).
+  if (frontMatter) {
+    out.push(frontMatter, '');
   }
 
   if (doc.intro) {
@@ -898,6 +945,12 @@ export function buildMarkdown(
       out.push(ch.content.content.trim(), '');
     }
   });
+
+  // Back matter: after the last chapter.
+  if (backMatter) {
+    if (out.length > 0) out.push('---', '');
+    out.push(backMatter, '');
+  }
 
   return out.join('\n').trim() + '\n';
 }

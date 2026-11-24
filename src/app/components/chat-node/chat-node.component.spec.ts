@@ -279,6 +279,17 @@ describe('ChatNodeComponent', () => {
 
   function confirmResolves(value: boolean): void {
     vi.spyOn(confirm, 'ask').mockResolvedValue(value);
+    // "Rewrite in place" asks through the prompt-carrying confirmation; by
+    // default it confirms with the UNCHANGED prompt (echoing the pre-filled
+    // text), or cancels with null.
+    vi.spyOn(confirm, 'askWithPrompt').mockImplementation(
+      async (req) => (value ? req.prompt.value : null),
+    );
+  }
+
+  /** Make the next rewrite-in-place confirmation resolve with EDITED text (or cancel with null). */
+  function rewritePromptResolves(value: string | null): void {
+    vi.spyOn(confirm, 'askWithPrompt').mockResolvedValue(value);
   }
 
   /** Make the next Prepend dialog resolve with the given director text. */
@@ -3071,10 +3082,13 @@ describe('ChatNodeComponent', () => {
       });
       await openChat([q1, a1, q2]);
       createFixture(a1);
+      confirmResolves(true);
 
       await component.regenerateInPlace();
       fixture.detectChanges();
 
+      // The confirmation dialog still opens (it carries the editable prompt),
+      // and confirming without changes behaves like a plain regenerate.
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
@@ -3152,6 +3166,135 @@ describe('ChatNodeComponent', () => {
       expect(newAnswer.attachments![1].name).toBe('illustration-2.png');
       expect(newAnswer.attachments![1].dataUrl).toBe('data:image/png;base64,QQ==');
       expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Rewrite in place with an EDITED original prompt
+  // ------------------------------------------------------------------
+
+  describe('rewrite in place — editable original prompt', () => {
+    it('asks through the confirmation dialog with the original prompt pre-filled', async () => {
+      const q1 = node({ id: 'q1', content: 'Original direction' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model',
+      });
+      await openChat([q1, a1]);
+      createFixture(a1);
+      const spy = vi.spyOn(confirm, 'askWithPrompt');
+      rewritePromptResolves(null);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      const req = spy.mock.calls[0][0];
+      expect(req.prompt.value).toBe('Original direction');
+      expect(req.prompt.label).toBeTruthy();
+      // Cancel → nothing runs, the answer stays.
+      expect(runner.run).not.toHaveBeenCalled();
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+    });
+
+    it('uses the EDITED prompt as the new direction (stored as a new version)', async () => {
+      const older = new Date(Date.now() - 60_000).toISOString();
+      const newer = new Date().toISOString();
+      const q1 = node({ id: 'q1', content: 'Original direction', createdAt: older, updatedAt: older });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model', createdAt: older, updatedAt: older,
+      });
+      // A later sibling question under q1 so the active path ends on it, not
+      // on a1 (otherwise selectChat auto-adds a draft question under a1).
+      const q2 = node({ id: 'q2', parentId: 'q1', content: 'Question 2', createdAt: newer, updatedAt: newer });
+      await openChat([q1, a1, q2]);
+      createFixture(a1);
+      rewritePromptResolves('A much darker direction.');
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      // The edit was sent to the model as the new direction…
+      const req = orch.completion.mock.calls[0][1] as {
+        messages: { role: string; content: unknown }[];
+      };
+      const lastUser = req.messages.filter((m) => m.role === 'user').pop()!;
+      expect(String(lastUser.content)).toContain('A much darker direction.');
+      // …stored as a NEW version of the question…
+      const edited = chatService.nodes().find(
+        (n) => n.role === 'user' && n.content === 'A much darker direction.',
+      );
+      expect(edited).toBeDefined();
+      expect(edited!.parentId).toBeNull();
+      // …and only this answer was rewritten under that direction.
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      const answer = chatService.getChildren(edited!.id).find((n) => n.role === 'assistant')!;
+      expect(answer).toBeDefined();
+      expect(answer.content).toBe('Generated.');
+      // The following text (none here) plus the edited direction chain stay put.
+      expect(chatService.getActiveChild(null)?.id).toBe(edited!.id);
+    });
+
+    it('creates no new question version when the prompt was left unchanged', async () => {
+      const older = new Date(Date.now() - 60_000).toISOString();
+      const newer = new Date().toISOString();
+      const q1 = node({ id: 'q1', content: 'Original direction', createdAt: older, updatedAt: older });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model', createdAt: older, updatedAt: older,
+      });
+      const q2 = node({ id: 'q2', parentId: 'q1', content: 'Question 2', createdAt: newer, updatedAt: newer });
+      await openChat([q1, a1, q2]);
+      createFixture(a1);
+      rewritePromptResolves('  Original direction  ');
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(
+        chatService.nodes().filter((n) => n.role === 'user' && n.content === 'Original direction'),
+      ).toHaveLength(1);
+      const answer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
+      expect(answer).toBeDefined();
+      expect(answer.content).toBe('Generated.');
+      expect(answer.id).not.toBe('a1');
+    });
+
+    it('does nothing when the prompt comes back blank', async () => {
+      const older = new Date(Date.now() - 60_000).toISOString();
+      const newer = new Date().toISOString();
+      const q1 = node({ id: 'q1', content: 'Original direction', createdAt: older, updatedAt: older });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model', createdAt: older, updatedAt: older,
+      });
+      const q2 = node({ id: 'q2', parentId: 'q1', content: 'Question 2', createdAt: newer, updatedAt: newer });
+      await openChat([q1, a1, q2]);
+      createFixture(a1);
+      rewritePromptResolves('   ');
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(runner.run).not.toHaveBeenCalled();
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+    });
+
+    it('errors when the answer has no user question above it', async () => {
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: null, role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model',
+      });
+      await openChat([a1]);
+      createFixture(a1);
+      const spy = vi.spyOn(confirm, 'askWithPrompt');
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(runner.run).not.toHaveBeenCalled();
     });
   });
 

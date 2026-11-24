@@ -218,9 +218,22 @@ const sendRegenerate: FlowController = async env => {
 const sendRewrite: FlowController = async env => {
   const node = env.cx.node;
   const chatId = env.cx.chat.id;
-  const question = parentQuestion(env, node);
+  let question = parentQuestion(env, node);
   if (!question) {
     return { error: makeSlot('error', 'http', 'No question node to rewrite.', {}) };
+  }
+
+  // OPTIONAL prompt override: "Rewrite in place — edit the original prompt"
+  // lets the user adapt the direction before the answer is re-generated. The
+  // edited text is persisted as a NEW VERSION of the question (the answer's
+  // subtree is adopted onto it) and the fresh answer hangs under that version.
+  const edited = typeof env.cx.vars.content === 'string'
+    ? env.cx.vars.content.trim()
+    : '';
+  if (edited && edited !== (question.content ?? '').trim()) {
+    question = await env.chatService.editUser(
+      chatId, question.id, edited, question.attachments ?? []
+    );
   }
 
   // Current chat-lore: the direction being rewritten in place sits behind a

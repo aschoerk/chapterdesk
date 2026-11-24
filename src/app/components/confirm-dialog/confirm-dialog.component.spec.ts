@@ -6,6 +6,7 @@ import { ConfirmDialogComponent } from './confirm-dialog.component';
 
 describe('ConfirmDialogComponent', () => {
   let fixture: ComponentFixture<ConfirmDialogComponent>;
+  let component: ConfirmDialogComponent;
   let confirm: ConfirmService;
 
   beforeEach(async () => {
@@ -17,6 +18,7 @@ describe('ConfirmDialogComponent', () => {
     confirm = TestBed.inject(ConfirmService);
     confirm.close(false); // reset open state
     fixture = TestBed.createComponent(ConfirmDialogComponent);
+    component = fixture.componentInstance;
     fixture.detectChanges();
   });
 
@@ -85,5 +87,94 @@ describe('ConfirmDialogComponent', () => {
   it('does not close on Escape when no confirmation is open', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(confirm.current()).toBeNull();
+  });
+
+  // ------------------------------------------------------------------
+  // Optional editable prompt (e.g. "Rewrite in place")
+  // ------------------------------------------------------------------
+
+  it('shows no prompt field for a plain confirmation', async () => {
+    const promise = confirm.ask({ title: 'T', message: 'M', confirmLabel: 'Yes' });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.confirm-prompt')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.confirm-dialog').classList)
+      .not.toContain('with-prompt');
+
+    confirm.close(true);
+    expect(await promise).toBe(true);
+  });
+
+  it('shows the editable prompt pre-filled and resolves with the edited text', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'Rewrite this answer in place?',
+      message: 'Only this answer is replaced.',
+      confirmLabel: 'Rewrite in place',
+      cancelLabel: 'Cancel',
+      prompt: { label: 'Original prompt', value: 'Write a dark opening.' },
+    });
+    fixture.detectChanges();
+    // ngModel writes the model into the DOM on a microtask.
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const textarea = fixture.nativeElement.querySelector('.confirm-prompt textarea') as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    expect(component.promptValue()).toBe('Write a dark opening.');
+    expect(textarea.value).toBe('Write a dark opening.');
+    expect(fixture.nativeElement.querySelector('.confirm-prompt-label').textContent)
+      .toContain('Original prompt');
+
+    textarea.value = 'Write a much darker opening.';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const primary = fixture.nativeElement.querySelector('.confirm-actions .btn.primary') as HTMLButtonElement;
+    primary.click();
+    expect(await promise).toBe('Write a much darker opening.');
+    expect(confirm.current()).toBeNull();
+  });
+
+  it('disables confirm while the prompt is blank', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M', confirmLabel: 'Go',
+      prompt: { label: 'Prompt', value: '   ' },
+    });
+    fixture.detectChanges();
+
+    const primary = fixture.nativeElement.querySelector('.confirm-actions .btn.primary') as HTMLButtonElement;
+    expect(primary.disabled).toBe(true);
+    primary.click();
+    expect(confirm.current()).not.toBeNull();
+
+    confirm.close(null);
+    expect(await promise).toBeNull();
+  });
+
+  it('cancelling a prompt confirmation resolves null (not the text)', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: { label: 'Prompt', value: 'Text' },
+    });
+    fixture.detectChanges();
+
+    const cancel = fixture.nativeElement.querySelector('.confirm-actions .btn:not(.primary)') as HTMLButtonElement;
+    cancel.click();
+    expect(await promise).toBeNull();
+  });
+
+  it('Enter inside the prompt inserts a newline; Ctrl+Enter confirms', async () => {
+    const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: { label: 'Prompt', value: 'Text' },
+    });
+    fixture.detectChanges();
+
+    const backdrop = fixture.nativeElement.querySelector('.confirm-backdrop');
+    backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(confirm.current()).not.toBeNull();
+
+    backdrop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+    expect(await promise).toBe('Text');
   });
 });

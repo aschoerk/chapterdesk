@@ -19,7 +19,7 @@
  * Prompts are intentionally English-only (no i18n).
  */
 
-export type PromptDefaultCategory = 'structure' | 'image' | 'language';
+export type PromptDefaultCategory = 'structure' | 'image' | 'language' | 'export';
 
 export type PromptVarType = 'string' | 'number' | 'boolean';
 
@@ -52,8 +52,17 @@ export interface PromptDefaultDef {
 export const PROMPT_DEFAULT_CATEGORIES: PromptDefaultCategory[] = [
   'structure',
   'image',
-  'language'
+  'language',
+  'export'
 ];
+
+/**
+ * Ids of the export templates (markdown front / back matter). They are NOT
+ * sent to a language model — the exporter inserts them into the DOCX /
+ * Markdown output.
+ */
+export const FRONT_MATTER_PROMPT_ID = 'export.frontMatter';
+export const BACK_MATTER_PROMPT_ID = 'export.backMatter';
 
 /**
  * ALL editable auto-prompt templates. Keep the DEFAULT text identical to the
@@ -405,6 +414,28 @@ Produce EXACTLY 3 variants of the rewritten marked text:
 
 Return ONLY a JSON array of exactly 3 strings in this order: [minimal, clearer, rewritten].
 No text before or after the JSON, no markdown fences.`
+  },
+
+  // ------------------------------------------------------------------ export
+  // These two are NOT prompts: their text is MARKDOWN that the DOCX / Markdown
+  // exporter inserts into the finished book. Word documents get the markdown
+  // converted (headings, lists, emphasis, …) by the same converter the
+  // chapters use.
+  {
+    id: FRONT_MATTER_PROMPT_ID,
+    category: 'export',
+    label: 'Front matter (after the title)',
+    description:
+      'Markdown inserted directly after the title of an exported book — or before all other content when the story has no title. Typical content: dedication, epigraph, disclaimer. Leave empty to insert nothing.',
+    default: ''
+  },
+  {
+    id: BACK_MATTER_PROMPT_ID,
+    category: 'export',
+    label: 'Back matter (after the last chapter)',
+    description:
+      'Markdown appended after the last chapter of an exported book (its own page in the DOCX). Typical content: afterword, acknowledgements, "the end". Leave empty to insert nothing.',
+    default: ''
   }
 ];
 
