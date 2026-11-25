@@ -274,6 +274,7 @@ class InMemoryChatApi implements Pick<
       row.totalTokens = usage.total ?? null;
       row.totalCost = usage.cost ?? null;
     }
+    this.versionOnto(old, row);
     return row;
   }
   async editUser(
@@ -281,7 +282,7 @@ class InMemoryChatApi implements Pick<
     attachments?: NodeAttachment[]
   ) {
     const old = this.must(this.nodes, nodeId, 'Node');
-    return this.createNode(chatId, {
+    const row = await this.createNode(chatId, {
       parentId: old.parentId,
       role: 'user',
       content,
@@ -289,6 +290,22 @@ class InMemoryChatApi implements Pick<
       modelId: old.modelId ?? undefined,
       providerId: old.providerId ?? undefined
     });
+    this.versionOnto(old, row);
+    return row;
+  }
+
+  /**
+   * Mirror the real backends' EDIT contract: the edited node is retired (kept
+   * as the PRIOR VERSION — never overwritten) and the fresh row links back to
+   * it (`previousVersionId` + bumped `version`) and adopts its children.
+   */
+  private versionOnto(old: ChatNode, next: ChatNode): void {
+    old.isCurrent = false;
+    next.previousVersionId = old.id;
+    next.version = (old.version || 1) + 1;
+    for (const child of this.nodes) {
+      if (child.parentId === old.id) child.parentId = next.id;
+    }
   }
   async branchUser(chatId: string, nodeId: string, data: {
     content: string; modelId?: string; providerId?: string; attachments?: NodeAttachment[];

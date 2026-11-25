@@ -124,8 +124,8 @@ describe('DialogActionsController', () => {
 
   it('openVersionDiffDialog applies to the DRAFT while editing', async () => {
     await open();
-    // The in-memory API does not link `previousVersionId` (only the real
-    // backends version rows), so the prior versions are stubbed here.
+    // This fixture never edited `q1`, so it has no version chain — the prior
+    // version is stubbed here to keep the diff dialog path focused.
     const prior = makeNode({ id: 'q0', role: 'user', content: 'An older direction' });
     vi.spyOn(chatService, 'getPriorVersions').mockReturnValue([{ ...prior, chatId: CHAT_ID }]);
 

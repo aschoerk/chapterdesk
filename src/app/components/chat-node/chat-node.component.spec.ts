@@ -3163,8 +3163,9 @@ describe('ChatNodeComponent', () => {
       await component.regenerateInPlace();
       fixture.detectChanges();
 
-      // Only the regenerated answer is gone…
-      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      // The old answer is retired (kept as a prior version), not deleted…
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+      expect(chatService.nodes().find((n) => n.id === 'a1')!.isCurrent).toBe(false);
       // …the following text survives intact.
       expect(chatService.nodes().find((n) => n.id === 'd1')).toBeDefined();
       expect(chatService.nodes().find((n) => n.id === 'a2')).toBeDefined();
@@ -3173,6 +3174,7 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
+      expect(newAnswer.previousVersionId).toBe('a1');
       expect(newAnswer.content).toBe('Generated.');
       expect(chatService.getChildren(newAnswer.id).map((n) => n.id)).toContain('d1');
       expect(chatService.getActiveChild(newAnswer.id)?.id).toBe('d1');
@@ -3211,11 +3213,14 @@ describe('ChatNodeComponent', () => {
       fixture.detectChanges();
 
       // The confirmation dialog still opens (it carries the editable prompt),
-      // and confirming without changes behaves like a plain regenerate.
-      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      // and confirming without changes behaves like a plain regenerate — the
+      // original answer is kept as a prior version of the new one.
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+      expect(chatService.nodes().find((n) => n.id === 'a1')!.isCurrent).toBe(false);
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
+      expect(newAnswer.previousVersionId).toBe('a1');
       expect(newAnswer.content).toBe('Generated.');
     });
 
@@ -3280,6 +3285,9 @@ describe('ChatNodeComponent', () => {
       const newAnswer = chatService.getChildren('q1').find((n) => n.role === 'assistant')!;
       expect(newAnswer).toBeDefined();
       expect(newAnswer.id).not.toBe('a1');
+      // The original answer is kept as a retired prior version of the rewrite.
+      expect(newAnswer.previousVersionId).toBe('a1');
+      expect(chatService.nodes().find((n) => n.id === 'a1')!.isCurrent).toBe(false);
       // An image-only rewrite → the fresh answer repeats the direction, keeps
       // the OLD image AND adds the new one (renumbered after the old).
       expect(newAnswer.content).toBe('Render the castle');
@@ -3409,10 +3417,13 @@ describe('ChatNodeComponent', () => {
       );
       expect(edited).toBeDefined();
       expect(edited!.parentId).toBeNull();
-      // …and only this answer was rewritten under that direction.
-      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeUndefined();
+      // …and only this answer was rewritten under that direction — the
+      // ORIGINAL answer is kept as a prior version of the new one.
+      expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
+      expect(chatService.nodes().find((n) => n.id === 'a1')!.isCurrent).toBe(false);
       const answer = chatService.getChildren(edited!.id).find((n) => n.role === 'assistant')!;
       expect(answer).toBeDefined();
+      expect(answer.previousVersionId).toBe('a1');
       expect(answer.content).toBe('Generated.');
       // The following text (none here) plus the edited direction chain stay put.
       expect(chatService.getActiveChild(null)?.id).toBe(edited!.id);
@@ -3441,6 +3452,8 @@ describe('ChatNodeComponent', () => {
       expect(answer).toBeDefined();
       expect(answer.content).toBe('Generated.');
       expect(answer.id).not.toBe('a1');
+      // Even unchanged, the rewrite is stored as a new version of the answer.
+      expect(answer.previousVersionId).toBe('a1');
     });
 
     it('does nothing when the prompt comes back blank', async () => {

@@ -143,7 +143,10 @@ export class ChatTreeWriterService {
                       attachments?: NodeAttachment[],
                       thinking?: string,
                       usage?: NodeUsageSummary): Promise<ChatNode> {
-    const saved = await this.api.editAssistant(chatId, nodeId, content, attachments, thinking, usage);
+    const saved = this.asVersionOf(
+      nodeId,
+      await this.api.editAssistant(chatId, nodeId, content, attachments, thinking, usage)
+    );
 
     this.state.nodes.update(list => {
       const retired = list.map(n =>
@@ -165,7 +168,10 @@ export class ChatTreeWriterService {
     content: string,
     attachments?: NodeAttachment[]
   ): Promise<ChatNode> {
-    const saved = await this.api.editUser(chatId, nodeId, content, attachments);
+    const saved = this.asVersionOf(
+      nodeId,
+      await this.api.editUser(chatId, nodeId, content, attachments)
+    );
 
     this.state.nodes.update(list => {
       const retired = list.map(n =>
@@ -178,6 +184,31 @@ export class ChatTreeWriterService {
     this.adoptSubtree(nodeId, saved.id);
     this.setActiveChild(saved.parentId ?? null, saved.id);
     return saved;
+  }
+
+  /**
+   * Guarantee that an EDITED node is stored as a VERSION of the node it
+   * replaced: the returned node keeps (or gets) `previousVersionId` pointing
+   * at the edited original, and a bumped `version`. The original row therefore
+   * survives as a retired prior version — it is never overwritten, so a
+   * rewrite-in-place with an edited prompt can always be compared with / rolled
+   * back to the original message.
+   *
+   * Every backend already links the rows (previousVersionId = old id, version
+   * + 1); this is the client-side safety net so an unlinked reply can never
+   * lose the original. A node saved under the SAME id (an empty placeholder
+   * filled in place) is returned unchanged — there was nothing to keep.
+   */
+  private asVersionOf(previousId: string, saved: ChatNode): ChatNode {
+    if (saved.id === previousId) return saved;
+    const previous = this.state.nodes().find(n => n.id === previousId);
+    const previousVersion = previous?.version ?? 1;
+    return {
+      ...saved,
+      isCurrent: true,
+      previousVersionId: saved.previousVersionId ?? previousId,
+      version: saved.version > previousVersion ? saved.version : previousVersion + 1
+    };
   }
 
   private adoptSubtree(oldId: string, newId: string): void {
@@ -257,6 +288,25 @@ export class ChatTreeWriterService {
 
     await this.ensureDraftAtLeaf(chatId);
     await this.loadDeletedNodes(chatId);
+  }
+
+  /**
+   * Permanently drop a TRANSIENT node — e.g. the paint placeholder a streamed
+   * answer was rendered into before it became a version of the rewritten
+   * answer. Unlike `deleteNode` this leaves the trash and the active path
+   * alone: the node never was part of the story.
+   */
+  async discardNode(chatId: string, nodeId: string): Promise<void> {
+    await this.api.purgeNode(chatId, nodeId);
+    this.state.nodes.update(list => list.filter(n => n.id !== nodeId));
+    this.state.activeChildMap.update(m => {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(m)) {
+        if (key === nodeId || value === nodeId) continue;
+        next[key] = value;
+      }
+      return next;
+    });
   }
 
   /** Move existing nodes under a new parent and keep local state in sync. */

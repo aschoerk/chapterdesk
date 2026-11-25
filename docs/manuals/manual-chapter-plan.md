@@ -37,9 +37,12 @@ a numbered item) and every entry to carry a real description.
     direction that produced the answer — and a **Model** picker. Edit the
     direction to ask for something different — e.g. "10 chapters instead of 6" —
     and only that answer is rewritten with the edited direction; the following
-    text stays attached. Leave it unchanged to simply regenerate the answer with
-    the same request. The picker defaults to the model that created the answer
-    (or the one last chosen here) and lets you rewrite with a different model.
+    text stays attached. The rewritten answer is stored as a **new version** of
+    the old one, so the original answer is never lost: open its **Prior
+    versions** / **Compare versions** menu to look it up or roll back. Leave the
+    direction unchanged to simply regenerate the answer with the same request.
+    The picker defaults to the model that created the answer (or the one last
+    chosen here) and lets you rewrite with a different model.
 
 ## Step 2 — use it in the Elaborate dialog
 

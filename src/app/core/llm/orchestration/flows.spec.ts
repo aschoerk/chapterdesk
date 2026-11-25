@@ -560,7 +560,7 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(slots.flow?.value?.empty).toBe(false);
   });
 
-  it('send-rewrite: deletes only the answer and re-adopts the preserved children', async () => {
+  it('send-rewrite: the old answer is KEPT as a prior version and its children are re-adopted', async () => {
     fetchMock.mockResolvedValueOnce(sseResponse(['Rewritten ', 'answer.']));
     const chatService = await openChat([
       makeNode({ id: 'q1', role: 'user', content: 'Question' }),
@@ -577,13 +577,21 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
       vars: {}
     });
 
-    // The old answer is gone, but the FOLLOWING text (d1) is preserved and
-    // re-hung under the fresh answer (versioned id).
-    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    // The new answer is a VERSION of the old one: the ORIGINAL answer is kept
+    // (retired, not deleted) and stays reachable as a prior version.
     const answerId = slots.flow!.value!.answerNodeId;
     const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerId).not.toBe('a1');
     expect(answerNode.content).toBe('Rewritten answer.');
     expect(answerNode.parentId).toBe('q1');
+    expect(answerNode.previousVersionId).toBe('a1');
+    expect(answerNode.version).toBe(2);
+    const original = chatService.nodes().find(n => n.id === 'a1')!;
+    expect(original.content).toBe('Old answer');
+    expect(original.isCurrent).toBe(false);
+    expect(chatService.getPriorVersions(answerNode).map(v => v.content))
+      .toEqual(['Old answer']);
+    // The FOLLOWING text (d1) is preserved and re-hung under the fresh answer.
     const following = chatService.nodes().find(n => n.id === 'd1');
     expect(following).toBeDefined();
     expect(following!.parentId).toBe(answerId);
@@ -614,6 +622,15 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     const question = chatService.nodes().find(n => n.id === questionId)!;
     expect(question.content).toBe('A much darker direction.');
     expect(question.role).toBe('user');
+    // …whose ORIGINAL message survives as a retired PRIOR VERSION (never
+    // overwritten), so the rewrite can always be traced back / compared.
+    expect(question.previousVersionId).toBe('q1');
+    expect(question.version).toBe(2);
+    const original = chatService.nodes().find(n => n.id === 'q1')!;
+    expect(original.content).toBe('Original direction');
+    expect(original.isCurrent).toBe(false);
+    expect(chatService.getPriorVersions(question).map(v => v.content))
+      .toEqual(['Original direction']);
     // …the request carried the edited text…
     const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
       messages: { role: string; content: string }[];
@@ -652,6 +669,13 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(questionId).not.toBe('q1');
     expect(question.role).toBe('user');
     expect(question.content).toBe('A much darker direction.');
+    // Even with a structural heading in between, the ORIGINAL prompt is kept
+    // as a retired prior version of the edited direction.
+    expect(question.previousVersionId).toBe('q1');
+    expect(chatService.nodes().find(n => n.id === 'q1')!.content)
+      .toBe('Original direction');
+    expect(chatService.getPriorVersions(question).map(v => v.content))
+      .toEqual(['Original direction']);
     // The heading stays BETWEEN prompt and chapter…
     expect(chatService.nodes().find(n => n.id === 'h1')!.parentId).toBe(questionId);
     // …and the fresh answer replaces the old one UNDER THE HEADING (in place),
@@ -700,12 +724,15 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1][0])).toContain('/images');
-    // Old answer gone; the fresh answer carries the generated picture and re-
-    // adopts the preserved following text. The model returned only an image →
-    // the chapter is filled with the direction text (the parent question).
-    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    // The original answer is kept as a prior version; the fresh answer carries
+    // the generated picture and re-adopts the preserved following text. The
+    // model returned only an image → the chapter is filled with the direction
+    // text (the parent question).
     const answerId = slots.flow!.value!.answerNodeId;
     const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerId).not.toBe('a1');
+    expect(answerNode.previousVersionId).toBe('a1');
+    expect(chatService.nodes().find(n => n.id === 'a1')!.isCurrent).toBe(false);
     expect(answerNode.content).toBe('Question');
     expect(answerNode.attachments?.length).toBe(1);
     expect(answerNode.attachments![0].dataUrl).toBe('data:image/png;base64,BBBB');
@@ -739,9 +766,13 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
       vars: {}
     });
 
-    expect(chatService.nodes().find(n => n.id === 'a1')).toBeUndefined();
+    // The original answer survives as a retired PRIOR VERSION of the rewrite.
     const answerId = slots.flow!.value!.answerNodeId;
     const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerId).not.toBe('a1');
+    expect(answerNode.previousVersionId).toBe('a1');
+    expect(chatService.nodes().find(n => n.id === 'a1')!.content).toBe('Old answer');
+    expect(chatService.nodes().find(n => n.id === 'a1')!.isCurrent).toBe(false);
     // The old picture AND the new one are both attached — the old image
     // remains available after the rewrite.
     expect(answerNode.attachments?.length).toBe(2);

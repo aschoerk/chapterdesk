@@ -213,7 +213,8 @@ const sendRegenerate: FlowController = async env => {
 };
 
 // ---------------------------------------------------------------------------
-// send-rewrite — delete ONLY the answer (keep following text), re-stream
+// send-rewrite — replace ONLY the answer (keep following text) by a NEW
+// VERSION of it, re-stream
 // ---------------------------------------------------------------------------
 const sendRewrite: FlowController = async env => {
   const node = env.cx.node;
@@ -249,16 +250,19 @@ const sendRewrite: FlowController = async env => {
 
   // Current chat-lore: the direction being rewritten in place sits behind a
   // lore node deactivated after its first send — (re-)arm it (clear its
-  // excludeFromContext flag) BEFORE anything is removed, so the re-sent
-  // request carries the lore again.
+  // excludeFromContext flag) BEFORE anything is re-sent, so the request
+  // carries the lore again.
   await env.chatService.ensureLoreNodeBefore(chatId, question.id);
 
+  // The answer being rewritten is NOT deleted: the streamed text becomes a NEW
+  // VERSION of it (`versionFromAnswerId`), so the ORIGINAL answer is kept as a
+  // retired prior version — it stays comparable / restorable in Prior versions
+  // while the following text is adopted onto the new version.
   const adoptNodeIds = env.chatService.getChildren(node.id).map(c => c.id);
   // Rewrite in place preserves the OLD answer's attachments (e.g. previously
-  // generated images) — they must survive the node deletion and be merged
-  // onto the fresh answer so earlier pictures stay available.
+  // generated images) — they are merged onto the fresh answer so earlier
+  // pictures stay available.
   const preservedAttachments = (node.attachments ?? []).slice();
-  await env.chatService.deleteNode(chatId, node.id, { keepChildren: true });
 
   const prepared = await prepareTextSend(env, chatId, question, {
     content: question.content,
@@ -268,9 +272,9 @@ const sendRewrite: FlowController = async env => {
   const { answerNodeId, slots } = await streamAnswerNode(
     env, chatId, question.id, prepared.messages,
     {
-      adoptNodeIds,
       preserveAttachments: preservedAttachments,
-      parentNodeId: placementParentId
+      parentNodeId: placementParentId,
+      versionFromAnswerId: node.id
     }
   );
   // The preserved attachments include the plan record of the OLD list — the

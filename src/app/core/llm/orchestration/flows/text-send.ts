@@ -192,10 +192,15 @@ export function imageOnlyAnswerContent(
  * ChatService.updateNodes + versioned editAssistant), optionally re-parenting
  * `adoptNodeIds` under the fresh answer.
  *
- * `opts.parentNodeId` overrides WHERE the answer is placed (and activated)
- * while the messages still belong to `questionNodeId`. A rewrite in place of a
- * chapter that sits under a structural heading re-answers its original PROMPT
- * but must replace the chapter in its old tree position, not under the prompt.
+ * `opts.parentNodeId` overrides WHERE the paint placeholder is placed (and
+ * activated) while the messages still belong to `questionNodeId`.
+ *
+ * `opts.versionFromAnswerId` turns the run into a REWRITE IN PLACE of that
+ * answer: the streamed text is finally stored as a NEW VERSION of it (the old
+ * answer is retired as a prior version — never deleted), so the original
+ * answer stays available for comparison / rollback. The paint placeholder is
+ * discarded afterwards; children of the old answer are adopted automatically
+ * by the versioning.
  */
 export async function streamAnswerNode(
   env: FlowEnv,
@@ -206,6 +211,7 @@ export async function streamAnswerNode(
     adoptNodeIds?: string[];
     preserveAttachments?: NodeAttachment[];
     parentNodeId?: string | null;
+    versionFromAnswerId?: string;
   } = {}
 ): Promise<{ answerNodeId: string; slots: EvalSlots }> {
   const chatService = env.chatService;
@@ -289,18 +295,47 @@ export async function streamAnswerNode(
     let answerId = answerNode.id;
     // An image-only answer (image-capable model streamed pictures, no text)
     // must STILL be finalized — otherwise it stays an empty placeholder that
-    // renders as "Generation stopped" and the images are never attached.
-    if (chapterContent.trim() || finalThinking.trim() || finalImages.length > 0 || (opts.preserveAttachments?.length ?? 0) > 0) {
+    // renders as "Generation stopped" and the images are never attached. A
+    // REWRITE IN PLACE always finalizes: the old answer must not survive as a
+    // second visible answer next to the (possibly empty) rewrite.
+    if (chapterContent.trim() || finalThinking.trim() || finalImages.length > 0
+        || (opts.preserveAttachments?.length ?? 0) > 0 || opts.versionFromAnswerId) {
       // Preserved attachments (e.g. the old answer's images on a rewrite in
       // place) + any newly generated image(s), renumbered after the kept ones.
       const attachments = mergeAnswerAttachments(opts.preserveAttachments, finalImages);
-      const versioned = await chatService.editAssistant(
-        chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
-      );
-      answerId = versioned.id;
-      chatService.setActiveChild(parentNodeId, answerId);
-      if (opts.adoptNodeIds?.length) {
-        await chatService.reparentNodes(chatId, opts.adoptNodeIds, answerId);
+      if (opts.versionFromAnswerId) {
+        // REWRITE IN PLACE: the streamed text becomes a NEW VERSION of the
+        // answer being rewritten — the old answer is retired as a prior
+        // version (kept, never deleted) and its children (the following text)
+        // are adopted onto the new version by the versioning itself.
+        const versioned = await chatService.editAssistant(
+          chatId, opts.versionFromAnswerId, chapterContent, attachments,
+          finalThinking, slots.usage?.value ?? undefined
+        );
+        answerId = versioned.id;
+        // The paint placeholder only served as a streaming surface: the answer
+        // is the freshly created version, so drop the placeholder for good.
+        if (answerId !== answerNode.id) {
+          await chatService.discardNode(chatId, answerNode.id);
+        }
+        // A versioned copy inherits the OLD answer's model binding; the model
+        // that actually produced THIS text must be recorded instead.
+        if ((versioned.modelId ?? null) !== (write.model.modelId ?? null)
+            || (versioned.providerId ?? null) !== (write.model.providerId ?? null)) {
+          await chatService.patchNode(chatId, answerId, {
+            modelId: write.model.modelId,
+            providerId: write.model.providerId
+          });
+        }
+      } else {
+        const saved = await chatService.editAssistant(
+          chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
+        );
+        answerId = saved.id;
+        chatService.setActiveChild(parentNodeId, answerId);
+        if (opts.adoptNodeIds?.length) {
+          await chatService.reparentNodes(chatId, opts.adoptNodeIds, answerId);
+        }
       }
     }
     // The call was recorded under the placeholder node id — the node that is

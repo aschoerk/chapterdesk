@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { ChatService } from './chat.service';
 import { NodeEditSession } from './node-edit-session';
 import { ConfirmService } from '../dialogs/confirm.service';
@@ -114,6 +114,68 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
     it('returns undefined when the history has no user message', async () => {
       const root = await add({ parentId: null, role: 'assistant', content: 'Orphan answer' });
       expect(chat.firstUserPromptAbove(root.id)).toBeUndefined();
+    });
+  });
+
+  describe('editing keeps the ORIGINAL as a version', () => {
+    it('editUser retires the original and links the new version back to it', async () => {
+      const t = await linear();
+      const saved = await chat.editUser(chatId, t.u1.id, 'Edited direction');
+
+      expect(saved.id).not.toBe(t.u1.id);
+      expect(saved.content).toBe('Edited direction');
+      expect(saved.previousVersionId).toBe(t.u1.id);
+      expect(saved.version).toBe(2);
+      const original = chat.nodes().find(n => n.id === t.u1.id)!;
+      expect(original.content).toBe('Q1');
+      expect(original.isCurrent).toBe(false);
+      expect(chat.getPriorVersions(saved).map(n => n.content)).toEqual(['Q1']);
+      // The subtree moved onto the new version (the original has no children).
+      expect(chat.getChildren(saved.id).map(n => n.id)).toEqual([t.a1.id]);
+      expect(chat.getChildren(t.u1.id)).toEqual([]);
+    });
+
+    it('a whole version chain stays reachable after repeated edits', async () => {
+      const t = await linear();
+      await chat.editUser(chatId, t.u1.id, 'Second');
+      const third = await chat.editUser(
+        chatId,
+        chat.nodes().find(n => n.content === 'Second')!.id,
+        'Third',
+      );
+
+      expect(third.version).toBe(3);
+      expect(chat.getPriorVersions(third).map(n => n.content)).toEqual(['Second', 'Q1']);
+    });
+
+    it('synthesizes the version link when a backend returns an unlinked copy', async () => {
+      const t = await linear();
+      // A backend that forgets the link must not lose the original: the writer
+      // owns the contract (previousVersionId + bumped version).
+      const unlinked = { ...t.u1, id: 'node-unlinked', content: 'Edited', version: 1 };
+      vi.spyOn(api, 'editUser').mockResolvedValueOnce(unlinked);
+
+      const saved = await chat.editUser(chatId, t.u1.id, 'Edited');
+
+      expect(saved.previousVersionId).toBe(t.u1.id);
+      expect(saved.version).toBe(2);
+      expect(saved.isCurrent).toBe(true);
+      expect(chat.getPriorVersions(saved).map(n => n.content)).toEqual(['Q1']);
+    });
+
+    it('discardNode drops a transient paint node without a trash entry', async () => {
+      const t = await linear();
+      // A streamed answer is painted into a throwaway node before it becomes
+      // the new version of the rewritten answer — that node must vanish
+      // completely (no trash item, no active-path residue).
+      const paint = await add({ parentId: t.u1.id, role: 'assistant', content: 'streaming…' });
+      chat.setActiveChild(t.u1.id, paint.id);
+
+      await chat.discardNode(chatId, paint.id);
+
+      expect(chat.nodes().some(n => n.id === paint.id)).toBe(false);
+      expect(await api.getDeletedNodes(chatId)).toEqual([]);
+      expect(chat.getActiveChildId(t.u1.id)).not.toBe(paint.id);
     });
   });
 

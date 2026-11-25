@@ -375,16 +375,24 @@ configured `default` task model. An explicit `vars.modelId` (dialog) still wins.
 
 ## Use case 11 — send-rewrite
 
-> Delete ONLY the answer (keep children), re-stream, re-adopt children + preserve old attachments.
+> Replace ONLY the answer (keep children) by a NEW VERSION of it, re-stream, adopt children + preserve old attachments.
 
 **Implementation notes (verified):** `adoptNodeIds = children(node.id)`,
-`preservedAttachments = (node.attachments ?? []).slice()`, `deleteNode(..., {keepChildren:true})`,
-`streamAnswerNode({adoptNodeIds, preserveAttachments})`,
+`preservedAttachments = (node.attachments ?? []).slice()`, NO `deleteNode`,
+`streamAnswerNode({preserveAttachments, parentNodeId, versionFromAnswerId})`,
 `mergeAnswerAttachments` = preserved + new generated images renumbered after kept
 (`startIndex = existingGeneratedImageCount(preserved)` → new image becomes `illustration-2`).
+The ORIGINAL PROMPT is the first user message found walking UP the answer's visible
+history (`ChatService.firstUserPromptAbove` — skips lore/structural/draft nodes); an
+EDITED prompt is stored as a NEW VERSION of it. The ANSWER itself is NOT deleted:
+`streamAnswerNode({versionFromAnswerId})` streams into a throwaway paint placeholder
+and then stores the text as a **new version of the old answer** (retired as a prior
+version, children adopted), dropping the placeholder via `ChatService.discardNode`.
 
 **Existing coverage (flows.spec.ts):**
-- `send-rewrite: deletes only the answer and re-adopts the preserved children`
+- `send-rewrite: the old answer is KEPT as a prior version and its children are re-adopted`
+- `send-rewrite: an EDITED prompt (vars.content) becomes a new version of the question` (also asserts the original prompt survives as `previousVersionId` / prior version)
+- `send-rewrite: finds the original prompt above a structural heading and replaces the answer in place`
 - `send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture`
 - `send-rewrite: PRESERVES the old answer's attachments and merges the new image (previous pictures stay available)`
 - `send-rewrite: clears the exclude flag of the lore node before the assistant and re-sends the lore`

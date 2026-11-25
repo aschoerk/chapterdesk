@@ -86,8 +86,7 @@ export class ChatService {
   }
   getPriorVersions(node: ChatNode): ChatNode[] {
     return this.reader.getPriorVersions(node);
-  }
-  newestChild(parentId: string | null): ChatNode | null {
+  }  newestChild(parentId: string | null): ChatNode | null {
     return this.reader.newestChild(parentId);
   }
   isDraftQuestion(node: ChatNode): boolean {
@@ -232,6 +231,14 @@ export class ChatService {
   }
   purgeBranch(chatId: string, nodeId: string): Promise<void> {
     return this.writer.purgeBranch(chatId, nodeId);
+  }
+
+  /**
+   * Permanently drop a TRANSIENT node (the paint placeholder of a streamed
+   * answer that became a version of the rewritten answer).
+   */
+  discardNode(chatId: string, nodeId: string): Promise<void> {
+    return this.writer.discardNode(chatId, nodeId);
   }
 
   // ------------------------------------------------------------------ chats
