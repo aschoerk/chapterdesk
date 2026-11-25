@@ -7,6 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
 import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
+import { ModelRecencyService } from '../../core/settings/model-recency.service';
 import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
 import type { ModelEntry } from '../../models/chat-config';
 import { MarkdownService } from '../../core/chat/markdown.service';
@@ -87,6 +88,12 @@ const COMPLETE_PRECEDING_MESSAGE_FALLBACK = 'complete the preceding message';
  */
 export const REWRITE_IN_PLACE_MODEL_KEY = 'chat.rewriteInPlace.model.v1';
 
+/** One `<optgroup>` of the direction editor's model listbox. */
+export interface ModelChoiceGroup {
+  readonly title: string;
+  readonly models: ModelEntry[];
+}
+
 @Component({
   selector: 'app-chat-node',
   standalone: true,
@@ -129,6 +136,8 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
   private readonly toast = inject(ToastService);
+  /** Recently used writing models — offered first in the editor's listbox. */
+  private readonly modelRecency = inject(ModelRecencyService);
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
@@ -221,6 +230,51 @@ export class ChatNodeComponent implements OnDestroy {
   readonly checkingEnglish = this.textActions.checkingEnglish;
   readonly englishSuggestions = this.textActions.englishSuggestions;
   readonly enabledModels = this.settings.enabledModels;
+
+  /**
+   * Options of the direction editor's model listbox, in picker order:
+   * the CURRENT model first, then the models used LAST (most recent first),
+   * then every remaining enabled model alphabetically.
+   *
+   * The groups are disjoint (no model appears twice — a `<select>` with
+   * duplicate values is ambiguous), so switching back to the model used for
+   * the previous chapter is one click instead of a scan through the catalog.
+   */
+  readonly modelGroups = computed<ModelChoiceGroup[]>(() => {
+    const models = this.enabledModels();
+    const find = (id: string | null | undefined) =>
+      models.find(m => !!id && (m.modelId === id || m.id === id)) ?? null;
+
+    const taken = new Set<string>();
+    const push = (list: ModelEntry[], m: ModelEntry | null): void => {
+      if (!m) return;
+      const key = m.modelId || m.id;
+      if (taken.has(key)) return;
+      taken.add(key);
+      list.push(m);
+    };
+
+    const currentGroup: ModelEntry[] = [];
+    push(currentGroup, find(this.branchModelId()));
+
+    const recentGroup: ModelEntry[] = [];
+    for (const id of this.modelRecency.recentIds()) push(recentGroup, find(id));
+
+    const restGroup: ModelEntry[] = [];
+    for (const m of models) push(restGroup, m);
+
+    const groups: ModelChoiceGroup[] = [];
+    if (currentGroup.length) {
+      groups.push({ title: this.i18n.t('node.modelGroupCurrent'), models: currentGroup });
+    }
+    if (recentGroup.length) {
+      groups.push({ title: this.i18n.t('node.modelGroupRecent'), models: recentGroup });
+    }
+    if (restGroup.length) {
+      groups.push({ title: this.i18n.t('node.modelGroupAll'), models: restGroup });
+    }
+    return groups;
+  });
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
   /** Closed by default — thinking is hidden unless the user opens it. */

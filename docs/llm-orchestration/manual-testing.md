@@ -520,6 +520,7 @@ creation task (D8).
 | --- | --- | --- | --- |
 | 10.1 | a chapter with following text and an image | chapter footer **“Regenerate”** → confirm the dialog | whole subtree disappears; a fresh answer streams under the same question; **no** old attachments on the new chapter |
 | 10.2 | a chapter with children | **“Regenerate”** → confirm (dialog warns it deletes following text) | children are gone too (subtree delete) |
+| 10.3 | prompt sent with model A, answer rewritten in place with model B | **“Regenerate”** on that answer | the request goes to **model A** (the prompt's model); the fresh answer shows A — not the model the answer displayed |
 | 11.1 | a chapter with following text | footer **“Rewrite in place”** → confirm (dialog shows “{n} following text(s)”) | only that chapter is replaced; following text remains and hangs under the **new** version |
 | 11.2 | chapter has `illustration-1` | **“Rewrite in place”** with the model producing a new image | fresh chapter shows **both** `illustration-1` (kept) and `illustration-2` (new) |
 

@@ -6,6 +6,7 @@ import { makeSlot } from '../slots';
 import { isFlowUsecase, LlmFlowRunner } from '../flows';
 import type { HeldRun } from '../flows/env';
 import { ChatService } from '../../../chat/chat.service';
+import { ModelRecencyService } from '../../../settings/model-recency.service';
 import type { UsecaseEnv, UsecaseController } from './env';
 import { storyboardDirect, plannedEnblock, plannedScenes } from './storyboard';
 import { renderFull, renderWindow, renderNode, imageGeneration, imageSend } from './renders';
@@ -55,6 +56,7 @@ export class LlmUseCaseRunner {
   private readonly orch = inject(LlmOrchestratorService);
   private readonly flowRunner = inject(LlmFlowRunner);
   private readonly chatService = inject(ChatService);
+  private readonly modelRecency = inject(ModelRecencyService);
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk']; onImages?: (scenes: ImageScene[]) => void; nodeId?: string } = {}): Promise<EvalSlots> {
     const usecase = build.usecase;
@@ -75,6 +77,7 @@ export class LlmUseCaseRunner {
       if (!write || !this.factory.providerFor(write.model)) {
         return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
       }
+      this.modelRecency.remember(write.model.modelId);
       // Current chat-lore: materialize a lore node in front of the direction
       // being sent (sent with this one direction, then deactivated).
       await this.chatService.ensureLoreNodeBefore(cx.chat.id, cx.node.id);

@@ -1,10 +1,12 @@
 import { Injectable, inject } from '@angular/core';
 import { ChatService } from '../../../chat/chat.service';
+import type { ChatNode } from '../../../../models/chat';
+import { ModelRecencyService } from '../../../settings/model-recency.service';
 import { LlmLogService } from '../../llm-log.service';
 import type { RevealQueue } from '../../reveal-queue';
 import { UsecaseContextFactory, type BuildContext } from '../context';
 import { LlmOrchestratorService, type PrimitiveOptions } from '../orchestrator';
-import type { EvalSlots, UsecaseKind } from '../types';
+import type { EvalSlots, UsecaseContext, UsecaseKind } from '../types';
 import { makeSlot } from '../slots';
 import type { FlowEnv, FlowController, HeldRun } from './env';
 import {
@@ -61,6 +63,23 @@ export class LlmFlowRunner {
   private readonly orch = inject(LlmOrchestratorService);
   private readonly chatService = inject(ChatService);
   private readonly llmLog = inject(LlmLogService);
+  private readonly modelRecency = inject(ModelRecencyService);
+
+  /**
+   * The node whose recorded model steers the request.
+   *
+   * Regenerate re-answers the ORIGINAL prompt, so the PROMPT node owns the
+   * model: `modelId` on the answer only says which model produced it and may
+   * have been changed meanwhile (a rewrite in place with another model, an
+   * earlier regenerate, an adopted sibling answer) — the prompt keeps the
+   * model the user sent it with. Everything else resolves from the context
+   * node as before.
+   */
+  private writeModelNode(cx: UsecaseContext): ChatNode {
+    if (cx.usecase !== 'send-regenerate' || !cx.node.parentId) return cx.node;
+    const question = this.chatService.nodes().find(n => n.id === cx.node.parentId);
+    return question?.role === 'user' ? question : cx.node;
+  }
 
   async run(build: BuildContext, opts: { signal?: AbortSignal; onChunk?: PrimitiveOptions['onChunk'] } = {}): Promise<EvalSlots> {
     const cx = this.factory.buildContext(build);
@@ -68,10 +87,13 @@ export class LlmFlowRunner {
     this.factory.setPromptTopic(this.factory.topicIdForChat(cx.chat));
     // An explicit model override (e.g. a model chosen in a dialog) wins over
     // the node's own model — see `send-elaborate`.
-    const write = this.factory.resolveWriteModel(cx.node, build.vars.modelId, build.vars.providerId);
+    const write = this.factory.resolveWriteModel(
+      this.writeModelNode(cx), build.vars.modelId, build.vars.providerId
+    );
     if (!write || !this.factory.providerFor(write.model)) {
       return { error: makeSlot('error', 'http', 'No writing model is enabled.', {}) };
     }
+    this.modelRecency.remember(write.model.modelId);
     const textExtras = await this.factory.resolveTextExtras(write.model, cx.chat);
     const env: FlowEnv = {
       cx,
@@ -103,6 +125,7 @@ export class LlmFlowRunner {
     if (!write || !this.factory.providerFor(write.model)) {
       throw new Error('No writing model is enabled.');
     }
+    this.modelRecency.remember(write.model.modelId);
     const textExtras = await this.factory.resolveTextExtras(write.model, cx.chat);
     const env: FlowEnv = {
       cx,

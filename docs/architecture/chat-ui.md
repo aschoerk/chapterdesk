@@ -100,6 +100,7 @@ Invariants:
 | Adjust an illustration use case / prompt | `core/llm/orchestration` (not the component) |
 | Change what a send persists before streaming | `SendController.sendDraft` |
 | Change the editor's save/cancel rules | `EditorController` |
+| Change the model picker's ordering | `ChatNodeComponent.modelGroups` (current → recently used → all) + `ModelRecencyService` (`core/settings/model-recency.service.ts`, MRU list recorded by the flow / use-case runners) |
 | Change a prepend / compare / chapter-description action | `DialogActionsController` |
 | Add a node button or menu entry | template + `context-menu.ts` + a delegate in the component |
 | Change a dialog's fields | the dialog component + its `core/dialogs/*` service |

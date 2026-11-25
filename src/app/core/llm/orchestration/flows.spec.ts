@@ -8,6 +8,7 @@ import { seedApi, makeNode, makeChat } from '../../../../../test-helpers/factori
 import { SettingsService } from '../../settings/settings.service';
 import { GenerationSettingsService } from '../../settings/generation-settings.service';
 import { ChatService } from '../../chat/chat.service';
+import { ModelRecencyService } from '../../settings/model-recency.service';
 import { I18nService } from '../../i18n/i18n.service';
 import { LlmFlowRunner, isFlowUsecase } from './flows';
 import { LlmUseCaseRunner } from './usecases';
@@ -125,6 +126,50 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     }
     expect(isFlowUsecase('append' as never)).toBe(false);
     expect(isFlowUsecase('render-node' as never)).toBe(false);
+  });
+
+  it('records the writing model an answer actually used as recently used', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const recency = TestBed.inject(ModelRecencyService);
+    recency.clear();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'q1')!,
+      usecase: 'send-branch',
+      vars: { content: 'Another direction' }
+    });
+
+    // The model that was picked for the request is remembered for the
+    // direction editor's listbox (current → recently used → all).
+    expect(recency.recentIds()[0]).toBe('alpha/model');
+    recency.clear();
+  });
+
+  it('records a model chosen in a dialog as recently used', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Answer', isCurrent: true })
+    ]);
+    const recency = TestBed.inject(ModelRecencyService);
+    recency.clear();
+    const runner = TestBed.inject(LlmFlowRunner);
+
+    await runner.run({
+      chat: api.chats[0],
+      node: chatService.nodes().find(n => n.id === 'q1')!,
+      usecase: 'send-branch',
+      vars: { content: 'Another direction', modelId: 'beta/model', providerId: 'prov-1' }
+    });
+
+    expect(recency.recentIds()[0]).toBe('beta/model');
+    recency.clear();
   });
 
   it('send-branch: creates a new sibling question and streams an answer under it', async () => {
@@ -405,6 +450,79 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(fresh).toBeDefined();
     expect(fresh!.parentId).toBe('q1');
     expect(slots.flow?.value?.questionNodeId).toBe('q1');
+  });
+
+  it('send-regenerate: uses the model recorded on the ORIGINAL PROMPT, not the answer\'s', async () => {
+    // The prompt was sent with Beta; the answer was produced (or later
+    // rewritten in place) with Alpha. Regenerate re-answers the PROMPT, so the
+    // prompt's model must be used again — the answer's model may have changed
+    // meanwhile and is not what the user asked for.
+    fetchMock.mockResolvedValueOnce(sseResponse(['Fresh answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question', modelId: 'beta/model' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-regenerate',
+      vars: {}
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('beta/model');
+    // The fresh answer is bound to the prompt's model too (it shows what
+    // produced it), not to the replaced answer's model.
+    const fresh = chatService.nodes().find(n => n.id === slots.flow!.value!.answerNodeId)!;
+    expect(fresh.modelId).toBe('beta/model');
+  });
+
+  it('send-regenerate: a prompt without a recorded model falls back to the configured default, never to the answer\'s model', async () => {
+    // Legacy prompt nodes carry no modelId. The answer says Alpha, the
+    // configured "default" task model is Beta — the default must win, because
+    // the answer's model is not evidence of what the prompt asked for.
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' })
+    ]);
+    const generation = TestBed.inject(GenerationSettingsService);
+    generation.update('default', { providerId: 'prov-1', modelId: 'beta/model' } as never);
+    fetchMock.mockResolvedValueOnce(sseResponse(['Fresh answer.']));
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-regenerate',
+      vars: {}
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('beta/model');
+  });
+
+  it('send-regenerate: an explicit model override (dialog) still wins over the prompt\'s model', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Fresh answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Question', modelId: 'beta/model' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old answer', isCurrent: true, modelId: 'alpha/model' })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-regenerate',
+      vars: { modelId: 'alpha/model', providerId: 'prov-1' }
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as { model: string };
+    expect(body.model).toBe('alpha/model');
   });
 
   it('send-regenerate: an IMAGE-ONLY answer fills the fresh answer with the direction and attaches the image', async () => {

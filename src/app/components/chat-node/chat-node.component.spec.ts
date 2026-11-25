@@ -30,6 +30,7 @@ import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.servic
 import { MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { ChatViewPrefsService } from '../../core/chat/chat-view-prefs.service';
 import { ChatElaborateService } from '../../core/dialogs/chat-elaborate.service';
+import { ModelRecencyService } from '../../core/settings/model-recency.service';
 
 /** Thin aliases over the shared test-helpers factories. */
 const node = makeNode;
@@ -1335,6 +1336,103 @@ describe('ChatNodeComponent', () => {
         .nodes()
         .find((n) => n.role === 'user' && n.content === 'Rewritten');
       expect(saved?.modelId).toBe('alpha/model');
+    });
+    it('OK saves a changed model even when the text is unchanged', async () => {
+      const q1 = node({ id: 'q1', content: 'Original question' });
+      const a1 = node({
+        id: 'a1',
+        chatId: 'chat-1',
+        parentId: 'q1',
+        role: 'assistant',
+        content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      createFixture(q1);
+      await startEditing(q1);
+      // Only the model is switched — the direction text stays as it was.
+      component.branchModelId.set('beta/model');
+
+      await component.saveAsVersion();
+      fixture.detectChanges();
+
+      expect(component.isEditing()).toBe(false);
+      // A new version was written (the model change alone is a change) and it
+      // carries the selected model + provider.
+      const saved = chatService
+        .nodes()
+        .find((n) => n.role === 'user' && n.isCurrent && n.content === 'Original question');
+      expect(saved).not.toBeUndefined();
+      expect(saved!.id).not.toBe('q1');
+      expect(saved!.modelId).toBe('beta/model');
+      expect(saved!.providerId).toBe('prov-1');
+      expect(emitted).toContain(saved!.id);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Editor model listbox (current + recently used first)
+  // ------------------------------------------------------------------
+
+  describe('editor model listbox', () => {
+    it('lists the current model first, then the recently used ones, then the rest', async () => {
+      const q1 = node({ id: 'q1', content: 'Direction', modelId: 'alpha/model' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Answer',
+      });
+      await openChat([q1, a1]);
+      // Beta was used last (e.g. for the previous chapter).
+      TestBed.inject(ModelRecencyService).remember('beta/model');
+
+      createFixture(q1);
+      await startEditing(q1);
+
+      const groups = component.modelGroups();
+      expect(groups.map(g => g.title)).toEqual(['Current model', 'Recently used']);
+      expect(groups[0].models.map(m => m.modelId)).toEqual(['alpha/model']);
+      expect(groups[1].models.map(m => m.modelId)).toEqual(['beta/model']);
+
+      // The rendered dropdown shows the same order in its optgroups.
+      const opts = Array.from(
+        fixture.nativeElement.querySelectorAll('.model-select optgroup') as NodeListOf<HTMLOptGroupElement>,
+      );
+      expect(opts.map(g => g.getAttribute('label'))).toEqual(['Current model', 'Recently used']);
+      expect(opts.map(g => Array.from(g.querySelectorAll('option')).map(o => o.textContent?.trim())))
+        .toEqual([['Alpha'], ['Beta']]);
+    });
+
+    it('never repeats a model across the groups', async () => {
+      // The direction's own model was used last too — it must not show up a
+      // second time under "Recently used".
+      const q1 = node({ id: 'q1', content: 'Direction', modelId: 'beta/model' });
+      await openChat([q1]);
+      const recency = TestBed.inject(ModelRecencyService);
+      recency.remember('beta/model');
+      recency.remember('alpha/model');
+
+      createFixture(q1);
+      await startEditing(q1);
+
+      const groups = component.modelGroups();
+      expect(groups.map(g => g.title)).toEqual(['Current model', 'Recently used']);
+      expect(groups[0].models.map(m => m.modelId)).toEqual(['beta/model']);
+      expect(groups[1].models.map(m => m.modelId)).toEqual(['alpha/model']);
+      const all = groups.flatMap(g => g.models.map(m => m.modelId));
+      expect(new Set(all).size).toBe(all.length);
+    });
+
+    it('skips recently used models that are no longer enabled', async () => {
+      const q1 = node({ id: 'q1', content: 'Direction', modelId: 'alpha/model' });
+      await openChat([q1]);
+      TestBed.inject(ModelRecencyService).remember('gone/model');
+
+      createFixture(q1);
+      await startEditing(q1);
+
+      const groups = component.modelGroups();
+      // Only the current model (no recently-used group, no vanished model).
+      expect(groups.map(g => g.title)).toEqual(['Current model', 'All models']);
+      expect(groups[0].models.map(m => m.modelId)).toEqual(['alpha/model']);
+      expect(groups[1].models.map(m => m.modelId)).toEqual(['beta/model']);
     });
   });
 

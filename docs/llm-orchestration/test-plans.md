@@ -347,8 +347,17 @@ lore re-arm tests.
 if absent), `ensureLoreNodeBefore(question)` re-arms lore, `deleteNode(chatId, node.id)` **whole subtree**,
 prepare on the QUESTION (content+attachments), `streamAnswerNode`, activate question.
 
+The **writing model comes from the QUESTION node** (`LlmFlowRunner.writeModelNode`): regenerate
+re-answers the original prompt, so its `modelId` is the one the user sent it with. The answer's own
+`modelId` may have been changed meanwhile (rewrite in place with another model, an earlier
+regenerate, an adopted sibling) and is ignored; a prompt without a recorded model falls back to the
+configured `default` task model. An explicit `vars.modelId` (dialog) still wins.
+
 **Existing coverage (flows.spec.ts):**
 - `send-regenerate: deletes the old answer and re-streams under the same question`
+- `send-regenerate: uses the model recorded on the ORIGINAL PROMPT, not the answer's`
+- `send-regenerate: a prompt without a recorded model falls back to the configured default, never to the answer's model`
+- `send-regenerate: an explicit model override (dialog) still wins over the prompt's model`
 - `send-regenerate: an IMAGE-ONLY answer fills the fresh answer with the direction and attaches the image`
 - `send-regenerate: clears the exclude flag of the lore node before the assistant and re-sends the lore`
 

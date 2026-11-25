@@ -32,7 +32,10 @@ describe('EditorController', () => {
     const now = new Date().toISOString();
     seedApi(api, {
       providers: [{ id: 'prov-1' }],
-      models: [{ id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' }],
+      models: [
+        { id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' },
+        { id: 'm-2', displayName: 'Beta', modelId: 'beta/model' },
+      ],
     });
     api.chats.push(makeChat({ id: CHAT_ID, title: 'Story', created_at: now, updated_at: now }));
     api.nodes = [
@@ -119,6 +122,28 @@ describe('EditorController', () => {
     await editor.saveAsVersion();
     expect(activated).toEqual([]);
     expect(chatService.nodes().filter(n => n.role === 'assistant')).toHaveLength(1);
+  });
+
+  it('saveAsVersion persists a model-only change (no text edit)', async () => {
+    await open();
+    // A direction whose model is Alpha; the editor is opened and ONLY the
+    // model listbox is switched before pressing OK.
+    node = chatService.nodes().find(n => n.id === 'q1')!;
+    editor.openDraft(node);
+    expect(editor.branchModelId()).toBe('alpha/model');
+    editor.branchModelId.set('beta/model');
+
+    await editor.saveAsVersion();
+
+    // The versioned direction carries the new text/model (the empty composer
+    // leaf at the bottom of the story is not it).
+    const saved = chatService.nodes().find(
+      n => n.role === 'user' && n.isCurrent && n.content === 'A direction',
+    )!;
+    expect(saved.id).not.toBe('q1');
+    expect(saved.modelId).toBe('beta/model');
+    expect(saved.providerId).toBe('prov-1');
+    expect(activated).toEqual([saved.id]);
   });
 
   it('cancelEdit asks before discarding a dirty draft and keeps it on refusal', async () => {

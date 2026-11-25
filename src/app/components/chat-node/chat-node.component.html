@@ -156,8 +156,12 @@
                   (ngModelChange)="branchModelId.set($event)"
                   [disabled]="isLoading()"
                   [title]="i18n.t('node.branchModel')">
-            @for (model of enabledModels(); track model.id) {
-              <option [value]="model.modelId">{{ model.displayName }}</option>
+            @for (group of modelGroups(); track group.title) {
+              <optgroup [label]="group.title">
+                @for (model of group.models; track model.id) {
+                  <option [value]="model.modelId">{{ model.displayName }}</option>
+                }
+              </optgroup>
             }
           </select>
 

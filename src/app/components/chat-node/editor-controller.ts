@@ -74,6 +74,13 @@ export class EditorController {
   private readonly _contentDraft = signal('');
   private readonly _editAttachments = signal<NodeAttachment[]>([]);
   private readonly _branchModelId = signal('');
+  /**
+   * The model the listbox showed when the editor opened. Comparing the live
+   * selection against it tells whether the user actually PICKED a model — a
+   * seeded default (node without a model) must not turn a no-op OK into a
+   * ``"save"``.
+   */
+  private _openedModelId = '';
   private readonly _showPreview = signal(false);
   private readonly _editDismissed = signal(false);
   private readonly _repeatCount = signal(1);
@@ -163,6 +170,7 @@ export class EditorController {
     this._branchModelId.set(
       node.modelId || host?.resolvePreferredModelId(node) || '',
     );
+    this._openedModelId = this._branchModelId();
     this.actions.pending.set(null);
   }
 
@@ -173,6 +181,7 @@ export class EditorController {
     this._showPreview.set(false);
     this._contentDraft.set('');
     this._editAttachments.set([]);
+    this._openedModelId = '';
     host?.clearAttachmentSelection();
     host?.onEditorTargetCleared();
   }
@@ -224,7 +233,7 @@ export class EditorController {
    * OK — persist the draft as a NEW VERSION of the node. Does not call the LLM.
    * Answers use `editAssistant`, questions `editUser`; for a question the model
    * selected in the editor is persisted onto the new version, so the choice
-   * sticks (Send / Branch / Insert read it from there next time).
+   * sticks (Send / Branch / Insert / Regenerate read it from there next time).
    */
   async saveAsVersion(): Promise<void> {
     const host = this.host;
@@ -237,12 +246,12 @@ export class EditorController {
       JSON.stringify(attachments) === JSON.stringify(node.attachments || []);
 
     // Nothing changed (empty draft without attachments, or identical text +
-    // attachments) → keep the node untouched and just close the editor. Use
-    // closeEditor() (NOT cancelEdit()): cancelEdit would ask for a discard
-    // confirmation when the session is dirty (e.g. the user typed and then
-    // reverted), which blocked saving.
+    // attachments and an untouched model listbox) → keep the node untouched
+    // and just close the editor. Use closeEditor() (NOT cancelEdit()):
+    // cancelEdit would ask for a discard confirmation when the session is
+    // dirty (e.g. the user typed and then reverted), which blocked saving.
     if ((!newContent && attachments.length === 0) ||
-      (newContent === node.content && attachmentsUnchanged)) {
+      (newContent === node.content && attachmentsUnchanged && !this.modelTouched())) {
       this.closeEditor();
       return;
     }
@@ -259,12 +268,12 @@ export class EditorController {
         saved = await this.chatService.editUser(chatId, node.id, newContent, attachments);
       }
       // The model listbox is only shown for a user node. Versioning copies the
-      // OLD model, so persist the freshly selected model when it changed.
-      if (node.role === 'user' && this._branchModelId()) {
-        const selected = host.enabledModels().find(
-          m => m.modelId === this._branchModelId() || m.id === this._branchModelId(),
-        );
-        if (selected && selected.modelId !== node.modelId && selected.providerId) {
+      // OLD model, so persist the freshly selected model when it changed —
+      // this also covers an OK that ONLY changes the model (no text edit).
+      if (node.role === 'user' && this.modelTouched()) {
+        const selected = this.selectedEditorModel();
+        if (selected &&
+          (selected.modelId !== node.modelId || selected.providerId !== node.providerId)) {
           saved = await this.chatService.patchNode(chatId, saved.id, {
             modelId: selected.modelId,
             providerId: selected.providerId,
@@ -280,6 +289,19 @@ export class EditorController {
     } finally {
       this.actions.end();
     }
+  }
+
+  /** The enabled model entry currently chosen in the editor's listbox. */
+  private selectedEditorModel(): ModelEntry | null {
+    const host = this.host;
+    const modelId = this._branchModelId();
+    if (!host || !modelId) return null;
+    return host.enabledModels().find(m => m.modelId === modelId || m.id === modelId) ?? null;
+  }
+
+  /** True when the user changed the model listbox since the editor opened. */
+  private modelTouched(): boolean {
+    return !!this._branchModelId() && this._branchModelId() !== this._openedModelId;
   }
 
   // ------------------------------------------------------------------
@@ -308,6 +330,7 @@ export class EditorController {
     this._contentDraft.set(this.promptDefaults.effective(template) || fallback);
     this._editAttachments.set([]);
     this._branchModelId.set(host.node().modelId || host.resolvePreferredModelId(host.node()));
+    this._openedModelId = this._branchModelId();
     this.actions.pending.set(kind);
     await host.sendDraft();
     await this.cancelEdit();
