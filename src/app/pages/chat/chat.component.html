@@ -498,14 +498,11 @@
                 </label>
                 <label class="elaborate-field">
                   <span>{{ i18n.t('chat.elaborateModel') }}</span>
-                  <select class="elaborate-model-select"
-                          [ngModel]="elaborateModelId()"
-                          (ngModelChange)="elaborateModelId.set($event)"
-                          [title]="i18n.t('chat.elaborateModelTitle')">
-                    @for (model of enabledModels(); track model.id) {
-                      <option [value]="model.modelId">{{ model.displayName }}</option>
-                    }
-                  </select>
+                  <app-model-select selectClass="elaborate-model-select"
+                                    [models]="enabledModels()"
+                                    [value]="elaborateModelId()"
+                                    (valueChange)="elaborateModelId.set($event)"
+                                    [title]="i18n.t('chat.elaborateModelTitle')" />
                 </label>
 
                 <!-- Chapter descriptions → temporary lore.

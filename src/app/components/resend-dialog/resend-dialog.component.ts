@@ -4,11 +4,12 @@ import { I18nService } from '../../core/i18n/i18n.service';
 import { ResendDialogService } from '../../core/dialogs/resend-dialog.service';
 import { ResendMessage } from '../../core/llm/llm-log-resend.service';
 import { ModelEntry } from '../../models/chat-config';
+import { ModelSelectComponent } from '../model-select/model-select.component';
 
 @Component({
   selector: 'app-resend-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSelectComponent],
   templateUrl: './resend-dialog.component.html',
   styleUrl: './resend-dialog.component.css'
 })

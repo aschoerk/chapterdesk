@@ -56,6 +56,29 @@
   min-height: 8rem;
 }
 
+.prepend-model {
+  margin-top: 0.85rem;
+}
+
+.prepend-model-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #666);
+}
+
+.prepend-model-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
 .prepend-actions {
   display: flex;
   justify-content: flex-end;

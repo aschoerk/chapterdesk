@@ -8,12 +8,14 @@ import { ChatService } from '../../core/chat/chat.service';
 import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ModelRecencyService } from '../../core/settings/model-recency.service';
+import { orderChoiceGroups } from '../../core/settings/model-choices';
+import { ModelSelectComponent } from '../model-select/model-select.component';
 import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
 import type { ModelEntry } from '../../models/chat-config';
 import { MarkdownService } from '../../core/chat/markdown.service';
 import { markFragmentInSource } from '../../core/util/mark-fragment';
 import { NodeEditSession} from '../../core/chat/node-edit-session';
-import {ConfirmService} from '../../core/dialogs/confirm.service';
+import {ConfirmService, type ConfirmModelOption} from '../../core/dialogs/confirm.service';
 import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import {
   isImageMime,
@@ -97,7 +99,7 @@ export interface ModelChoiceGroup {
 @Component({
   selector: 'app-chat-node',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModelSelectComponent],
   templateUrl: './chat-node.component.html',
   styleUrl: './chat-node.component.css',
   // Per-CARD instances: the busy state, the editor draft, the send
@@ -136,7 +138,7 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
   private readonly toast = inject(ToastService);
-  /** Recently used writing models — offered first in the editor's listbox. */
+  /** Recently used writing models — offered first in every model picker. */
   private readonly modelRecency = inject(ModelRecencyService);
 
   readonly node = input.required<ChatNode>();
@@ -231,50 +233,6 @@ export class ChatNodeComponent implements OnDestroy {
   readonly englishSuggestions = this.textActions.englishSuggestions;
   readonly enabledModels = this.settings.enabledModels;
 
-  /**
-   * Options of the direction editor's model listbox, in picker order:
-   * the CURRENT model first, then the models used LAST (most recent first),
-   * then every remaining enabled model alphabetically.
-   *
-   * The groups are disjoint (no model appears twice — a `<select>` with
-   * duplicate values is ambiguous), so switching back to the model used for
-   * the previous chapter is one click instead of a scan through the catalog.
-   */
-  readonly modelGroups = computed<ModelChoiceGroup[]>(() => {
-    const models = this.enabledModels();
-    const find = (id: string | null | undefined) =>
-      models.find(m => !!id && (m.modelId === id || m.id === id)) ?? null;
-
-    const taken = new Set<string>();
-    const push = (list: ModelEntry[], m: ModelEntry | null): void => {
-      if (!m) return;
-      const key = m.modelId || m.id;
-      if (taken.has(key)) return;
-      taken.add(key);
-      list.push(m);
-    };
-
-    const currentGroup: ModelEntry[] = [];
-    push(currentGroup, find(this.branchModelId()));
-
-    const recentGroup: ModelEntry[] = [];
-    for (const id of this.modelRecency.recentIds()) push(recentGroup, find(id));
-
-    const restGroup: ModelEntry[] = [];
-    for (const m of models) push(restGroup, m);
-
-    const groups: ModelChoiceGroup[] = [];
-    if (currentGroup.length) {
-      groups.push({ title: this.i18n.t('node.modelGroupCurrent'), models: currentGroup });
-    }
-    if (recentGroup.length) {
-      groups.push({ title: this.i18n.t('node.modelGroupRecent'), models: recentGroup });
-    }
-    if (restGroup.length) {
-      groups.push({ title: this.i18n.t('node.modelGroupAll'), models: restGroup });
-    }
-    return groups;
-  });
   private readonly editSession = inject(NodeEditSession);
   readonly showPriorVersions = signal(false);
   /** Closed by default — thinking is hidden unless the user opens it. */
@@ -930,7 +888,13 @@ export class ChatNodeComponent implements OnDestroy {
                 id: m.modelId,
                 label: m.displayName,
                 providerId: m.providerId
-              }))
+              })),
+              // Same ordering as every other writing-model picker:
+              // current → recently used → all models.
+              groups: this.rewriteModelGroups(
+                models,
+                this.rewriteInPlaceModelId(node, question, models)
+              )
             }
           : undefined
       }
@@ -991,6 +955,25 @@ export class ChatNodeComponent implements OnDestroy {
       /* best-effort — memory is non-fatal */
     }
   }
+
+  /**
+   * The confirm dialog's model picker, grouped like every other writing-model
+   * listbox: current choice, then the recently used models, then the rest.
+   */
+  private rewriteModelGroups(
+    models: readonly ModelEntry[],
+    currentId: string,
+  ): { label: string; options: ConfirmModelOption[] }[] {
+    const toOption = (m: ModelEntry): ConfirmModelOption => ({
+      id: m.modelId,
+      label: m.displayName,
+      providerId: m.providerId,
+    });
+    return orderChoiceGroups(models, currentId, this.modelRecency.recentIds(), {
+      current: this.i18n.t('node.modelGroupCurrent'),
+      recent: this.i18n.t('node.modelGroupRecent'),
+      all: this.i18n.t('node.modelGroupAll'),
+    }).map(g => ({ label: g.title, options: g.items.map(toOption) }));  }
 
   async deleteNodeOnly(): Promise<void> {
     const node = this.node();

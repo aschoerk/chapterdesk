@@ -27,11 +27,9 @@
       @if (models().length > 0) {
         <label class="resend-field resend-model">
           <span>{{ i18n.t('resendDialog.modelLabel') }}</span>
-          <select [ngModel]="modelId()" (ngModelChange)="onModelChange($event)">
-            @for (model of models(); track model.modelId) {
-              <option [value]="model.modelId">{{ model.displayName }}</option>
-            }
-          </select>
+          <app-model-select [models]="models()"
+                            [value]="modelId()"
+                            (valueChange)="onModelChange($event)" />
         </label>
       }
 

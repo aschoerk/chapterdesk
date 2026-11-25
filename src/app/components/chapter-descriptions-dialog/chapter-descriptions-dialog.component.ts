@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { SettingsService } from '../../core/settings/settings.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
+import { ModelSelectComponent } from '../model-select/model-select.component';
 
 /**
  * "Create chapter descriptions" dialog — asks for the parameters of a chapter
@@ -16,7 +17,7 @@ import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-des
 @Component({
   selector: 'app-chapter-descriptions-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSelectComponent],
   templateUrl: './chapter-descriptions-dialog.component.html',
   styleUrl: './chapter-descriptions-dialog.component.css'
 })

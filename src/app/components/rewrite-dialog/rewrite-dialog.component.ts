@@ -5,6 +5,7 @@ import { SettingsService } from '../../core/settings/settings.service';
 import { LlmUseCaseRunner, parseSuggestionVariants } from '../../core/llm/orchestration';
 import type { RewriteContextMode } from '../../core/llm/orchestration';
 import { RewriteDialogService } from '../../core/dialogs/rewrite-dialog.service';
+import { ModelSelectComponent } from '../model-select/model-select.component';
 
 /**
  * Suggestions longer than this (characters) are shown only as a short
@@ -34,7 +35,7 @@ function lastWordOfStream(s: string): string {
 @Component({
   selector: 'app-rewrite-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSelectComponent],
   templateUrl: './rewrite-dialog.component.html',
   styleUrl: './rewrite-dialog.component.css'
 })

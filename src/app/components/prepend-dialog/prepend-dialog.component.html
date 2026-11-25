@@ -27,6 +27,17 @@
         ></textarea>
       </label>
 
+      @if (d.models.length > 0) {
+        <label class="prepend-field prepend-model">
+          <span class="prepend-model-label">{{ i18n.t('prependDialog.modelLabel') }}</span>
+          <app-model-select selectClass="prepend-model-select"
+                            [models]="d.models"
+                            [value]="modelId()"
+                            (valueChange)="modelId.set($event)"
+                            [title]="i18n.t('prependDialog.modelTitle')" />
+        </label>
+      }
+
       <div class="prepend-actions">
         <button class="btn" type="button" (click)="dialog.cancel()">
           {{ i18n.t('common.cancel') }}

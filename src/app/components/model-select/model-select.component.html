@@ -1,0 +1,21 @@
+<!--
+  Plain select (no ngModel): `[selected]` on the options keeps the shown value
+  in sync with the `value` input, while `[disabled]` binds straight to the DOM
+  property. (With ngModel, `disabled` becomes the form-control input and the
+  accessor's enable/disable pass fights the binding.)
+-->
+<select
+  [class]="selectClass()"
+  (change)="onPick($any($event.target).value)"
+  [disabled]="disabled()"
+  [title]="title()">
+  @for (group of groups(); track group.title) {
+    <optgroup [label]="group.title">
+      @for (model of group.models; track model.id) {
+        <option [value]="model.modelId" [selected]="model.modelId === value()">{{
+          model.displayName
+        }}</option>
+      }
+    </optgroup>
+  }
+</select>

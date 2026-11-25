@@ -1,0 +1,6 @@
+/* The select itself is styled by the host (see `selectClass`); the host
+   element only has to sit flush in the toolbar/form row. */
+:host {
+  display: inline-block;
+  min-width: 0;
+}

@@ -151,19 +151,12 @@
       <!-- Editor toolbar -->
       <div class="editor-toolbar">
         @if (node().role === 'user') {
-          <select class="model-select"
-                  [ngModel]="branchModelId()"
-                  (ngModelChange)="branchModelId.set($event)"
-                  [disabled]="isLoading()"
-                  [title]="i18n.t('node.branchModel')">
-            @for (group of modelGroups(); track group.title) {
-              <optgroup [label]="group.title">
-                @for (model of group.models; track model.id) {
-                  <option [value]="model.modelId">{{ model.displayName }}</option>
-                }
-              </optgroup>
-            }
-          </select>
+          <app-model-select selectClass="model-select"
+                            [models]="enabledModels()"
+                            [value]="branchModelId()"
+                            (valueChange)="branchModelId.set($event)"
+                            [disabled]="isLoading()"
+                            [title]="i18n.t('node.branchModel')" />
 
           <button class="btn small"
                   type="button"

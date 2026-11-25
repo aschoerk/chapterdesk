@@ -36,6 +36,7 @@ the existing specs stay valid.
 | `context-menu.ts` | Pure `buildCtxMenuItems(ctx)` — the role/state → menu-items switch | `context-menu.ts` |
 | `attachments.ts` | Pure `filesToAttachments`, size cap | `attachments.ts` |
 | `editor-scroll.ts` | Pure measurement helpers: ro→editor scroll continuity, caret at point | `editor-scroll.ts` |
+| `ModelSelectComponent` | The shared writing-model picker (`app-model-select`, `components/model-select/`): options grouped current → recently used → all. Used by the direction editor, prepend, rewrite, rewrite-in-place (confirm dialog), elaborate, chapter descriptions and log resend | `model-select.component.ts` |
 | `NodeEditSession` (`core/chat`) | The editing session itself (which node is being edited, dirty flag, draft hand-off) | `core/chat/node-edit-session.ts` |
 
 The four controllers are component-scoped (`providers` on the card) and are
@@ -100,7 +101,7 @@ Invariants:
 | Adjust an illustration use case / prompt | `core/llm/orchestration` (not the component) |
 | Change what a send persists before streaming | `SendController.sendDraft` |
 | Change the editor's save/cancel rules | `EditorController` |
-| Change the model picker's ordering | `ChatNodeComponent.modelGroups` (current → recently used → all) + `ModelRecencyService` (`core/settings/model-recency.service.ts`, MRU list recorded by the flow / use-case runners) |
+| Change the model picker's ordering | `ModelSelectComponent` + `orderModelChoices` (`core/settings/model-choices.ts`); the MRU list lives in `ModelRecencyService` and is recorded by the flow / use-case runners (and the log resend) |
 | Change a prepend / compare / chapter-description action | `DialogActionsController` |
 | Add a node button or menu entry | template + `context-menu.ts` + a delegate in the component |
 | Change a dialog's fields | the dialog component + its `core/dialogs/*` service |

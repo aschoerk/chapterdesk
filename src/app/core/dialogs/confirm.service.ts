@@ -19,8 +19,14 @@ export interface ConfirmModelOptions {
   value?: string;
   /** Tooltip (title) of the select. */
   title?: string;
-  /** The models the user may pick from. */
+  /** The models the user may pick from (flat list — used when `groups` is absent). */
   options: ConfirmModelOption[];
+  /**
+   * Optional grouped view of the same entries (current model → recently used →
+   * all models). Rendered as `<optgroup>`s; `options` stays as the flat
+   * fallback so callers/tests keep working.
+   */
+  groups?: { label: string; options: ConfirmModelOption[] }[];
 }
 
 /** Optional editable text field shown inside the confirmation dialog. */

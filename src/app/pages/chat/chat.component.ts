@@ -41,12 +41,13 @@ import { ChatPacedReadService } from '../../core/chat/chat-paced-read.service';
 import { ChatNavActionsService, type ChatNavActions } from '../../core/chat/chat-nav-actions.service';
 import { ChatMarksService, type ChatMarksActions } from '../../core/chat/chat-marks.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
+import { ModelSelectComponent } from '../../components/model-select/model-select.component';
 import { ZoomService } from '../../core/settings/zoom.service';
 
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent, ChatNavBarComponent],
+  imports: [CommonModule, FormsModule, ChatTitleEditorComponent, ChatNodeComponent, SideBarComponent, ChatParametersEditorComponent, SearchReplaceComponent, ChatNavBarComponent, ModelSelectComponent],
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.css',
   // The navbar context menus + the search/name glue + the navbar operations

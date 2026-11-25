@@ -7,6 +7,7 @@ import { InMemoryChatApi } from '../../../../test-helpers/in-memory-chat-api';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 import { PrependDialogComponent } from './prepend-dialog.component';
+import { makeModel } from '../../../../test-helpers/factories';
 
 describe('PrependDialogComponent', () => {
   let fixture: ComponentFixture<PrependDialogComponent>;
@@ -66,7 +67,11 @@ describe('PrependDialogComponent', () => {
     component.submit();
     fixture.detectChanges();
 
-    await expect(p).resolves.toBe('My edited first-person director instruction.');
+    await expect(p).resolves.toEqual({
+      text: 'My edited first-person director instruction.',
+      modelId: '',
+      providerId: '',
+    });
     expect(fixture.nativeElement.querySelector('.prepend-dialog')).toBeNull();
   });
 
@@ -78,7 +83,7 @@ describe('PrependDialogComponent', () => {
     component.submit();
     fixture.detectChanges();
 
-    await expect(p).resolves.toBe('');
+    await expect(p).resolves.toMatchObject({ text: '' });
   });
 
   it('cancel resolves null without closing state changes', async () => {
@@ -110,5 +115,57 @@ describe('PrependDialogComponent', () => {
     component.onDocumentKey({ key: 'Escape', preventDefault } as unknown as KeyboardEvent);
     expect(preventDefault).not.toHaveBeenCalled();
     expect(fixture.nativeElement.querySelector('.prepend-dialog')).toBeNull();
+  });
+
+  describe('model picker', () => {
+    const models = [
+      makeModel({ id: 'm-1', displayName: 'Alpha', modelId: 'alpha/model' }),
+      makeModel({ id: 'm-2', displayName: 'Beta', modelId: 'beta/model' }),
+    ];
+
+    it('is hidden when no models are offered', () => {
+      void dialog.open('text', false);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.prepend-model')).toBeNull();
+      dialog.cancel();
+    });
+
+    it('preselects the direction\'s model and resolves with the picked one', async () => {
+      const p = dialog.open('text', false, { models, modelId: 'alpha/model', providerId: 'prov-1' });
+      fixture.detectChanges();
+
+      expect(component.modelId()).toBe('alpha/model');
+      // Grouped like the direction editor's listbox: current → all.
+      const groups = Array.from(
+        fixture.nativeElement.querySelectorAll('.prepend-model-select optgroup') as NodeListOf<HTMLOptGroupElement>,
+      );
+      expect(groups.map(g => g.getAttribute('label'))).toEqual(['Current model', 'All models']);
+
+      const select = fixture.nativeElement.querySelector('.prepend-model-select') as HTMLSelectElement;
+      select.value = 'beta/model';
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(component.modelId()).toBe('beta/model');
+
+      component.submit();
+      await expect(p).resolves.toEqual({
+        text: 'text',
+        modelId: 'beta/model',
+        providerId: 'prov-1',
+      });
+    });
+
+    it('echoes the seeded model on an unchanged submit', async () => {
+      const p = dialog.open('text', false, { models, modelId: 'beta/model', providerId: 'prov-1' });
+      fixture.detectChanges();
+
+      component.submit();
+
+      await expect(p).resolves.toEqual({
+        text: 'text',
+        modelId: 'beta/model',
+        providerId: 'prov-1',
+      });
+    });
   });
 });

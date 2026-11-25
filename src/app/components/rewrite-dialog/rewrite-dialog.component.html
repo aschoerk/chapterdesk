@@ -38,16 +38,11 @@
 
       <label class="rewrite-field rewrite-model">
         <span class="rewrite-label">{{ i18n.t('rewriteDialog.modelLabel') }}</span>
-        <select
-          [ngModel]="modelId()"
-          (ngModelChange)="onModelChange($event)"
-          [disabled]="loading()"
-          [title]="i18n.t('rewriteDialog.modelTitle')"
-        >
-          @for (m of enabledModels(); track m.id) {
-            <option [value]="m.modelId">{{ m.displayName }}</option>
-          }
-        </select>
+        <app-model-select [models]="enabledModels()"
+                          [value]="modelId()"
+                          (valueChange)="onModelChange($event)"
+                          [disabled]="loading()"
+                          [title]="i18n.t('rewriteDialog.modelTitle')" />
       </label>
 
       <fieldset class="rewrite-context">

@@ -3,6 +3,7 @@ import { Chat, ChatMessage, ChatNode, NodeAttachment, NodeUsageSummary } from '.
 import { canGenerateImages, ModelEntry, ProviderConfig } from '../../models/chat-config';
 import { ChatService } from '../chat/chat.service';
 import { SettingsService } from '../settings/settings.service';
+import { ModelRecencyService } from '../settings/model-recency.service';
 import { LlmLogEntry, LlmLogService } from './llm-log.service';
 import { LlmOrchestratorService } from './orchestration/orchestrator';
 import { generatedImageAttachments } from './orchestration/flows';
@@ -76,6 +77,8 @@ export class LlmLogResendService {
   private readonly settings = inject(SettingsService);
   private readonly chat = inject(ChatService);
   private readonly orch = inject(LlmOrchestratorService);
+  /** Recently used writing models (the pickers offer them first). */
+  private readonly modelRecency = inject(ModelRecencyService);
   private readonly llmLog = inject(LlmLogService);
 
   /**
@@ -188,6 +191,8 @@ export class LlmLogResendService {
       );
       return { ok: false, reason: hasModel ? 'provider' : 'model' };
     }
+    // The resend uses a writing model — offer it first in the pickers next time.
+    this.modelRecency.remember(ref.model.modelId);
     const chatId = entry.chatId;
     if (!chatId) return { ok: false, reason: 'chat' };
 

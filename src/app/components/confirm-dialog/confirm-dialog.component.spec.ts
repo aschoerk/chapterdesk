@@ -214,8 +214,40 @@ describe('ConfirmDialogComponent', () => {
     expect(await promise).toBeNull();
   });
 
-  it('falls back to the first model when the preselect is not selectable', async () => {
+  it('renders the grouped model list as optgroups', async () => {
     const promise = confirm.askWithPrompt({
+      title: 'T', message: 'M',
+      prompt: {
+        label: 'Prompt', value: 'Text',
+        model: {
+          label: 'Model', value: 'b/model',
+          options: [
+            { id: 'a/model', label: 'Alpha', providerId: 'prov-a' },
+            { id: 'b/model', label: 'Beta', providerId: 'prov-b' },
+          ],
+          groups: [
+            { label: 'Current model', options: [{ id: 'b/model', label: 'Beta', providerId: 'prov-b' }] },
+            { label: 'All models', options: [{ id: 'a/model', label: 'Alpha', providerId: 'prov-a' }] },
+          ],
+        },
+      },
+    });
+    fixture.detectChanges();
+
+    const groups = Array.from(
+      fixture.nativeElement.querySelectorAll('.confirm-model optgroup') as NodeListOf<HTMLOptGroupElement>,
+    );
+    expect(groups.map(g => g.getAttribute('label'))).toEqual(['Current model', 'All models']);
+    expect(groups.map(g => Array.from(g.querySelectorAll('option')).map(o => o.value)))
+      .toEqual([['b/model'], ['a/model']]);
+    // The preselect still resolves through the (fallback) flat options.
+    expect(component.modelValue()).toBe('b/model');
+
+    confirm.close(null);
+    expect(await promise).toBeNull();
+  });
+
+  it('falls back to the first model when the preselect is not selectable', async () => {    const promise = confirm.askWithPrompt({
       title: 'T', message: 'M',
       prompt: {
         label: 'Prompt', value: 'Text',

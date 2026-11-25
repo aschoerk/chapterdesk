@@ -2,11 +2,12 @@ import { Component, effect, inject, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
+import { ModelSelectComponent } from '../model-select/model-select.component';
 
 @Component({
   selector: 'app-prepend-dialog',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSelectComponent],
   templateUrl: './prepend-dialog.component.html',
   styleUrl: './prepend-dialog.component.css'
 })
@@ -15,18 +16,21 @@ export class PrependDialogComponent {
   readonly i18n = inject(I18nService);
 
   readonly text = signal('');
+  /** Model the director generation runs with (shown like the editor's listbox). */
+  readonly modelId = signal('');
 
   constructor() {
     effect(() => {
       const s = this.dialog.current();
       if (!s) return;
-      // Seed the editor from the proposed director text.
+      // Seed the editor from the proposed director text + the direction's model.
       this.text.set(s.text);
+      this.modelId.set(s.modelId);
     });
   }
 
   submit(): void {
-    this.dialog.submit(this.text());
+    this.dialog.submit(this.text(), this.modelId());
   }
 
   /** True when the current click interaction started with a pointer press

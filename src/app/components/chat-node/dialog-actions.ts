@@ -158,9 +158,18 @@ export class DialogActionsController {
     const nodeId = node.id;
     const existing = this.storedPrependText(nodeId);
     const proposed = existing.trim() || this.prependInstruction();
-    const text = await this.prependDialog.open(proposed, this.isPrependStored(nodeId));
+    const result = await this.prependDialog.open(proposed, this.isPrependStored(nodeId), {
+      models: host.enabledModels(),
+      // The director is generated for THIS direction — preselect its model (the
+      // one that would answer it), falling back to the card's preference.
+      modelId: node.modelId || host.resolvePreferredModelId(node),
+      providerId: node.providerId || '',
+    });
     // Cancel resolves null — keep the current state.
-    if (text == null) return;
+    if (result == null) return;
+    const text = typeof result === 'string' ? result : result.text;
+    const modelId = typeof result === 'string' ? '' : result.modelId;
+    const providerId = typeof result === 'string' ? '' : result.providerId;
     const cleaned = text.trim();
     const map = this.readPrependMap();
     if (cleaned) {
@@ -172,7 +181,7 @@ export class DialogActionsController {
     this.syncPrependState(nodeId);
     if (!cleaned) return; // cleared — no generation
 
-    await this.generatePrependNodes(node, cleaned);
+    await this.generatePrependNodes(node, cleaned, modelId, providerId);
   }
 
   /**
@@ -266,7 +275,12 @@ export class DialogActionsController {
    * orchestration `send-prepend` flow. On failure the stored flag is rolled
    * back.
    */
-  async generatePrependNodes(node: ChatNode, directorText: string): Promise<void> {
+  async generatePrependNodes(
+    node: ChatNode,
+    directorText: string,
+    modelId = '',
+    providerId = '',
+  ): Promise<void> {
     const host = this.host;
     if (!host) return;
     const following = this.followingAssistantContent(node.id);
@@ -278,6 +292,11 @@ export class DialogActionsController {
     const ok = await host.runFlow('send-prepend', 'prepend', build => {
       build.vars['directorText'] = directorText;
       build.vars['followingText'] = following;
+      // A model chosen in the dialog overrides the resolved write model.
+      if (modelId) {
+        build.vars['modelId'] = modelId;
+        if (providerId) build.vars['providerId'] = providerId;
+      }
     });
     // On failure the flow runner alerted; roll back the stored flag so the UI
     // reflects "not active".

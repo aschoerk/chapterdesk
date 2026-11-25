@@ -36,8 +36,18 @@
               (ngModelChange)="onModelInput($event)"
               [title]="model.title ?? ''"
             >
-              @for (option of model.options; track option.id) {
-                <option [value]="option.id">{{ option.label }}</option>
+              @if (model.groups?.length) {
+                @for (group of model.groups; track group.label) {
+                  <optgroup [label]="group.label">
+                    @for (option of group.options; track option.id) {
+                      <option [value]="option.id">{{ option.label }}</option>
+                    }
+                  </optgroup>
+                }
+              } @else {
+                @for (option of model.options; track option.id) {
+                  <option [value]="option.id">{{ option.label }}</option>
+                }
               }
             </select>
           </label>

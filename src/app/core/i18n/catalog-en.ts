@@ -686,6 +686,8 @@ export const EN = {
     hint: 'This instruction makes the model invent and insert events and situations that illustrate and lead up to the information appended as a suffix — without precluding the events, facts or situations described there. Edit the proposed text as you like.',
     hintEdit: 'Edit the director instruction that makes the model invent and insert illustrating events leading up to the appended suffix.',
     placeholder: 'How the following events and actions occurred…',
+    modelLabel: 'Model',
+    modelTitle: 'Model that generates the director text (current → recently used → all models)',
     confirm: 'Use this instruction',
   },
   chapterDescriptionsDialog: {

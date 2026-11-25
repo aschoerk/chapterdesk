@@ -301,9 +301,11 @@ describe('ChatNodeComponent', () => {
     );
   }
 
-  /** Make the next Prepend dialog resolve with the given director text. */
-  function prependConfirm(text: string | null): void {
-    (prependDialog.open as ReturnType<typeof vi.fn>).mockResolvedValueOnce(text);
+  /** Make the next Prepend dialog resolve with the given director text (and model). */
+  function prependConfirm(text: string | null, modelId = '', providerId = ''): void {
+    (prependDialog.open as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      text == null ? null : { text, modelId, providerId },
+    );
   }
 
   function expectButtonDisabled(btn: HTMLButtonElement | null): void {
@@ -1374,6 +1376,17 @@ describe('ChatNodeComponent', () => {
   // ------------------------------------------------------------------
 
   describe('editor model listbox', () => {
+    /** Labels + option texts of the rendered (grouped) model select. */
+    function renderedGroups(): { label: string; options: string[] }[] {
+      const groups = Array.from(
+        fixture.nativeElement.querySelectorAll('.model-select optgroup') as NodeListOf<HTMLOptGroupElement>,
+      );
+      return groups.map(g => ({
+        label: g.getAttribute('label') ?? '',
+        options: Array.from(g.querySelectorAll('option')).map(o => o.textContent?.trim() ?? ''),
+      }));
+    }
+
     it('lists the current model first, then the recently used ones, then the rest', async () => {
       const q1 = node({ id: 'q1', content: 'Direction', modelId: 'alpha/model' });
       const a1 = node({
@@ -1386,18 +1399,10 @@ describe('ChatNodeComponent', () => {
       createFixture(q1);
       await startEditing(q1);
 
-      const groups = component.modelGroups();
-      expect(groups.map(g => g.title)).toEqual(['Current model', 'Recently used']);
-      expect(groups[0].models.map(m => m.modelId)).toEqual(['alpha/model']);
-      expect(groups[1].models.map(m => m.modelId)).toEqual(['beta/model']);
-
-      // The rendered dropdown shows the same order in its optgroups.
-      const opts = Array.from(
-        fixture.nativeElement.querySelectorAll('.model-select optgroup') as NodeListOf<HTMLOptGroupElement>,
-      );
-      expect(opts.map(g => g.getAttribute('label'))).toEqual(['Current model', 'Recently used']);
-      expect(opts.map(g => Array.from(g.querySelectorAll('option')).map(o => o.textContent?.trim())))
-        .toEqual([['Alpha'], ['Beta']]);
+      expect(renderedGroups()).toEqual([
+        { label: 'Current model', options: ['Alpha'] },
+        { label: 'Recently used', options: ['Beta'] },
+      ]);
     });
 
     it('never repeats a model across the groups', async () => {
@@ -1412,12 +1417,10 @@ describe('ChatNodeComponent', () => {
       createFixture(q1);
       await startEditing(q1);
 
-      const groups = component.modelGroups();
-      expect(groups.map(g => g.title)).toEqual(['Current model', 'Recently used']);
-      expect(groups[0].models.map(m => m.modelId)).toEqual(['beta/model']);
-      expect(groups[1].models.map(m => m.modelId)).toEqual(['alpha/model']);
-      const all = groups.flatMap(g => g.models.map(m => m.modelId));
-      expect(new Set(all).size).toBe(all.length);
+      expect(renderedGroups()).toEqual([
+        { label: 'Current model', options: ['Beta'] },
+        { label: 'Recently used', options: ['Alpha'] },
+      ]);
     });
 
     it('skips recently used models that are no longer enabled', async () => {
@@ -1428,11 +1431,25 @@ describe('ChatNodeComponent', () => {
       createFixture(q1);
       await startEditing(q1);
 
-      const groups = component.modelGroups();
       // Only the current model (no recently-used group, no vanished model).
-      expect(groups.map(g => g.title)).toEqual(['Current model', 'All models']);
-      expect(groups[0].models.map(m => m.modelId)).toEqual(['alpha/model']);
-      expect(groups[1].models.map(m => m.modelId)).toEqual(['beta/model']);
+      expect(renderedGroups()).toEqual([
+        { label: 'Current model', options: ['Alpha'] },
+        { label: 'All models', options: ['Beta'] },
+      ]);
+    });
+
+    it('picking a model updates the editor draft model', async () => {
+      const q1 = node({ id: 'q1', content: 'Direction', modelId: 'alpha/model' });
+      await openChat([q1]);
+      createFixture(q1);
+      await startEditing(q1);
+
+      const select = fixture.nativeElement.querySelector('.model-select') as HTMLSelectElement;
+      select.value = 'beta/model';
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(component.branchModelId()).toBe('beta/model');
     });
   });
 
@@ -3302,6 +3319,13 @@ describe('ChatNodeComponent', () => {
       expect(req.prompt.model).toBeDefined();
       expect(req.prompt.model!.options.length).toBeGreaterThan(0);
       expect(req.prompt.model!.value).toBe('alpha/model');
+      // The picker is grouped like every other writing-model listbox:
+      // current → recently used → all models.
+      expect(req.prompt.model!.groups?.map(g => g.label)).toEqual([
+        'Current model',
+        'All models',
+      ]);
+      expect(req.prompt.model!.groups![0].options.map(o => o.id)).toEqual(['alpha/model']);
       // Cancel → nothing runs, the answer stays.
       expect(runner.run).not.toHaveBeenCalled();
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
@@ -5306,8 +5330,45 @@ describe('ChatNodeComponent', () => {
       expect(prompt.indexOf('Chapter two.')).toBeGreaterThan(prompt.indexOf('RECAP'));
     });
 
-    it('a cancelled dialog keeps the state', async () => {
-      const q1 = node({ id: 'q1', content: '' });
+    it('offers the model picker seeded with the direction\'s model', async () => {
+      const q1 = node({ id: 'q1', content: 'Root direction', modelId: 'alpha/model', providerId: 'prov-1' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, q3]);
+      createFixture(q3, 'a1');
+
+      prependConfirm('DIRECTOR');
+      await component.openPrependDialog();
+
+      const openArgs = (prependDialog.open as ReturnType<typeof vi.fn>).mock.calls[0];
+      const options = openArgs[2] as { models: { modelId: string }[]; modelId: string; providerId: string };
+      expect(options.models.map(m => m.modelId)).toEqual(['alpha/model', 'beta/model']);
+      // The empty composer carries no model → the card's preference (the
+      // previous chapter's/answer's model) is proposed.
+      expect(options.modelId).toBe('alpha/model');
+    });
+
+    it('uses the model chosen in the prepend dialog for the director generation', async () => {
+      const q1 = node({ id: 'q1', content: 'Root direction' });
+      const a1 = node({ id: 'a1', chatId: 'chat-1', parentId: 'q1', role: 'assistant', content: 'Chapter one.' });
+      const q3 = node({ id: 'q3', chatId: 'chat-1', parentId: 'a1', role: 'user', content: '' });
+      await openChat([q1, a1, q3]);
+      createFixture(q3);
+
+      prependConfirm('DIRECTOR', 'beta/model', 'prov-1');
+      await component.openPrependDialog();
+
+      // The request goes to the dialog's model, not the resolved default…
+      const req = orch.completion.mock.calls[0][1] as { model?: { modelId?: string } };
+      expect(req.model?.modelId).toBe('beta/model');
+      // …and the created director + result nodes are bound to it.
+      const director = chatService.nodes().find(n => n.role === 'user' && n.content === 'DIRECTOR')!;
+      expect(director.modelId).toBe('beta/model');
+      const answer = chatService.nodes().find(n => n.role === 'assistant' && n.parentId === director.id)!;
+      expect(answer.modelId).toBe('beta/model');
+    });
+
+    it('a cancelled dialog keeps the state', async () => {      const q1 = node({ id: 'q1', content: '' });
       await openChat([q1]);
       createFixture(q1);
 

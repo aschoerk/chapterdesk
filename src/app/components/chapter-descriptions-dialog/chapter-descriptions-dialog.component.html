@@ -44,13 +44,10 @@
 
       <label class="cd-field">
         <span class="cd-label">{{ i18n.t('chapterDescriptionsDialog.modelLabel') }}</span>
-        <select [ngModel]="modelId()"
-                (ngModelChange)="onModelChange($event)"
-                [title]="i18n.t('chapterDescriptionsDialog.modelTitle')">
-          @for (m of enabledModels(); track m.id) {
-            <option [value]="m.modelId">{{ m.displayName }}</option>
-          }
-        </select>
+        <app-model-select [models]="enabledModels()"
+                          [value]="modelId()"
+                          (valueChange)="onModelChange($event)"
+                          [title]="i18n.t('chapterDescriptionsDialog.modelTitle')" />
       </label>
 
       <label class="cd-field">
