@@ -32,6 +32,7 @@ import { NodeClipboardService } from '../../core/clipboard/node-clipboard.servic
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { ConfirmService } from '../../core/dialogs/confirm.service';
 import { PromptDefaultsService } from '../../core/prompts/prompt-defaults.service';
+import { ZoomService } from '../../core/settings/zoom.service';
 import { MAX_COMPLETION_DIRECTIONS } from '../../core/util/helpers';
 import { seedApi } from '../../../../test-helpers/factories';
 
@@ -1136,6 +1137,32 @@ describe('Chat', () => {
     expect(component.pacedRead.paused()).toBe(true);
     expect(component.pacedRead.currentKey()).toBe('a2');
     component.pacedRead.stop();
+  });
+
+  it('Ctrl/Cmd +, - and 0 zoom the stories view like a browser (desktop shell)', () => {
+    // Page zoom is the app's job only in the Electron shell (browsers zoom natively).
+    window.electronAPI = { isElectron: true };
+    const zoom = TestBed.inject(ZoomService);
+    zoom.reset();
+
+    try {
+      const prevent = vi.fn();
+      component.onKey({ key: '=', ctrlKey: true, preventDefault: prevent } as unknown as KeyboardEvent);
+      expect(prevent).toHaveBeenCalled();
+      expect(zoom.percent()).toBe(110);
+
+      component.onKey({ key: '-', ctrlKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent);
+      expect(zoom.percent()).toBe(100);
+      component.onKey({ key: '-', metaKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent);
+      expect(zoom.percent()).toBe(90);
+
+      component.onKey({ key: '0', ctrlKey: true, preventDefault: vi.fn() } as unknown as KeyboardEvent);
+      expect(zoom.percent()).toBe(100);
+      expect(document.documentElement.style.zoom).toBe('');
+    } finally {
+      delete window.electronAPI;
+      zoom.reset();
+    }
   });
 
   it('Ctrl+M marks the position of the visible section and opens the notice modal', async () => {

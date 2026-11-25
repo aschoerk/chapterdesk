@@ -29,6 +29,9 @@
       </div>
 
       <div class="shortcut-actions">
+        <a class="shortcut-all" routerLink="/config/shortcuts" (click)="service.close()">
+          {{ i18n.t('shortcuts.all') }}
+        </a>
         <button type="button" class="btn" (click)="service.close()">
           {{ i18n.t('shortcuts.close') }}
         </button>

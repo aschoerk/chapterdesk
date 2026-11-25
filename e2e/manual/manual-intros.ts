@@ -71,8 +71,9 @@ This manual creates a topic and reviews it.`,
 
   'manual-settings': `The **Settings** area groups the configuration pages: **Appearance**
 (theme and language), **Providers / Models** (which AI providers and models
-are enabled), **Generation Tasks** (which model handles each writing task) and
-**Prompt defaults** (the built-in prompts ChapterDesk builds automatically).
+are enabled), **Generation Tasks** (which model handles each writing task),
+**Prompt defaults** (the built-in prompts ChapterDesk builds automatically) and
+**Keyboard shortcuts** (every key binding of the app, including page zoom).
 
 This manual walks through each settings page.`,
 

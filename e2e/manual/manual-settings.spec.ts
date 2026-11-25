@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// USER MANUAL — "Settings: Appearance, Providers, Tasks and Prompts".
+// USER MANUAL — "Settings: Appearance, Providers, Tasks, Prompts & Shortcuts".
 //
 // Generates docs/manuals/manual-settings.md + screenshots. Walks through the
 // /config pages by clicking the Settings navigation items.
@@ -20,11 +20,11 @@ async function openConfigTab(
   await expect(page.locator('.config-shell')).toBeVisible();
 }
 
-test('Settings: Appearance, Providers, Tasks and Prompts', async ({ page }) => {
+test('Settings: Appearance, Providers, Tasks, Prompts & Shortcuts', async ({ page }) => {
   const manual = newManual(
     page,
     'manual-settings',
-    'Settings: Appearance, Providers, Tasks and Prompts',
+    'Settings: Appearance, Providers, Tasks, Prompts & Shortcuts',
   );
 
   await manual.step(
@@ -62,6 +62,13 @@ test('Settings: Appearance, Providers, Tasks and Prompts', async ({ page }) => {
     'Prompt defaults',
     '**Prompt defaults** lets you read, edit or version the built-in prompts ChapterDesk builds automatically.',
     (p) => openConfigTab(p, 'Prompt defaults'),
+    { waitAfter: 500 },
+  );
+
+  await manual.step(
+    'Keyboard shortcuts',
+    '**Keyboard shortcuts** lists every key binding of the app — writing, the stories view, the reader, paced reading, search, the story tree, dialogs and page zoom (Ctrl + `+` / `-` / `0`).',
+    (p) => openConfigTab(p, 'Keyboard shortcuts'),
     { waitAfter: 500 },
   );
 

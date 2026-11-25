@@ -18,6 +18,7 @@ import {NameListDialogComponent} from './components/name-list-dialog/name-list-d
 import {PacedReadIndicatorComponent} from './components/paced-read-indicator/paced-read-indicator.component';
 import {MarkNoteDialogComponent} from './components/mark-note-dialog/mark-note-dialog.component';
 import {ThemeService} from './core/settings/theme.service';
+import {ZoomService} from './core/settings/zoom.service';
 import {EnvironmentService} from './core/settings/environment.service';
 import {SettingsService} from './core/settings/settings.service';
 import {ChatService} from './core/chat/chat.service';
@@ -38,6 +39,8 @@ import {PromptDefaultsService} from './core/prompts/prompt-defaults.service';
 export class App {
   protected readonly title = signal('chat');
   private readonly theme = inject(ThemeService);
+  /** Page zoom — instantiated here so the stored level applies at startup. */
+  private readonly zoom = inject(ZoomService);
   private readonly environment = inject(EnvironmentService);
   private readonly settings = inject(SettingsService);
   private readonly chatService = inject(ChatService);

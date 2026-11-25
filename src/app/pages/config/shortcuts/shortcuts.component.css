@@ -1,0 +1,63 @@
+/* Settings → Keyboard shortcuts: grouped key map. */
+
+.shortcut-group {
+  margin-bottom: 1.75rem;
+}
+
+.shortcut-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #666);
+}
+
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcut-table tr {
+  border-bottom: 1px solid var(--border, #e5e5e5);
+}
+
+.shortcut-table tr:last-child {
+  border-bottom: 0;
+}
+
+.shortcut-table th,
+.shortcut-table td {
+  padding: 0.45rem 0.5rem 0.45rem 0;
+  font-size: 0.9rem;
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+}
+
+.shortcut-keys {
+  width: 18rem;
+  white-space: nowrap;
+}
+
+.shortcut-keys kbd {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-bottom-width: 2px;
+  background: var(--bg-hover, #f0f0f0);
+  font-family: var(--font-family, system-ui, sans-serif);
+  font-size: 0.8rem;
+  color: var(--text, #111);
+}
+
+.shortcut-label {
+  color: var(--color-text-secondary, #444);
+}
+
+@media (max-width: 720px) {
+  .shortcut-keys {
+    width: auto;
+  }
+}

@@ -241,9 +241,13 @@ Support dark/light/system themes, English/German (and future languages), and bas
   - `Ctrl+Enter` — send / save a version
   - `Ctrl+S` — save a version (in-place editor)
   - `Ctrl+B` — open Book (reader) view
+  - `Ctrl+M` — set a reading mark at the cursor / selection
+  - `Ctrl+R` — start / stop paced reading
   - `Ctrl+F` — search / replace
   - `F3` / `Shift+F3` — next / previous match
+  - `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` — zoom in / out / reset (Stories view, browser-like page zoom)
   - `Esc` — cancel / close a dialog or editor
+- The **complete key map** (including reader page navigation, paced reading and dialog keys) is available in **Settings → Keyboard shortcuts**.
 - Focus management when dialogs and context menus open.
 - Localizable strings for all user-facing text.
 

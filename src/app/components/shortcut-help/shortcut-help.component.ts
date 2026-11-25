@@ -1,4 +1,5 @@
 import { Component, HostListener, computed, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ShortcutHelpService } from '../../core/dialogs/shortcut-help.service';
 
@@ -25,6 +26,7 @@ export interface ShortcutGroup {
 @Component({
   selector: 'app-shortcut-help',
   standalone: true,
+  imports: [RouterLink],
   templateUrl: './shortcut-help.component.html',
   styleUrl: './shortcut-help.component.css'
 })

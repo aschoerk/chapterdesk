@@ -21,6 +21,7 @@ export class ConfigShellComponent {
     { path: '/config/appearance', labelKey: 'config.nav.appearance' },
     { path: '/config/providers', labelKey: 'config.nav.providers' },
     { path: '/config/tasks', labelKey: 'config.nav.tasks' },
-    { path: '/config/prompts', labelKey: 'config.nav.prompts' }
+    { path: '/config/prompts', labelKey: 'config.nav.prompts' },
+    { path: '/config/shortcuts', labelKey: 'config.nav.shortcuts' }
   ];
 }

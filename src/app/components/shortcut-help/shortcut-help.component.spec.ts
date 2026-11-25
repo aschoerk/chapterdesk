@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { ShortcutHelpComponent } from './shortcut-help.component';
 import { ShortcutHelpService } from '../../core/dialogs/shortcut-help.service';
 import { I18nService } from '../../core/i18n/i18n.service';
@@ -11,7 +12,8 @@ describe('ShortcutHelpComponent', () => {
   beforeEach(async () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
-      imports: [ShortcutHelpComponent]
+      imports: [ShortcutHelpComponent],
+      providers: [provideRouter([])]
     }).compileComponents();
     // Deterministic locale so the keycap assertions below are stable.
     TestBed.inject(I18nService).setLocale('en');
@@ -39,6 +41,19 @@ describe('ShortcutHelpComponent', () => {
     expect(keys).toContain('Ctrl+F');
     expect(keys).toContain('F3 / Shift+F3');
     expect(keys).toContain('Esc');
+  });
+
+  it('links to the complete key map in Settings', () => {
+    service.openDialog();
+    fixture.detectChanges();
+
+    const link = fixture.nativeElement.querySelector('.shortcut-all') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/config/shortcuts');
+    expect(link.textContent).toContain('Settings');
+
+    link.click();
+    fixture.detectChanges();
+    expect(service.open()).toBe(false);
   });
 
   it('closes via the Close button', () => {

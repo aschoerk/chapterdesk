@@ -4,6 +4,7 @@ import { AppearanceComponent } from './pages/config/appearance/appearance.compon
 import { ProvidersComponent } from './pages/config/providers/providers.component';
 import { TasksComponent } from './pages/config/tasks/tasks.component';
 import { PromptsComponent } from './pages/config/prompts/prompts.component';
+import { ShortcutsComponent } from './pages/config/shortcuts/shortcuts.component';
 import { LlmLogsComponent } from './pages/logs/llm-logs.component';
 import { ChatComponent } from './pages/chat/chat.component';
 import { ImportComponent } from './pages/import/import.component';
@@ -25,7 +26,8 @@ export const routes: Routes = [
       { path: 'appearance', component: AppearanceComponent },
       { path: 'providers', component: ProvidersComponent },
       { path: 'tasks', component: TasksComponent },
-      { path: 'prompts', component: PromptsComponent }
+      { path: 'prompts', component: PromptsComponent },
+      { path: 'shortcuts', component: ShortcutsComponent }
     ]
   },
   { path: 'chat', component: ChatComponent},

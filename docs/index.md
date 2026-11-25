@@ -35,7 +35,7 @@ The [User Manual](./manuals/index.md) walks you through every part of the app:
 - [Write Your First Chapter](./manuals/manual-new-story.md)
 - [Read Your Story as a Book](./manuals/manual-reader.md)
 - [Illustrate Your Chapters](./manuals/manual-illustrate.md)
-- [Settings](./manuals/manual-settings.md) — appearance, providers, tasks, prompts
+- [Settings](./manuals/manual-settings.md) — appearance, providers, tasks, prompts, keyboard shortcuts
 
 Short walkthrough videos:
 

@@ -1,0 +1,24 @@
+<div>
+  <section class="section">
+    <div class="section-header">
+      <h2>{{ i18n.t('config.shortcuts.title') }}</h2>
+    </div>
+    <p class="hint">{{ i18n.t('config.shortcuts.hint') }}</p>
+
+    @for (group of groups(); track group.title) {
+      <section class="shortcut-group">
+        <h3>{{ group.title }}</h3>
+        <table class="shortcut-table">
+          <tbody>
+            @for (row of group.rows; track row.label) {
+              <tr>
+                <th class="shortcut-keys" scope="row"><kbd>{{ row.keys }}</kbd></th>
+                <td class="shortcut-label">{{ row.label }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    }
+  </section>
+</div>

@@ -41,6 +41,7 @@ import { ChatPacedReadService } from '../../core/chat/chat-paced-read.service';
 import { ChatNavActionsService, type ChatNavActions } from '../../core/chat/chat-nav-actions.service';
 import { ChatMarksService, type ChatMarksActions } from '../../core/chat/chat-marks.service';
 import { ChatNavBarComponent } from '../../components/chat-nav-bar/chat-nav-bar.component';
+import { ZoomService } from '../../core/settings/zoom.service';
 
 @Component({
   selector: 'app-chat',
@@ -95,6 +96,8 @@ export class ChatComponent implements
   private readonly chatSearch = inject(ChatSearchService);
   /** Paced-reading glue (resume host, start-from-view, read-from-mark). */
   private readonly chatPacedRead = inject(ChatPacedReadService);
+  /** Browser-like page zoom (Ctrl/Cmd + `+` / `-` / `0`). */
+  private readonly zoom = inject(ZoomService);
 
   readonly chats = this.chatService.chats;
   readonly currentChatId = this.chatService.currentChatId;
@@ -815,6 +818,10 @@ export class ChatComponent implements
         return;
       }
     }
+
+    // Browser-like page zoom — Ctrl/Cmd + `+` / `-` / `0`. Handled before the
+    // typing guard because browsers zoom even while an input has focus.
+    if (this.zoom.onKey(event)) return;
 
     if (this.isTyping(event)) return;
     const ctrl = event.ctrlKey || event.metaKey;
