@@ -1,0 +1,134 @@
+.rip-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 5vw;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.rip-dialog {
+  width: min(640px, 100%);
+  max-width: 94vw;
+  max-height: 88vh;
+  overflow: auto;
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: var(--panel, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, #e5e5e5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.rip-dialog h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.rip-message {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-muted, #666);
+  white-space: pre-line;
+}
+
+.rip-hint {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted, #777);
+}
+
+.rip-field {
+  display: block;
+  margin-bottom: 0.9rem;
+}
+
+.rip-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #666);
+}
+
+.rip-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.rip-model {
+  margin-bottom: 1.25rem;
+}
+
+/* The three "send along" checkboxes (history / current text / following text). */
+.rip-include {
+  margin: 0.3rem 0 1rem;
+  padding: 0.6rem 0.9rem 0.4rem;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+}
+
+.rip-include legend {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #666);
+  padding: 0 0.3rem;
+}
+
+.rip-include-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.3rem 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.rip-include-option.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rip-include-option input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent, #2563eb);
+}
+
+.rip-include-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.rip-include-name {
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.rip-include-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+  line-height: 1.35;
+}
+
+.rip-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}

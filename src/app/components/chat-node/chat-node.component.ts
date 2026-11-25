@@ -7,15 +7,14 @@ import { FormsModule } from '@angular/forms';
 import { ChatService } from '../../core/chat/chat.service';
 import { isChatLoreNode } from '../../core/chat/chat-lore.service';
 import { SettingsService } from '../../core/settings/settings.service';
-import { ModelRecencyService } from '../../core/settings/model-recency.service';
-import { orderChoiceGroups } from '../../core/settings/model-choices';
 import { ModelSelectComponent } from '../model-select/model-select.component';
 import { ChatNode, NodeAttachment, Chat } from '../../models/chat';
 import type { ModelEntry } from '../../models/chat-config';
 import { MarkdownService } from '../../core/chat/markdown.service';
 import { markFragmentInSource } from '../../core/util/mark-fragment';
 import { NodeEditSession} from '../../core/chat/node-edit-session';
-import {ConfirmService, type ConfirmModelOption} from '../../core/dialogs/confirm.service';
+import {ConfirmService} from '../../core/dialogs/confirm.service';
+import { RewriteInPlaceDialogService } from '../../core/dialogs/rewrite-in-place-dialog.service';
 import { ChatParametersService } from '../../core/chat/chat-parameters.service';
 import {
   isImageMime,
@@ -85,16 +84,10 @@ const COMPLETE_PRECEDING_MESSAGE_FALLBACK = 'complete the preceding message';
 
 /**
  * localStorage key remembering the model the user last chose in the
- * "Rewrite in place" confirmation. When set (and the model is still enabled)
+ * "Rewrite in place" dialog. When set (and the model is still enabled)
  * it takes precedence over the answer's own model.
  */
 export const REWRITE_IN_PLACE_MODEL_KEY = 'chat.rewriteInPlace.model.v1';
-
-/** One `<optgroup>` of the direction editor's model listbox. */
-export interface ModelChoiceGroup {
-  readonly title: string;
-  readonly models: ModelEntry[];
-}
 
 @Component({
   selector: 'app-chat-node',
@@ -138,12 +131,13 @@ export class ChatNodeComponent implements OnDestroy {
   private readonly confirm = inject(ConfirmService);
   readonly i18n = inject(I18nService);
   private readonly toast = inject(ToastService);
-  /** Recently used writing models — offered first in every model picker. */
-  private readonly modelRecency = inject(ModelRecencyService);
+  /** Dedicated dialog for "Rewrite in place" (specification + model). */
+  private readonly rewriteInPlaceDialog = inject(RewriteInPlaceDialogService);
 
   readonly node = input.required<ChatNode>();
   readonly activeChildId = input<string | null>(null);
-  readonly activate = output<string>();  readonly isEditorDragOver = signal(false);
+  readonly activate = output<string>();
+  readonly isEditorDragOver = signal(false);
 
   /** Client-side clipboard for moving/duplicating attachments between nodes. */
   readonly attachmentClipboard = inject(AttachmentClipboardService);
@@ -841,11 +835,13 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
-   * Re-generate THIS answer in place: same LLM call / context as regenerate,
-   * but the following text (this node's subtree) is preserved — only this
-   * answer's content is replaced. Works by removing just this node
-   * ({@link ChatService.deleteNode keepChildren}) and re-hanging the
-   * preserved following text under the freshly generated answer.
+   * "Rewrite in place": rewrite THIS answer's existing text according to an
+   * additional specification. A dedicated dialog collects the specification
+   * plus the writing model; the `send-rewrite` flow then sends the story
+   * history as such, attaches this answer as the "content to rewrite" and the
+   * following assistant chapters so the rewrite keeps their details fitting.
+   * Only this answer is replaced — as a NEW VERSION — while the following text
+   * stays attached.
    */
   async regenerateInPlace(): Promise<void> {
     const node = this.node();
@@ -859,65 +855,42 @@ export class ChatNodeComponent implements OnDestroy {
       return;
     }
 
-    // Ask in the confirmation dialog — which also carries an EDITABLE copy of
-    // the original prompt (the direction that produced this answer) plus a
-    // model picker, so the rewrite can run against an adapted direction with a
-    // different model. Cancel resolves null.
-    const children = this.chatService.getChildren(node.id);
-    const models = this.enabledModels();
-    const edited = await this.confirm.askWithPrompt({
-      title: this.i18n.t('node.regenerateInPlaceTitleAsk'),
-      message: children.length > 0
-        ? this.i18n.t('node.regenerateInPlaceMsgExtra', { count: children.length })
-        : this.i18n.t('node.regenerateInPlaceMsg'),
-      confirmLabel: this.i18n.t('node.regenerateInPlace'),
-      cancelLabel: this.i18n.t('common.cancel'),
-      danger: true,
-      prompt: {
-        label: this.i18n.t('node.rewritePromptLabel'),
-        value: question.content ?? '',
-        placeholder: this.i18n.t('node.rewritePromptPh'),
-        model: models.length
-          ? {
-              label: this.i18n.t('node.rewriteModelLabel'),
-              title: this.i18n.t('node.rewriteModelTitle'),
-              value: this.rewriteInPlaceModelId(node, question, models),
-              options: models.map(m => ({
-                id: m.modelId,
-                label: m.displayName,
-                providerId: m.providerId
-              })),
-              // Same ordering as every other writing-model picker:
-              // current → recently used → all models.
-              groups: this.rewriteModelGroups(
-                models,
-                this.rewriteInPlaceModelId(node, question, models)
-              )
-            }
-          : undefined
-      }
-    });
-    if (edited == null) return; // cancelled
-    const content = edited.text.trim();
-    if (!content) return; // the dialog keeps Confirm disabled while blank
-    const modelId = edited.modelId;
-    if (modelId) this.rememberRewriteInPlaceModel(modelId);
-
     const chatId = this.chatService.currentChatId();
     if (!chatId) return;
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+    const children = this.chatService.getChildren(node.id);
+    const models = this.enabledModels();
+    const preselected = this.rewriteInPlaceModelId(node, question, models);
+    const providerId = models.find(m => m.modelId === preselected)?.providerId ?? '';
 
-    // Only an actually EDITED prompt is sent as an override — an unchanged one
-    // must not create a pointless new version of the question.
-    const changed = content !== (question.content ?? '').trim();
+    // Dedicated dialog (NOT the generic confirm): the configured
+    // `structure.rewriteInPlace` prompt does the rewriting; the user supplies
+    // the additional specification and (optionally) another model.
+    const result = await this.rewriteInPlaceDialog.open({
+      node,
+      chat,
+      models,
+      modelId: preselected,
+      providerId,
+      followingCount: children.length,
+    });
+    if (result == null) return; // cancelled
+    if (result.modelId) this.rememberRewriteInPlaceModel(result.modelId);
+
+    // The following chapters are attached to the request so the model keeps
+    // every detail they depend on — exactly as it did in the original.
+    const following = this.dialogActions.followingAssistantContent(node.id);
     await this.runFlow('send-rewrite', 'send', build => {
-      // The flow deletes only THIS answer (keeping children) and re-streams
-      // under its parent question, re-adopting the preserved children.
-      build.vars['keepChildren'] = true;
-      if (changed) build.vars['content'] = content;
-      // A model chosen in the dialog overrides the node's own write model.
-      if (modelId) {
-        build.vars['modelId'] = modelId;
-        if (edited.providerId) build.vars['providerId'] = edited.providerId;
+      // `specification`'s presence selects the text-rewrite mode of the flow.
+      build.vars['specification'] = result.specification;
+      // The dialog decides which parts of the story travel along.
+      build.vars['includeHistory'] = result.includeHistory;
+      build.vars['includeContent'] = result.includeContent;
+      build.vars['includeFollowing'] = result.includeFollowing;
+      build.vars['followingText'] = result.includeFollowing ? following : '';
+      if (result.modelId) {
+        build.vars['modelId'] = result.modelId;
+        if (result.providerId) build.vars['providerId'] = result.providerId;
       }
     });
   }
@@ -933,7 +906,7 @@ export class ChatNodeComponent implements OnDestroy {
   }
 
   /**
-   * The model pre-selected in the "Rewrite in place" confirmation: the last
+   * The model pre-selected in the "Rewrite in place" dialog: the last
    * remembered choice when still enabled, else the model that produced the
    * answer (or the direction that asked for it), else the first enabled model.
    */
@@ -955,7 +928,7 @@ export class ChatNodeComponent implements OnDestroy {
     return match?.modelId ?? '';
   }
 
-  /** Remember the model chosen in the "Rewrite in place" confirmation. */
+  /** Remember the model chosen in the "Rewrite in place" dialog. */
   private rememberRewriteInPlaceModel(modelId: string): void {
     try {
       localStorage.setItem(REWRITE_IN_PLACE_MODEL_KEY, modelId);
@@ -963,25 +936,6 @@ export class ChatNodeComponent implements OnDestroy {
       /* best-effort — memory is non-fatal */
     }
   }
-
-  /**
-   * The confirm dialog's model picker, grouped like every other writing-model
-   * listbox: current choice, then the recently used models, then the rest.
-   */
-  private rewriteModelGroups(
-    models: readonly ModelEntry[],
-    currentId: string,
-  ): { label: string; options: ConfirmModelOption[] }[] {
-    const toOption = (m: ModelEntry): ConfirmModelOption => ({
-      id: m.modelId,
-      label: m.displayName,
-      providerId: m.providerId,
-    });
-    return orderChoiceGroups(models, currentId, this.modelRecency.recentIds(), {
-      current: this.i18n.t('node.modelGroupCurrent'),
-      recent: this.i18n.t('node.modelGroupRecent'),
-      all: this.i18n.t('node.modelGroupAll'),
-    }).map(g => ({ label: g.title, options: g.items.map(toOption) }));  }
 
   async deleteNodeOnly(): Promise<void> {
     const node = this.node();

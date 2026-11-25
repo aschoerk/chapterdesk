@@ -67,6 +67,16 @@ export class ContextPromptBuilderService {
   }
 
   /**
+   * The rewrite-IN-PLACE instruction (editable prompt default): orders the
+   * model to rewrite the attached chapter text according to the additional
+   * specification from the dialog. The flow appends the content to rewrite and
+   * the following text that must stay consistent.
+   */
+  rewriteInPlaceInstruction(): string {
+    return this.promptDefaults.effective('structure.rewriteInPlace', this.topicService.promptTopic);
+  }
+
+  /**
    * The story scope the pictures should cover, as a short instruction for the
    * PLANNING (text) model — so it knows exactly how many beats it derives
    * pictures for. This matters most in pure picture mode, where the derived

@@ -32,17 +32,18 @@ stories, or an answer regenerated before this was fixed — its own text is
 parsed instead; that fallback requires the list to *be* the node (first line is
 a numbered item) and every entry to carry a real description.
 
-!!! tip "Rewrite in place can change the request"
-    The **Rewrite in place** confirmation contains a text area with the original
-    direction that produced the answer — and a **Model** picker. Edit the
-    direction to ask for something different — e.g. "10 chapters instead of 6" —
-    and only that answer is rewritten with the edited direction; the following
-    text stays attached. The rewritten answer is stored as a **new version** of
-    the old one, so the original answer is never lost: open its **Prior
-    versions** / **Compare versions** menu to look it up or roll back. Leave the
-    direction unchanged to simply regenerate the answer with the same request.
-    The picker defaults to the model that created the answer (or the one last
-    chosen here) and lets you rewrite with a different model.
+!!! tip "Rewrite in place can change the content"
+    **Rewrite in place** opens a dedicated dialog with an **Additional
+    specification** (what should change), a **Model** picker and three **Send
+    along** switches: the **story history**, the **current text of this answer**
+    and the **following text**. All three start checked; unchecking the current
+    text writes that part from scratch. The rewrite uses the configured
+    **“Rewrite in place (chapter / answer)”** prompt. Only that answer is
+    replaced; the following text stays attached. The rewritten answer is stored
+    as a **new version** of the old one, so the original answer is never lost:
+    open its **Prior versions** / **Compare versions** menu to look it up or
+    roll back. The picker defaults to the model that created the answer (or the
+    one last chosen here) and lets you rewrite with a different model.
 
 ## Step 2 — use it in the Elaborate dialog
 

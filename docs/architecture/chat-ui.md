@@ -36,7 +36,7 @@ the existing specs stay valid.
 | `context-menu.ts` | Pure `buildCtxMenuItems(ctx)` — the role/state → menu-items switch | `context-menu.ts` |
 | `attachments.ts` | Pure `filesToAttachments`, size cap | `attachments.ts` |
 | `editor-scroll.ts` | Pure measurement helpers: ro→editor scroll continuity, caret at point | `editor-scroll.ts` |
-| `ModelSelectComponent` | The shared writing-model picker (`app-model-select`, `components/model-select/`): options grouped current → recently used → all. Used by the direction editor, prepend, rewrite, rewrite-in-place (confirm dialog), elaborate, chapter descriptions and log resend | `model-select.component.ts` |
+| `ModelSelectComponent` | The shared writing-model picker (`app-model-select`, `components/model-select/`): options grouped current → recently used → all. Used by the direction editor, prepend, rewrite, rewrite-in-place (dedicated dialog), elaborate, chapter descriptions and log resend | `model-select.component.ts` |
 | `NodeEditSession` (`core/chat`) | The editing session itself (which node is being edited, dirty flag, draft hand-off) | `core/chat/node-edit-session.ts` |
 
 The four controllers are component-scoped (`providers` on the card) and are

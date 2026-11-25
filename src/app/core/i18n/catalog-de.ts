@@ -482,14 +482,25 @@ export const DE: typeof EN = {
     regenerateTitle:
       'Diese Antwort und alle Folgetexte löschen und die letzte Benutzeranfrage erneut senden',
     regenerateInPlace: 'Vor Ort neu schreiben',
-    regenerateInPlaceTitle: 'Nur diese Antwort neu erzeugen – Folgetexte bleiben erhalten',
+    regenerateInPlaceTitle: 'Diesen Text an Ort und Stelle neu schreiben – Folgetexte bleiben erhalten',
     regenerateInPlaceTitleAsk: 'Diese Antwort an Ort und Stelle neu schreiben?',
     regenerateInPlaceMsgExtra:
-      'Diese Antwort hat {{count}} Folgetexte. Neu schreiben ersetzt nur diese Antwort – die Folgetexte hängen weiterhin am neuen Ergebnis.',
+      'Diese Antwort hat {{count}} Folgetexte. Der Text wird nur hier ersetzt – die Folgetexte bleiben am neuen Ergebnis und werden dem Modell mitgegeben, damit ihre Details weiter passen.',
     regenerateInPlaceMsg:
-      'Neu schreiben ersetzt nur diese Antwort. Sie können unten auch die ursprüngliche Anweisung ändern.',
-    rewritePromptLabel: 'Ursprüngliche Anweisung (bearbeitbar)',
-    rewritePromptPh: 'Die Anweisung, aus der diese Antwort entstand – ändern Sie sie, um den Inhalt zu ändern',
+      'Diesen Text mit der konfigurierten Vorlage „Vor Ort neu schreiben“ überarbeiten. Beschreiben Sie unten, was sich ändern soll.',
+    rewriteInPlaceHint:
+      'Die konfigurierte Prompt-Vorlage „Vor Ort neu schreiben (Kapitel / Antwort)“ gibt dem Modell die Anweisung. Der bisherige Verlauf und der Folgetext werden mitgesendet.',
+    rewriteSpecLabel: 'Zusätzliche Vorgabe (was sich ändern soll)',
+    rewriteSpecPh: 'z. B. Den Dialog kürzen und die Szene im Dunkeln enden lassen',
+    rewriteIncludeLabel: 'Mitsenden',
+    rewriteIncludeHistory: 'Bisheriger Verlauf',
+    rewriteIncludeHistoryHint: 'Alles, was oberhalb dieser Antwort steht – die Anweisungen und Kapitel davor.',
+    rewriteIncludeContent: 'Der aktuelle Text dieser Antwort',
+    rewriteIncludeContentHint: 'Der Text, der überarbeitet wird. Ausschalten, um ihn von Grund auf neu zu schreiben.',
+    rewriteIncludeFollowing: 'Der Folgetext',
+    rewriteIncludeFollowingHint:
+      'Die Kapitel danach – ihre Details müssen weiter passen.',
+    rewriteIncludeNoFollowing: 'Diese Antwort ist die letzte – es folgt nichts.',
     rewriteModelLabel: 'Modell',
     rewriteModelTitle:
       'Modell, das diese Antwort neu schreibt (Standard: das, das sie erzeugt hat)',

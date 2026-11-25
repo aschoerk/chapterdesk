@@ -363,6 +363,19 @@ export interface UsecaseVars {
   modelId?: string;
   /** Image use cases: provider of the chosen rendering model. */
   providerId?: string;
+  /** `send-rewrite` (rewrite-in-place dialog): additional specification the
+   *  rewrite must follow. Its PRESENCE selects the text-rewrite mode (the
+   *  configured `structure.rewriteInPlace` prompt is used instead of
+   *  re-answering the original question). */
+  specification?: string;
+  /** `send-rewrite` text mode: send the story history as context (default true). */
+  includeHistory?: boolean;
+  /** `send-rewrite` text mode: send the answer's current text as the content to
+   *  rewrite (default true — off means "write it from scratch"). */
+  includeContent?: boolean;
+  /** `send-rewrite` text mode: send `followingText` so the later chapters keep
+   *  fitting (default true when `followingText` is set). */
+  includeFollowing?: boolean;
   /** `rewrite-selection`: free-form directions/hints how the marked text should change. */
   directions?: string;
   /** `rewrite-selection`: how much surrounding context the model should see. */

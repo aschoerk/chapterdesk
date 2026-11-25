@@ -389,10 +389,22 @@ EDITED prompt is stored as a NEW VERSION of it. The ANSWER itself is NOT deleted
 and then stores the text as a **new version of the old answer** (retired as a prior
 version, children adopted), dropping the placeholder via `ChatService.discardNode`.
 
+**Text-rewrite mode (rewrite-in-place dialog):** when `vars.specification` is present,
+the flow does NOT re-answer the question. Messages = `buildSendMessagesEx({nodeId:
+question.id})` (history as such, original question included) plus a final user message
+= configured `structure.rewriteInPlace` prompt + “Additional specification” + “Content
+to rewrite” (the answer's current text) + optional “Following text the rewrite must
+stay consistent with” (`vars.followingText`). The dialog's three **Send along**
+switches map to `vars.includeHistory` / `vars.includeContent` / `vars.includeFollowing`
+(all default true; `false` omits that part — with no history at all the topic system
+prompt is still prepended). The versioning tail is shared with the legacy mode; no new
+question version is created.
+
 **Existing coverage (flows.spec.ts):**
 - `send-rewrite: the old answer is KEPT as a prior version and its children are re-adopted`
 - `send-rewrite: an EDITED prompt (vars.content) becomes a new version of the question` (also asserts the original prompt survives as `previousVersionId` / prior version)
 - `send-rewrite: finds the original prompt above a structural heading and replaces the answer in place`
+- `send-rewrite: a specification rewrites the CURRENT text with the configured prompt (history + following text)`
 - `send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture`
 - `send-rewrite: PRESERVES the old answer's attachments and merges the new image (previous pictures stay available)`
 - `send-rewrite: clears the exclude flag of the lore node before the assistant and re-sends the lore`
@@ -404,7 +416,7 @@ version, children adopted), dropping the placeholder via `ChatService.discardNod
 | UC11-T1 | core | Renumber preserved + new | Old `illustration-1` present, model returns 1 new image | Fresh node has `illustration-1` (kept) + `illustration-2` (new), names unique |
 | UC11-T2 | core | Only preserved, no new image | No fresh image | Finalize still runs (guard `preserveAttachments.length > 0`); preserved attachments attached |
 | UC11-T3 | core | Keep-children re-parent chain | Children under answer | After delete they re-parent to the question, then re-adopt under fresh answer; `setActiveChild(answer, firstAdopt)` |
-| UC11-T4 | component | Confirm shows child count | `regenerateInPlace()` | Confirm message includes children count; cancel → no mutation |
+| UC11-T4 | component | Dialog shows child count | `regenerateInPlace()` | Dedicated dialog message includes children count; cancel → no mutation |
 
 ---
 

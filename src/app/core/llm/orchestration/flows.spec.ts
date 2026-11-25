@@ -10,6 +10,7 @@ import { GenerationSettingsService } from '../../settings/generation-settings.se
 import { ChatService } from '../../chat/chat.service';
 import { ModelRecencyService } from '../../settings/model-recency.service';
 import { I18nService } from '../../i18n/i18n.service';
+import { PromptDefaultsService } from '../../prompts/prompt-defaults.service';
 import { LlmFlowRunner, isFlowUsecase } from './flows';
 import { LlmUseCaseRunner } from './usecases';
 import { UsecaseContextFactory } from './context';
@@ -692,6 +693,54 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
       messages: { role: string; content: string }[];
     };
     expect(body.messages.filter(m => m.role === 'user').pop()!.content).toContain('A much darker direction.');
+  });
+
+  it('send-rewrite: a specification rewrites the CURRENT text with the configured prompt (history + following text)', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['New ', 'text.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Original direction' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Old chapter text', isCurrent: true, modelId: 'alpha/model' }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'Next direction', isCurrent: true }),
+      makeNode({ id: 'a2', parentId: 'd1', role: 'assistant', content: 'Following chapter text', isCurrent: true })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    // A topic/user override of the configured prompt must be used verbatim.
+    const prompts = TestBed.inject(PromptDefaultsService);
+    vi.spyOn(prompts, 'effective').mockReturnValue('CUSTOM REWRITE-IN-PLACE PROMPT');
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-rewrite',
+      vars: { specification: 'Make it darker.', followingText: 'Following chapter text' }
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    const lastUser = body.messages.filter(m => m.role === 'user').pop()!;
+    // The configured instruction heads the final message…
+    expect(lastUser.content).toContain('CUSTOM REWRITE-IN-PLACE PROMPT');
+    // …together with the specification, the CURRENT content and the following
+    // text that must keep fitting.
+    expect(lastUser.content).toContain('Make it darker.');
+    expect(lastUser.content).toContain('Old chapter text');
+    expect(lastUser.content).toContain('Following chapter text');
+    // The story history is sent as such (the original question is a message).
+    expect(body.messages.some(m => m.role === 'user' && m.content === 'Original direction')).toBe(true);
+
+    // The QUESTION is untouched; only the answer becomes a new version and the
+    // following text is re-adopted under it.
+    expect(
+      chatService.nodes().filter(n => n.role === 'user' && n.content === 'Original direction'),
+    ).toHaveLength(1);
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answer = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answer.content).toBe('New text.');
+    expect(answer.previousVersionId).toBe('a1');
+    expect(chatService.nodes().find(n => n.id === 'd1')!.parentId).toBe(answerId);
   });
 
   it('send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture', async () => {    // send-rewrite with an image-generation writing model: the chat

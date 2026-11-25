@@ -1,4 +1,4 @@
-import { ChatNode, type NodeAttachment } from '../../../../models/chat';
+import { ChatMessage, ChatNode, type NodeAttachment } from '../../../../models/chat';
 import { canGenerateImages } from '../../../../models/chat-config';
 import type { NodeAttachmentLike } from '../context';
 import type { LlmImagePart } from '../../llm-message';
@@ -212,9 +212,48 @@ const sendRegenerate: FlowController = async env => {
   }, flowEmpty(slots));
 };
 
+/**
+ * Compose the final user message of a REWRITE-IN-PLACE request:
+ *   – the configured `structure.rewriteInPlace` instruction,
+ *   – the additional specification from the dialog,
+ *   – the current answer text (the content to rewrite; omitted when the user
+ *     unchecked it),
+ *   – the following text (when any and not unchecked), so the rewrite keeps
+ *     the later events consistent just like the original did.
+ * The story history itself travels as normal messages (see `sendRewrite`).
+ */
+function rewriteInPlaceRequest(env: FlowEnv, answer: ChatNode): string {
+  const specification = (env.cx.vars.specification ?? '').trim();
+  const includeContent = env.cx.vars.includeContent !== false;
+  const following = env.cx.vars.includeFollowing === false
+    ? ''
+    : (env.cx.vars.followingText ?? '').trim();
+  const parts: string[] = [env.factory.rewriteInPlaceInstruction()];
+  parts.push(`Additional specification:\n${
+    specification || '(none — apply only the general rules above)'
+  }`);
+  if (includeContent) {
+    parts.push(`Content to rewrite:\n${(answer.content ?? '').trim()}`);
+  }
+  if (following) {
+    parts.push(`Following text the rewrite must stay consistent with:\n${following}`);
+  }
+  return parts.join('\n\n');
+}
+
 // ---------------------------------------------------------------------------
 // send-rewrite — replace ONLY the answer (keep following text) by a NEW
 // VERSION of it, re-stream
+//
+// Two modes:
+//  1. LEGACY / regenerate-in-place: re-answer the ORIGINAL question. An edited
+//     `vars.content` becomes a new version of the question first.
+//  2. REWRITE-IN-PLACE (new dialog): `vars.specification` is present. The
+//     CURRENT answer text is attached to the configured
+//     `structure.rewriteInPlace` prompt together with the additional
+//     specification and the following text, so the model rewrites the existing
+//     content instead of answering the question again. The history is sent as
+//     such (messages up to the original question).
 // ---------------------------------------------------------------------------
 const sendRewrite: FlowController = async env => {
   const node = env.cx.node;
@@ -228,11 +267,16 @@ const sendRewrite: FlowController = async env => {
     return { error: makeSlot('error', 'http', 'No question node to rewrite.', {}) };
   }
 
-  // OPTIONAL prompt override: "Rewrite in place — edit the original prompt"
-  // lets the user adapt the direction before the answer is re-generated. The
-  // edited text is persisted as a NEW VERSION of the question (the answer's
-  // subtree is adopted onto it) and the fresh answer hangs under that version.
-  const edited = typeof env.cx.vars.content === 'string'
+  // `specification` is set (possibly empty) by the rewrite-in-place dialog. Its
+  // PRESENCE switches to text-rewrite mode; a bare regenerate keeps re-sending
+  // the original question.
+  const rewriteText = typeof env.cx.vars.specification === 'string';
+
+  // OPTIONAL prompt override (regenerate-in-place mode): the user adapts the
+  // original direction before the answer is re-generated. The edited text is
+  // persisted as a NEW VERSION of the question (the answer's subtree is
+  // adopted onto it) and the fresh answer hangs under that version.
+  const edited = !rewriteText && typeof env.cx.vars.content === 'string'
     ? env.cx.vars.content.trim()
     : '';
   if (edited && edited !== (question.content ?? '').trim()) {
@@ -264,13 +308,34 @@ const sendRewrite: FlowController = async env => {
   // pictures stay available.
   const preservedAttachments = (node.attachments ?? []).slice();
 
-  const prepared = await prepareTextSend(env, chatId, question, {
-    content: question.content,
-    attachments: question.attachments
-  });
-  await persistInterpretation(env, chatId, question, prepared);
+  let messages: ChatMessage[];
+  if (rewriteText) {
+    // The history is "as such": normal text-only messages up to (and
+    // including) the original question, with the topic system prompt. The
+    // FINAL user message carries the configured rewrite instruction, the
+    // additional specification, the content to rewrite and the following text.
+    // The dialog can switch the history / content / following parts off.
+    const includeHistory = env.cx.vars.includeHistory !== false;
+    messages = includeHistory
+      ? env.factory.buildSendMessagesEx({ chatId, nodeId: question.id })
+      : [];
+    if (messages.length === 0) {
+      // No history at all — keep at least the topic voice.
+      const sys = env.factory.topicSystemPrompt(env.cx.chat);
+      if (sys) messages.push({ role: 'system', content: sys });
+    }
+    messages.push({ role: 'user', content: rewriteInPlaceRequest(env, node) });
+  } else {
+    const prepared = await prepareTextSend(env, chatId, question, {
+      content: question.content,
+      attachments: question.attachments
+    });
+    await persistInterpretation(env, chatId, question, prepared);
+    messages = prepared.messages;
+  }
+
   const { answerNodeId, slots } = await streamAnswerNode(
-    env, chatId, question.id, prepared.messages,
+    env, chatId, question.id, messages,
     {
       preserveAttachments: preservedAttachments,
       parentNodeId: placementParentId,

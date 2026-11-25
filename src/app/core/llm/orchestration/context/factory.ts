@@ -204,6 +204,11 @@ export class UsecaseContextFactory {
     return this.prompts.rewriteInstruction();
   }
 
+  /** The rewrite-IN-PLACE (chapter text) instruction. */
+  rewriteInPlaceInstruction(): string {
+    return this.prompts.rewriteInPlaceInstruction();
+  }
+
   /** The story-scope instruction for the planning model. */
   illustrationScopeText(historyMode?: import('../types').UsecaseVars['historyMode'], historyNodes?: number): string {
     return this.prompts.illustrationScopeText(historyMode, historyNodes);

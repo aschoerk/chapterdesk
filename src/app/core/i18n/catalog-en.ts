@@ -476,14 +476,25 @@ export const EN = {
     regenerating: 'Regenerating…',
     regenerateTitle: 'Delete this answer and all following text, then resend the last user request',
     regenerateInPlace: 'Rewrite in place',
-    regenerateInPlaceTitle: 'Re-generate only this answer; keep the following text',
+    regenerateInPlaceTitle: 'Rewrite this answer in place; keep the following text',
     regenerateInPlaceTitleAsk: 'Rewrite this answer in place?',
     regenerateInPlaceMsgExtra:
-      'This answer has {{count}} following text(s). Rewriting replaces only this answer — the following text stays attached to the new version.',
+      'This answer has {{count}} following text(s). The rewrite replaces only this answer — the following text stays attached to the new version and is given to the model so its details keep fitting.',
     regenerateInPlaceMsg:
-      'Rewriting replaces only this answer. You can also change the original prompt below.',
-    rewritePromptLabel: 'Original prompt (editable)',
-    rewritePromptPh: 'The direction that produced this answer — edit it to change what is written',
+      'Rewrite this answer with the configured “Rewrite in place” prompt. Describe below what should change.',
+    rewriteInPlaceHint:
+      'The configured prompt template “Rewrite in place (chapter / answer)” orders the model. The story history and the following text are sent along.',
+    rewriteSpecLabel: 'Additional specification (what should change)',
+    rewriteSpecPh: 'e.g. Make the dialogue shorter and let the scene end in darkness',
+    rewriteIncludeLabel: 'Send along',
+    rewriteIncludeHistory: 'Story history',
+    rewriteIncludeHistoryHint: 'Everything written above this answer — the directions and chapters it follows.',
+    rewriteIncludeContent: 'The current text of this answer',
+    rewriteIncludeContentHint: 'The text that is rewritten. Turn this off to write it from scratch.',
+    rewriteIncludeFollowing: 'The following text',
+    rewriteIncludeFollowingHint:
+      'The chapters after this one — the rewrite keeps their details fitting.',
+    rewriteIncludeNoFollowing: 'This answer is the last one — nothing follows.',
     rewriteModelLabel: 'Model',
     rewriteModelTitle:
       'Model that rewrites this answer (default: the one that created it)',

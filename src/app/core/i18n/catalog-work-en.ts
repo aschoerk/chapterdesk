@@ -125,7 +125,7 @@ export const EN_WORK = {
     regenerating: 'Regenerating…',
     regenerateTitle: 'Delete this answer and all following text, then resend the last user request',
     regenerateInPlace: 'Rewrite in place',
-    regenerateInPlaceTitle: 'Re-generate only this answer; keep the following text',
+    regenerateInPlaceTitle: 'Rewrite this answer in place; keep the following text',
     regenerateInPlaceTitleAsk: 'Rewrite this answer in place?',
     regenerateInPlaceMsgExtra:
       'This answer has {{count}} following text(s). Rewriting replaces only this answer — the following text stays attached to the new version.',

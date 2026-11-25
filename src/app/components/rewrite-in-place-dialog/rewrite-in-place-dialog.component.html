@@ -1,0 +1,99 @@
+@if (dialog.current(); as d) {
+  <div
+    class="rip-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="rip-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rip-title"
+      aria-describedby="rip-message"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="rip-title">{{ i18n.t('node.regenerateInPlaceTitleAsk') }}</h3>
+      <p id="rip-message" class="rip-message">{{ message() }}</p>
+      <p class="rip-hint">{{ i18n.t('node.rewriteInPlaceHint') }}</p>
+
+      <label class="rip-field">
+        <span class="rip-label">{{ i18n.t('node.rewriteSpecLabel') }}</span>
+        <textarea
+          rows="5"
+          [ngModel]="specification()"
+          (ngModelChange)="specification.set($event)"
+          [placeholder]="i18n.t('node.rewriteSpecPh')"
+        ></textarea>
+      </label>
+
+      <fieldset class="rip-include">
+        <legend>{{ i18n.t('node.rewriteIncludeLabel') }}</legend>
+
+        <label class="rip-include-option">
+          <input
+            type="checkbox"
+            [ngModel]="includeHistory()"
+            (ngModelChange)="includeHistory.set($event)"
+          />
+          <span class="rip-include-text">
+            <span class="rip-include-name">{{ i18n.t('node.rewriteIncludeHistory') }}</span>
+            <small class="rip-include-hint">{{ i18n.t('node.rewriteIncludeHistoryHint') }}</small>
+          </span>
+        </label>
+
+        <label class="rip-include-option">
+          <input
+            type="checkbox"
+            [ngModel]="includeContent()"
+            (ngModelChange)="includeContent.set($event)"
+          />
+          <span class="rip-include-text">
+            <span class="rip-include-name">{{ i18n.t('node.rewriteIncludeContent') }}</span>
+            <small class="rip-include-hint">{{ i18n.t('node.rewriteIncludeContentHint') }}</small>
+          </span>
+        </label>
+
+        <label class="rip-include-option" [class.disabled]="followingCount() === 0">
+          <input
+            type="checkbox"
+            [disabled]="followingCount() === 0"
+            [ngModel]="includeFollowing()"
+            (ngModelChange)="includeFollowing.set($event)"
+          />
+          <span class="rip-include-text">
+            <span class="rip-include-name">{{ i18n.t('node.rewriteIncludeFollowing') }}</span>
+            <small class="rip-include-hint">
+              {{ followingCount() === 0
+                ? i18n.t('node.rewriteIncludeNoFollowing')
+                : i18n.t('node.rewriteIncludeFollowingHint') }}
+            </small>
+          </span>
+        </label>
+      </fieldset>
+
+      @if (models().length) {
+        <label class="rip-field rip-model">
+          <span class="rip-label">{{ i18n.t('node.rewriteModelLabel') }}</span>
+          <app-model-select
+            [models]="models()"
+            [value]="modelId()"
+            [title]="i18n.t('node.rewriteModelTitle')"
+            selectClass="rip-model-select"
+            (valueChange)="onModelChange($event)"
+          />
+        </label>
+      }
+
+      <div class="rip-actions">
+        <button class="btn" type="button" (click)="cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary danger" type="button" (click)="submit()">
+          {{ i18n.t('node.regenerateInPlace') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

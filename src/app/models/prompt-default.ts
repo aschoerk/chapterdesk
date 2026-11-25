@@ -169,6 +169,29 @@ Each description says in a few plain sentences what happens in that chapter — 
 Change the story as little as possible: keep established facts, and let every chapter follow from the previous one.`
   },
   {
+    id: 'structure.rewriteInPlace',
+    category: 'structure',
+    label: 'Rewrite in place (chapter / answer)',
+    description:
+      'Used by the "Rewrite in place" dialog. Orders the model to rewrite the attached chapter text according to the additional specification entered in the dialog. The story history is sent above this prompt; the flow appends the content to rewrite and the following text that must stay consistent.',
+    default:
+      `You are an expert story editor. The user wants ONE part of the story rewritten in place.
+
+You are given:
+- the story history above (everything before this part),
+- the exact CONTENT TO REWRITE,
+- an ADDITIONAL SPECIFICATION describing what must change,
+- optionally the FOLLOWING TEXT that comes after the part.
+
+Rewrite the content to rewrite so it follows the specification exactly. Keep the author's voice, tense and style, and keep every detail the specification does not ask to change.
+
+The rewrite replaces the original part in place: it must read as a natural continuation of the history above and must lead into the following text.
+
+The following text was written against the ORIGINAL content. Your rewrite must stay consistent with it in exactly the same way the original did: keep every fact, name, place, time, object and causal link the following events depend on. If the specification explicitly changes something the following text refers to, adjust the rewritten part so those later events still make sense.
+
+Return ONLY the rewritten text — no headings, no commentary, no markdown fences.`
+  },
+  {
     id: 'structure.continue',
     category: 'structure',
     label: 'Continue',
