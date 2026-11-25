@@ -120,6 +120,31 @@ export class ChatTreeReaderService {
     return path;
   }
 
+  /**
+   * The FIRST user message found walking UP the visible history of `nodeId`
+   * (its ancestor chain, nearest first) — the "original prompt" a rewrite
+   * re-answers. The direct parent is not always a user message: a chapter can
+   * sit under a structural heading, under materialized lore, or under another
+   * answer. Lore nodes, structural nodes and empty draft questions never
+   * count. Returns undefined when the history has no user message at all.
+   */
+  firstUserPromptAbove(nodeId: string): ChatNode | undefined {
+    const path = this.getPathToNode(nodeId);
+    // `path` is root → node; walk back from the node itself (excluded) and
+    // take the first user message met on the way up.
+    for (let i = path.length - 2; i >= 0; i--) {
+      const ancestor = path[i];
+      if (
+        ancestor.role === 'user'
+        && !isChatLoreNode(ancestor)
+        && !this.isDraftQuestion(ancestor)
+      ) {
+        return ancestor;
+      }
+    }
+    return undefined;
+  }
+
   private nodePosition(n: ChatNode): number {
     return typeof n.position === 'number' ? n.position : Number.MAX_SAFE_INTEGER;
   }

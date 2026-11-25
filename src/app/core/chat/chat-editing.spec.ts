@@ -95,6 +95,28 @@ describe('ChatService edit ops (insert / remove / delete)', () => {
     return { newQ, newA, adoptIds, parentId };
   }
 
+  describe('firstUserPromptAbove (original prompt of an answer)', () => {
+    it('returns the nearest user message above an answer', async () => {
+      const t = await linear();
+      expect(chat.firstUserPromptAbove(t.a1.id)?.id).toBe(t.u1.id);
+      expect(chat.firstUserPromptAbove(t.a2.id)?.id).toBe(t.u2.id);
+    });
+
+    it('skips structural and lore nodes while walking up the history', async () => {
+      const q = await add({ parentId: null, role: 'user', content: 'Original direction' });
+      const lore = await add({ parentId: q.id, role: 'lore', content: '[lore]' });
+      const heading = await add({ parentId: lore.id, role: 'structural', content: 'Heading' });
+      const answer = await add({ parentId: heading.id, role: 'assistant', content: 'Chapter' });
+
+      expect(chat.firstUserPromptAbove(answer.id)?.id).toBe(q.id);
+    });
+
+    it('returns undefined when the history has no user message', async () => {
+      const root = await add({ parentId: null, role: 'assistant', content: 'Orphan answer' });
+      expect(chat.firstUserPromptAbove(root.id)).toBeUndefined();
+    });
+  });
+
   describe('delete cascade (remove subtree)', () => {
     it('deletes a leaf assistant and leaves the rest of the path intact', async () => {
       const t = await linear();

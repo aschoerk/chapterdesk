@@ -3331,6 +3331,28 @@ describe('ChatNodeComponent', () => {
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
     });
 
+    it('finds the original prompt above a structural heading in the visible history', async () => {
+      const q1 = node({ id: 'q1', role: 'user', content: 'Original direction' });
+      const h1 = node({ id: 'h1', parentId: 'q1', role: 'structural', content: 'Chapter heading' });
+      const a1 = node({
+        id: 'a1', chatId: 'chat-1', parentId: 'h1', role: 'assistant',
+        content: 'Answer', modelId: 'alpha/model',
+      });
+      await openChat([q1, h1, a1]);
+      createFixture(a1);
+      const spy = vi.spyOn(confirm, 'askWithPrompt');
+      rewritePromptResolves(null);
+
+      await component.regenerateInPlace();
+      fixture.detectChanges();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      // The direct parent is the structural heading — the prompt is the FIRST
+      // user message further up the visible history.
+      expect(spy.mock.calls[0][0].prompt.value).toBe('Original direction');
+      expect(runner.run).not.toHaveBeenCalled();
+    });
+
     it('passes the model chosen in the dialog to the rewrite flow', async () => {
       const older = new Date(Date.now() - 60_000).toISOString();
       const newer = new Date().toISOString();

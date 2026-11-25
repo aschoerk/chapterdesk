@@ -191,25 +191,39 @@ export function imageOnlyAnswerContent(
  * normal send path: placeholder + startGeneration + live paint via
  * ChatService.updateNodes + versioned editAssistant), optionally re-parenting
  * `adoptNodeIds` under the fresh answer.
+ *
+ * `opts.parentNodeId` overrides WHERE the answer is placed (and activated)
+ * while the messages still belong to `questionNodeId`. A rewrite in place of a
+ * chapter that sits under a structural heading re-answers its original PROMPT
+ * but must replace the chapter in its old tree position, not under the prompt.
  */
 export async function streamAnswerNode(
   env: FlowEnv,
   chatId: string,
   questionNodeId: string,
   messages: ChatMessage[],
-  opts: { adoptNodeIds?: string[]; preserveAttachments?: NodeAttachment[] } = {}
+  opts: {
+    adoptNodeIds?: string[];
+    preserveAttachments?: NodeAttachment[];
+    parentNodeId?: string | null;
+  } = {}
 ): Promise<{ answerNodeId: string; slots: EvalSlots }> {
   const chatService = env.chatService;
   const write = env.write;
+  // Where the fresh answer hangs: the question itself unless the caller
+  // decouples placement from the history/prompt node (rewrite in place).
+  const parentNodeId = opts.parentNodeId !== undefined
+    ? opts.parentNodeId
+    : questionNodeId;
   const answerNode = await chatService.addNode(chatId, {
-    parentId: questionNodeId,
+    parentId: parentNodeId,
     role: 'assistant',
     content: '',
     thinking: '',
     modelId: write.model.modelId,
     providerId: write.model.providerId
   });
-  chatService.setActiveChild(questionNodeId, answerNode.id);
+  chatService.setActiveChild(parentNodeId, answerNode.id);
   const signal = chatService.startGeneration(answerNode.id);
   // The single (raw) stream path presents this node directly — follow-streaming
   // and the thinking spinner key off the PRESENTED node, not the generation id.
@@ -284,7 +298,7 @@ export async function streamAnswerNode(
         chatId, answerNode.id, chapterContent, attachments, finalThinking, slots.usage?.value ?? undefined
       );
       answerId = versioned.id;
-      chatService.setActiveChild(questionNodeId, answerId);
+      chatService.setActiveChild(parentNodeId, answerId);
       if (opts.adoptNodeIds?.length) {
         await chatService.reparentNodes(chatId, opts.adoptNodeIds, answerId);
       }

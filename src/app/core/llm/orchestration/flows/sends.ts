@@ -218,7 +218,11 @@ const sendRegenerate: FlowController = async env => {
 const sendRewrite: FlowController = async env => {
   const node = env.cx.node;
   const chatId = env.cx.chat.id;
-  let question = parentQuestion(env, node);
+  // The ORIGINAL PROMPT: the first user message in the answer's visible
+  // history. The direct parent is not always the direction that produced the
+  // answer — a chapter can sit under a structural heading or materialized
+  // lore — so the whole ancestor chain is searched.
+  let question = env.chatService.firstUserPromptAbove(node.id) ?? null;
   if (!question) {
     return { error: makeSlot('error', 'http', 'No question node to rewrite.', {}) };
   }
@@ -236,6 +240,13 @@ const sendRewrite: FlowController = async env => {
     );
   }
 
+  // The fresh answer replaces THIS node in place: under a structural heading
+  // it hangs there again, not under the (grand)parent prompt. Read the parent
+  // AFTER the edit — editing the prompt adopts its subtree onto the new
+  // version, so the answer's parent may just have changed.
+  const placementParentId = env.chatService.nodes()
+    .find(n => n.id === node.id)?.parentId ?? null;
+
   // Current chat-lore: the direction being rewritten in place sits behind a
   // lore node deactivated after its first send — (re-)arm it (clear its
   // excludeFromContext flag) BEFORE anything is removed, so the re-sent
@@ -249,13 +260,18 @@ const sendRewrite: FlowController = async env => {
   const preservedAttachments = (node.attachments ?? []).slice();
   await env.chatService.deleteNode(chatId, node.id, { keepChildren: true });
 
-  const prep = await prepareTextSend(env, chatId, question, {
+  const prepared = await prepareTextSend(env, chatId, question, {
     content: question.content,
     attachments: question.attachments
   });
-  await persistInterpretation(env, chatId, question, prep);
+  await persistInterpretation(env, chatId, question, prepared);
   const { answerNodeId, slots } = await streamAnswerNode(
-    env, chatId, question.id, prep.messages, { adoptNodeIds, preserveAttachments: preservedAttachments }
+    env, chatId, question.id, prepared.messages,
+    {
+      adoptNodeIds,
+      preserveAttachments: preservedAttachments,
+      parentNodeId: placementParentId
+    }
   );
   // The preserved attachments include the plan record of the OLD list — the
   // rewritten text needs its own (or none), never the stale one.

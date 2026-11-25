@@ -853,10 +853,8 @@ export class ChatNodeComponent implements OnDestroy {
       return;
     }
 
-    const question = node.parentId
-      ? this.chatService.nodes().find(n => n.id === node.parentId)
-      : undefined;
-    if (!question || question.role !== 'user') {
+    const question = this.originalPromptOf(node);
+    if (!question) {
       this.toast.error(this.i18n.t('node.regenerateNoParent'));
       return;
     }
@@ -922,6 +920,16 @@ export class ChatNodeComponent implements OnDestroy {
         if (edited.providerId) build.vars['providerId'] = edited.providerId;
       }
     });
+  }
+
+  /**
+   * The original prompt of an answer: the FIRST user message in its visible
+   * history (see `ChatService.firstUserPromptAbove`). The direct parent is not
+   * always the direction that produced the answer — a chapter can sit under a
+   * structural heading or materialized lore — so the whole history is searched.
+   */
+  private originalPromptOf(answer: ChatNode): ChatNode | undefined {
+    return this.chatService.firstUserPromptAbove(answer.id);
   }
 
   /**

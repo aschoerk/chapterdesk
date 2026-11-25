@@ -627,6 +627,49 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     expect(chatService.nodes().find(n => n.id === 'd1')!.parentId).toBe(answerId);
   });
 
+  it('send-rewrite: finds the original prompt above a structural heading and replaces the answer in place', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse(['Rewritten ', 'answer.']));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Original direction' }),
+      makeNode({ id: 'h1', parentId: 'q1', role: 'structural', content: 'Chapter heading' }),
+      makeNode({ id: 'a1', parentId: 'h1', role: 'assistant', content: 'Old answer', modelId: 'alpha/model' }),
+      makeNode({ id: 'd1', parentId: 'a1', role: 'user', content: 'Continues here' })
+    ]);
+    const oldAnswer = chatService.nodes().find(n => n.id === 'a1')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: oldAnswer,
+      usecase: 'send-rewrite',
+      vars: { content: 'A much darker direction.' }
+    });
+
+    // The edited prompt became a NEW VERSION of the original prompt (q1) — the
+    // direct parent is the heading, so the search went up the visible history.
+    const questionId = slots.flow!.value!.questionNodeId;
+    const question = chatService.nodes().find(n => n.id === questionId)!;
+    expect(questionId).not.toBe('q1');
+    expect(question.role).toBe('user');
+    expect(question.content).toBe('A much darker direction.');
+    // The heading stays BETWEEN prompt and chapter…
+    expect(chatService.nodes().find(n => n.id === 'h1')!.parentId).toBe(questionId);
+    // …and the fresh answer replaces the old one UNDER THE HEADING (in place),
+    // not under the prompt it re-answered.
+    const answerId = slots.flow!.value!.answerNodeId;
+    const answerNode = chatService.nodes().find(n => n.id === answerId)!;
+    expect(answerNode.content).toBe('Rewritten answer.');
+    expect(answerNode.parentId).toBe('h1');
+    expect(chatService.getActiveChild('h1')?.id).toBe(answerId);
+    // The following text is re-hung under the fresh answer.
+    expect(chatService.nodes().find(n => n.id === 'd1')!.parentId).toBe(answerId);
+    // The request carried the edited prompt.
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as {
+      messages: { role: string; content: string }[];
+    };
+    expect(body.messages.filter(m => m.role === 'user').pop()!.content).toContain('A much darker direction.');
+  });
+
   it('send-rewrite: routes an image-GENERATION WRITE model to /images and re-attaches the picture', async () => {    // send-rewrite with an image-generation writing model: the chat
     // completions attempt fails (model lives only on /images) → routed there
     // → the fresh answer carries the picture as an attachment.

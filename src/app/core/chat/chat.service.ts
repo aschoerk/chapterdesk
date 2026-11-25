@@ -75,6 +75,9 @@ export class ChatService {
   getPathToNode(nodeId: string): ChatNode[] {
     return this.reader.getPathToNode(nodeId);
   }
+  firstUserPromptAbove(nodeId: string): ChatNode | undefined {
+    return this.reader.firstUserPromptAbove(nodeId);
+  }
   getChildren(parentId: string | null): ChatNode[] {
     return this.reader.getChildren(parentId);
   }
