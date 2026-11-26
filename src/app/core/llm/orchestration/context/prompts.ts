@@ -61,6 +61,15 @@ export class ContextPromptBuilderService {
     return this.promptDefaults.effective('structure.chapterDescriptions', this.topicService.promptTopic);
   }
 
+  /**
+   * Instruction for the "design a story concept" task (editable prompt
+   * default). The concept prompt, personas, chapter/word constraints AND the
+   * output format contract are appended by the flow as structured sections.
+   */
+  storyConceptInstruction(): string {
+    return this.promptDefaults.effective('structure.storyConcept', this.topicService.promptTopic);
+  }
+
   /** The rewrite-selection instruction (editable prompt default). */
   rewriteInstruction(): string {
     return this.promptDefaults.effective('language.rewrite', this.topicService.promptTopic);

@@ -20,6 +20,7 @@ const LABELS: Record<string, string> = {
   'node.ctxSwitchCharacters': 'Multiple Characters',
   'node.ctxElaborate': 'Elaborate',
   'node.ctxChapterDescriptions': 'Chapter descriptions',
+  'node.ctxStoryConcept': 'Story concept',
   'node.ctxPrepend': 'Prepend director',
   'node.ctxSetReadPosition': 'Set next read position here',
   'node.ctxClearReadPosition': 'Clear next read position',
@@ -42,6 +43,7 @@ function ctx(
     toggleExclude: noop, heading: noop, regenerate: noop, regenerateInPlace: noop,
     illustrate: noop, createImage: noop, continueDraft: noop, switchCharacters: noop,
     chapterDescriptions: noop, prepend: noop, setReadPosition: noop,
+    storyConcept: noop,
     clearReadPosition: noop, markPosition: noop, markSelection: noop,
     remove: noop, delete: noop, continueChapter: noop, switchCharactersChapter: noop,
     elaborate: noop,
@@ -195,6 +197,15 @@ describe('buildCtxMenuItems (chat-node context menu)', () => {
     expect(labels_).toContain('Prepend director');
     expect(labels_).not.toContain('Continue');
     expect(labels_).not.toContain('Multiple Characters');
+  });
+
+  it('offers the story-concept and chapter-description authoring actions on a direction', () => {
+    const items = buildCtxMenuItems(ctx({
+      node: makeNode({ role: 'user', content: 'Sent' }),
+    }));
+    expect(labels(items)).toContain('Chapter descriptions');
+    expect(labels(items)).toContain('Story concept');
+    expect(items.find(i => i.label === 'Story concept')?.disabled).toBe(false);
   });
 
   it('marks an excluded user node with the ✓ prefix', () => {

@@ -18,6 +18,9 @@ import { startHeldAnswerStream, type HeldAnswerStreamDeps } from '../../held-ans
 import { isChatLoreNode } from '../../../chat/chat-lore.service';
 import {
   CHAPTER_PLAN_FORMAT_CONTRACT,
+  STORY_CONCEPT_FORMAT_CONTRACT,
+  STORY_CONCEPT_FORMAT_CONTRACT_OPEN,
+  chapterListSection,
   chapterPlanRecord,
   isChapterPlanRecordAttachment,
   parseChapterPlan,
@@ -45,8 +48,12 @@ function chapterPlanAnchors(question: ChatNode | null | undefined): ChapterPlanA
   const count = PLAN_COUNT_LINE.exec(text);
   if (!count) return null;
   const first = PLAN_FIRST_LINE.exec(text);
+  // "Number of chapters to plan: 0" means "let the model decide": the count is
+  // UNKNOWN (null), never clamped to 1. The story-concept flow writes this so
+  // its plan record can be re-derived from the question on regenerate/rewrite.
+  const countValue = Math.floor(Number(count[1]));
   return {
-    chapterCount: Math.max(1, Math.floor(Number(count[1]) || 1)),
+    chapterCount: Number.isFinite(countValue) && countValue > 0 ? countValue : null,
     firstChapter: Math.max(1, Math.floor(Number(first?.[1] ?? 1) || 1)),
   };
 }
@@ -77,7 +84,11 @@ async function syncChapterPlanRecord(
   const anchors = chapterPlanAnchors(question);
   if (!anchors) return;
   try {
-    const plan = parseStrictChapterPlan(text, anchors) ?? parseChapterPlan(text, anchors);
+    // A story-concept answer carries the concept prose ABOVE the chapter list;
+    // only the section behind the `CHAPTER LIST` marker belongs to the plan.
+    // Pure chapter-description lists pass through unchanged.
+    const listText = chapterListSection(text);
+    const plan = parseStrictChapterPlan(listText, anchors) ?? parseChapterPlan(listText, anchors);
     const answer = env.chatService.nodes().find(n => n.id === answerNodeId);
     // A rewrite keeps the old attachments: drop the previous (now stale)
     // record, keep everything else, then store the freshly parsed plan.
@@ -716,6 +727,73 @@ const sendChapterDescriptions: FlowController = async env => {
 };
 
 // ---------------------------------------------------------------------------
+// send-story-concept — design a story concept that ENDS in a chapter list.
+// Like send-chapter-descriptions this is ANOTHER branch off the current node
+// (the full previous chat content is the history), but the request starts from
+// a free-form concept prompt, optionally includes personas as characters and a
+// target story length, and lets the model decide the number of chapters when
+// the dialog leaves it empty. The chapter list is what a later Elaborate run
+// consumes (stored as the same `chapter-plan.json` record).
+// ---------------------------------------------------------------------------
+const sendStoryConcept: FlowController = async env => {
+  const node = env.cx.node;
+  const chatId = env.cx.chat.id;
+  const conceptPrompt = (env.cx.vars.conceptPrompt ?? '').trim();
+  const personas = env.cx.vars.conceptPersonas ?? [];
+  const chapterCount = Math.max(0, Math.floor(Number(env.cx.vars.chapterCount) || 0));
+  const first = Math.max(1, Math.floor(Number(env.cx.vars.firstChapter) || 1));
+  const targetWords = Math.max(0, Math.floor(Number(env.cx.vars.targetWords) || 0));
+  const instruction = env.factory.storyConceptInstruction();
+
+  const lines: string[] = [instruction];
+  if (conceptPrompt) {
+    lines.push('The story idea the user wants to develop:');
+    lines.push(conceptPrompt);
+  }
+  if (personas.length > 0) {
+    lines.push('Characters that must appear in the concept and the chapter plan:');
+    for (const persona of personas) {
+      const detail = (persona.description ?? '').trim();
+      lines.push(detail ? `- ${persona.name}: ${detail}` : `- ${persona.name}`);
+    }
+  }
+  // Keep the same flow-owned parameter lines as the chapter-description flow
+  // so the machine-readable plan record can be re-derived from the QUESTION on
+  // regenerate / rewrite. `0` means "the model decides".
+  lines.push(`Number of chapters to plan: ${chapterCount}`);
+  if (chapterCount === 0) {
+    lines.push('(0 means: let the story decide — plan as many chapters as the concept needs.)');
+  }
+  lines.push(`First chapter number: ${first}`);
+  if (targetWords > 0) {
+    lines.push(`Target length of the finished story: about ${targetWords} words.`);
+  }
+  lines.push(chapterCount > 0 ? STORY_CONCEPT_FORMAT_CONTRACT : STORY_CONCEPT_FORMAT_CONTRACT_OPEN);
+  const request = lines.filter(Boolean).join('\n');
+
+  const newQuestion = await env.chatService.branchQuestion(
+    chatId, node.id, request, env.write.model.modelId, env.write.model.providerId, undefined
+  );
+  env.chatService.setActiveChild(newQuestion.parentId, newQuestion.id);
+  await env.chatService.patchNode(chatId, newQuestion.id, { excludeFromContext: true });
+
+  await env.chatService.ensureLoreNodeBefore(chatId, newQuestion.id);
+
+  const prep = await prepareTextSend(env, chatId, newQuestion, { content: request });
+  await persistInterpretation(env, chatId, newQuestion, prep);
+  const { answerNodeId, slots } = await streamAnswerNode(env, chatId, newQuestion.id, prep.messages);
+
+  await syncChapterPlanRecord(env, chatId, newQuestion, answerNodeId, slots.text?.value ?? '');
+
+  return flowResult(slots, {
+    questionNodeId: newQuestion.id,
+    answerNodeId,
+    activateId: answerNodeId,
+    branchNodeId: newQuestion.id
+  }, flowEmpty(slots));
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -753,5 +831,6 @@ export {
   sendRewrite,
   sendPrepend,
   sendElaborate,
-  sendChapterDescriptions
+  sendChapterDescriptions,
+  sendStoryConcept
 };

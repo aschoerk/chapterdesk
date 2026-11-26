@@ -11,6 +11,7 @@ import { ChatService } from '../../core/chat/chat.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
+import { StoryConceptDialogService } from '../../core/dialogs/story-concept-dialog.service';
 import { NodeActionState } from './node-action-state';
 import { EditorController } from './editor-controller';
 import { DialogActionsController, type DialogActionsHost } from './dialog-actions';
@@ -193,6 +194,59 @@ describe('DialogActionsController', () => {
     await open();
     actions.begin('send');
     await controller.openChapterDescriptionsDialog();
+    expect(ranFlows).toEqual([]);
+    actions.end();
+  });
+
+  it('openStoryConceptDialog runs the flow with the dialog inputs', async () => {
+    await open();
+    const dialog = TestBed.inject(StoryConceptDialogService);
+    vi.spyOn(dialog, 'open').mockResolvedValue({
+      prompt: 'A clockwork city',
+      personaIds: ['pers-1'],
+      personas: [{ id: 'pers-1', name: 'Mara', shortName: 'Ma', description: 'A thief.' }],
+      chapterCount: 6,
+      targetWords: 60000,
+      modelId: 'alpha/model',
+      providerId: 'prov-1',
+    });
+
+    await controller.openStoryConceptDialog();
+    expect(ranFlows).toHaveLength(1);
+    expect(ranFlows[0].usecase).toBe('send-story-concept');
+    expect(ranFlows[0].pending).toBe('storyConcept');
+    expect(ranFlows[0].vars).toMatchObject({
+      conceptPrompt: 'A clockwork city',
+      conceptPersonas: [{ name: 'Mara', description: 'A thief.' }],
+      chapterCount: 6,
+      firstChapter: 1,
+      targetWords: 60000,
+      modelId: 'alpha/model',
+      providerId: 'prov-1',
+    });
+  });
+
+  it('openStoryConceptDialog defaults an empty chapter count to 0 (auto)', async () => {
+    await open();
+    const dialog = TestBed.inject(StoryConceptDialogService);
+    vi.spyOn(dialog, 'open').mockResolvedValue({
+      prompt: 'free',
+      personaIds: [],
+      personas: [],
+      chapterCount: null,
+      targetWords: null,
+      modelId: 'alpha/model',
+      providerId: 'prov-1',
+    });
+
+    await controller.openStoryConceptDialog();
+    expect(ranFlows[0].vars).toMatchObject({ chapterCount: 0, targetWords: 0 });
+  });
+
+  it('openStoryConceptDialog does nothing while another action runs', async () => {
+    await open();
+    actions.begin('send');
+    await controller.openStoryConceptDialog();
     expect(ranFlows).toEqual([]);
     actions.end();
   });

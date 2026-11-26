@@ -122,7 +122,7 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
   afterEach(() => vi.unstubAllGlobals());
 
   it('isFlowUsecase recognizes the structural kinds', () => {
-    for (const k of ['send-branch', 'send-insert', 'send-regenerate', 'send-rewrite', 'send-prepend', 'send-elaborate', 'send-chapter-descriptions', 'structure-title', 'structure-overview', 'structure-heading', 'structure-headings', 'language-check']) {
+    for (const k of ['send-branch', 'send-insert', 'send-regenerate', 'send-rewrite', 'send-prepend', 'send-elaborate', 'send-chapter-descriptions', 'send-story-concept', 'structure-title', 'structure-overview', 'structure-heading', 'structure-headings', 'language-check']) {
       expect(isFlowUsecase(k as never)).toBe(true);
     }
     expect(isFlowUsecase('append' as never)).toBe(false);
@@ -1077,6 +1077,97 @@ describe('LLM orchestration — structural flows (branch / insert / regenerate /
     const plan = readChapterPlan(answer);
     expect(plan?.entries.map(e => e.chapter)).toEqual([4, 5]);
     expect(plan?.entries[0].text).toBe('One — start.');
+  });
+
+  it('send-story-concept: branches a concept request with personas + length and stores the chapter plan', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse([
+      'The city runs on clockwork and everyone owes the Guild.\n\nCHAPTER LIST\n\n',
+      '1. The Winding — Mara steals the mainspring from the Guild vault.\n',
+      '2. The Escape — Ivo opens the eastern gate while the bells ring.'
+    ]));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Write a story' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true }),
+      makeNode({ id: 'draft', parentId: 'a1', role: 'user', content: '', isCurrent: true })
+    ]);
+    const draft = chatService.nodes().find(n => n.id === 'draft')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: draft,
+      usecase: 'send-story-concept',
+      vars: {
+        conceptPrompt: 'A clockwork city ruled by a guild of thieves',
+        conceptPersonas: [
+          { name: 'Mara', description: 'A gifted thief.' },
+          { name: 'Ivo' }
+        ],
+        chapterCount: 2,
+        firstChapter: 1,
+        targetWords: 60000
+      }
+    });
+
+    // The draft stays untouched — the concept is ANOTHER branch.
+    expect(chatService.nodes().find(n => n.id === 'draft')!.content).toBe('');
+    const question = chatService.nodes().find(n =>
+      n.role === 'user' && n.content?.includes('The story idea the user wants to develop:'));
+    expect(question).toBeDefined();
+    expect(question!.parentId).toBe('a1');
+    expect(question!.content).toContain('A clockwork city ruled by a guild of thieves');
+    expect(question!.content).toContain('- Mara: A gifted thief.');
+    expect(question!.content).toContain('- Ivo');
+    expect(question!.content).toContain('Number of chapters to plan: 2');
+    expect(question!.content).toContain('First chapter number: 1');
+    expect(question!.content).toContain('Target length of the finished story: about 60000 words.');
+    // The output contract puts the chapter list behind a marker line so the
+    // concept prose above it is never parsed as chapter entries.
+    expect(question!.content).toContain('OUTPUT SHAPE');
+    expect(question!.content).toContain('CHAPTER LIST');
+    expect(question!.content).toContain('Emit exactly the requested number of chapters.');
+
+    const answer = chatService.nodes().find(n => n.id === slots.flow!.value!.answerNodeId)!;
+    expect(answer.parentId).toBe(question!.id);
+    expect(answer.content).toContain('The city runs on clockwork');
+    const plan = readChapterPlan(answer);
+    expect(plan?.entries.map(e => e.chapter)).toEqual([1, 2]);
+    expect(plan?.entries[0].text).toBe('The Winding — Mara steals the mainspring from the Guild vault.');
+    expect(plan?.entries[1].text).toBe('The Escape — Ivo opens the eastern gate while the bells ring.');
+  });
+
+  it('send-story-concept: no chapter count lets the model decide (record keeps every chapter)', async () => {
+    fetchMock.mockResolvedValueOnce(sseResponse([
+      'A quiet fishing village hides a drowned god.\n\nCHAPTER LIST\n\n',
+      '1. The Net — Sela drags up a black stone.\n',
+      '2. The Drought — the boats stop coming back.\n',
+      '3. The Bargain — the village makes an offer.'
+    ]));
+    const chatService = await openChat([
+      makeNode({ id: 'q1', role: 'user', content: 'Write a story' }),
+      makeNode({ id: 'a1', parentId: 'q1', role: 'assistant', content: 'Chapter one.', isCurrent: true }),
+      makeNode({ id: 'draft', parentId: 'a1', role: 'user', content: '', isCurrent: true })
+    ]);
+    const draft = chatService.nodes().find(n => n.id === 'draft')!;
+
+    const runner = TestBed.inject(LlmFlowRunner);
+    const slots = await runner.run({
+      chat: api.chats[0],
+      node: draft,
+      usecase: 'send-story-concept',
+      vars: { conceptPrompt: 'A drowned god', chapterCount: 0, firstChapter: 1, targetWords: 0 }
+    });
+
+    const question = chatService.nodes().find(n =>
+      n.role === 'user' && n.content?.includes('Number of chapters to plan: 0'));
+    expect(question).toBeDefined();
+    expect(question!.content).toContain('let the story decide');
+    expect(question!.content).toContain('Emit as many chapters as the story needs');
+    expect(question!.content).not.toContain('Emit exactly the requested number of chapters.');
+
+    const answer = chatService.nodes().find(n => n.id === slots.flow!.value!.answerNodeId)!;
+    const plan = readChapterPlan(answer);
+    expect(plan?.entries.map(e => e.chapter)).toEqual([1, 2, 3]);
   });
 
   it('send-regenerate: re-derives the chapter-plan record of a regenerated list', async () => {

@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CHAPTER_LIST_MARKER,
   CHAPTER_PLAN_FORMAT_CONTRACT,
   CHAPTER_PLAN_RECORD,
+  STORY_CONCEPT_FORMAT_CONTRACT,
+  STORY_CONCEPT_FORMAT_CONTRACT_OPEN,
+  chapterListSection,
   chapterPlanFromText,
   chapterPlanLabel,
   chapterPlanOf,
@@ -292,5 +296,70 @@ describe('chapter-plan — format contract', () => {
     const example = CHAPTER_PLAN_FORMAT_CONTRACT.split('content is yours):')[1].trim();
     const plan = parseStrictChapterPlan(example, { firstChapter: 7, chapterCount: 3 });
     expect(plan?.entries.map((e) => e.chapter)).toEqual([7, 8, 9]);
+  });
+});
+
+describe('chapter-plan — story-concept output', () => {
+  it('chapterListSection keeps only the part behind the marker line', () => {
+    const text = [
+      'The city runs on clockwork.',
+      'Everyone owes the Guild.',
+      '',
+      CHAPTER_LIST_MARKER,
+      '',
+      '1. The Winding — Mara steals the mainspring.',
+      '',
+      '2. The Escape — Ivo opens the gate.',
+    ].join('\n');
+    const section = chapterListSection(text);
+    expect(section).toBe('1. The Winding — Mara steals the mainspring.\n\n2. The Escape — Ivo opens the gate.');
+    expect(section).not.toContain('clockwork');
+  });
+
+  it('chapterListSection accepts a markdown-noise marker and picks the LAST one', () => {
+    const text = [
+      'First attempt mentions CHAPTER LIST as a phrase.',
+      '**CHAPTER LIST:**',
+      '',
+      '1. A — x',
+      '',
+      '## Chapter List',
+      '',
+      '2. B — y',
+    ].join('\n');
+    expect(chapterListSection(text).trim()).toBe('2. B — y');
+  });
+
+  it('chapterListSection returns the text unchanged without a marker', () => {
+    expect(chapterListSection('1. A — x\n\n2. B — y')).toBe('1. A — x\n\n2. B — y');
+    expect(chapterListSection('')).toBe('');
+    expect(chapterListSection(null)).toBe('');
+  });
+
+  it('the concept contracts demand the marker + the chapter-list rules', () => {
+    for (const contract of [STORY_CONCEPT_FORMAT_CONTRACT, STORY_CONCEPT_FORMAT_CONTRACT_OPEN]) {
+      expect(contract).toContain('OUTPUT SHAPE');
+      expect(contract).toContain(CHAPTER_LIST_MARKER);
+      expect(contract).toContain('begins at column 1 with the chapter number');
+      expect(contract).toContain('Never use numbered lists anywhere before the');
+    }
+    expect(STORY_CONCEPT_FORMAT_CONTRACT).toContain('Emit exactly the requested number of chapters.');
+    expect(STORY_CONCEPT_FORMAT_CONTRACT_OPEN).toContain('Emit as many chapters as the story needs');
+  });
+
+  it('a concept answer parses to the plan behind the marker', () => {
+    const answer = [
+      'A drowned god sleeps under the harbour.',
+      'Sela is the last one who remembers the old prayers.',
+      '',
+      CHAPTER_LIST_MARKER,
+      '',
+      '1. The Net — Sela drags up a black stone.',
+      '',
+      '2. The Drought — the boats stop coming back.',
+    ].join('\n');
+    const plan = parseStrictChapterPlan(chapterListSection(answer), { firstChapter: 1, chapterCount: 2 });
+    expect(plan?.entries.map((e) => e.chapter)).toEqual([1, 2]);
+    expect(plan?.entries[0].text).toBe('The Net — Sela drags up a black stone.');
   });
 });

@@ -17,6 +17,7 @@ import {
   sendPrepend,
   sendElaborate,
   sendChapterDescriptions,
+  sendStoryConcept,
   startSendElaborateHeld
 } from './sends';
 import {
@@ -37,6 +38,7 @@ const FLOW_CONTROLLERS: Partial<Record<UsecaseKind, FlowController>> = {
   'send-prepend': sendPrepend,
   'send-elaborate': sendElaborate,
   'send-chapter-descriptions': sendChapterDescriptions,
+  'send-story-concept': sendStoryConcept,
   'structure-title': structureTitle,
   'structure-overview': structureOverview,
   'structure-heading': structureHeading,

@@ -719,8 +719,8 @@ export class ChatNodeComponent implements OnDestroy {
    * …); `pending` is the UI spinner label.
    */
   private async runFlow(
-    usecase: 'send-branch' | 'send-insert' | 'send-regenerate' | 'send-rewrite' | 'send-prepend' | 'send-chapter-descriptions',
-    pending: 'branch' | 'insert' | 'send' | 'prepend' | 'chapterDescriptions',
+    usecase: 'send-branch' | 'send-insert' | 'send-regenerate' | 'send-rewrite' | 'send-prepend' | 'send-chapter-descriptions' | 'send-story-concept',
+    pending: 'branch' | 'insert' | 'send' | 'prepend' | 'chapterDescriptions' | 'storyConcept',
     builder?: (build: { vars: Record<string, unknown> }) => void
   ): Promise<boolean> {
     const node = this.node();
@@ -873,6 +873,9 @@ export class ChatNodeComponent implements OnDestroy {
       modelId: preselected,
       providerId,
       followingCount: children.length,
+      // The original direction is the "write from scratch" prefill of the
+      // specification box (used when the current text is unticked).
+      originalPrompt: (question.content ?? '').trim(),
     });
     if (result == null) return; // cancelled
     if (result.modelId) this.rememberRewriteInPlaceModel(result.modelId);
@@ -1309,6 +1312,7 @@ export class ChatNodeComponent implements OnDestroy {
         continueDraft: () => void this.continueDraft(),
         switchCharacters: () => void this.switchCharactersDraft(),
         chapterDescriptions: () => void this.openChapterDescriptionsDialog(),
+        storyConcept: () => void this.openStoryConceptDialog(),
         prepend: () => void this.openPrependDialog(),
         setReadPosition: () => this.setNextReadPosition(),
         clearReadPosition: () => this.clearNextReadPosition(),
@@ -2288,5 +2292,10 @@ export class ChatNodeComponent implements OnDestroy {
   /** Open the "Create chapter descriptions" dialog and run its flow. */
   async openChapterDescriptionsDialog(): Promise<void> {
     await this.dialogActions.openChapterDescriptionsDialog();
+  }
+
+  /** Open the "Design a story concept" dialog and run its flow. */
+  async openStoryConceptDialog(): Promise<void> {
+    await this.dialogActions.openStoryConceptDialog();
   }
 }

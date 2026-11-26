@@ -346,6 +346,17 @@
             }
           </button>
 
+          <button class="btn small" type="button"
+                  [disabled]="isLoading()"
+                  (click)="openStoryConceptDialog()"
+                  [title]="i18n.t('node.storyConceptTitle')">
+            @if (isLoading() && pendingAction() === 'storyConcept') {
+              {{ i18n.t('node.generatingStructure') }}
+            } @else {
+              {{ i18n.t('node.storyConcept') }}
+            }
+          </button>
+
           @if (isDraftEmpty() || pendingAction() === 'continue' || pendingAction() === 'switchCharacters') {
             <div class="repeat-counter" [title]="i18n.t('node.repeatTitle')">
               <button class="btn small" type="button"
@@ -835,6 +846,22 @@
               <path d="M4 6h16M4 10h16M4 14h10M4 18h6"/>
             </svg>
             <span>{{ i18n.t('node.chapterDescriptions') }}</span>
+          }
+        </button>
+        <button class="btn-icon" type="button"
+                [disabled]="isLoading()"
+                (click)="openStoryConceptDialog(); $event.stopPropagation()"
+                [title]="i18n.t('node.storyConceptTitle')">
+          @if (isLoading() && pendingAction() === 'storyConcept') {
+            <span class="spinner"></span>
+            <span>{{ i18n.t('node.generatingStructure') }}</span>
+          } @else {
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18h6"/>
+              <path d="M10 22h3"/>
+              <path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>
+            </svg>
+            <span>{{ i18n.t('node.storyConcept') }}</span>
           }
         </button>
       }

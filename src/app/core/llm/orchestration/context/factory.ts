@@ -199,6 +199,11 @@ export class UsecaseContextFactory {
     return this.prompts.chapterDescriptionsInstruction();
   }
 
+  /** Instruction for the "design a story concept" task. */
+  storyConceptInstruction(): string {
+    return this.prompts.storyConceptInstruction();
+  }
+
   /** The rewrite-selection instruction. */
   rewriteInstruction(): string {
     return this.prompts.rewriteInstruction();

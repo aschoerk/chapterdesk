@@ -76,6 +76,7 @@ export interface CtxMenuContext {
     continueDraft: () => void;
     switchCharacters: () => void;
     chapterDescriptions: () => void;
+    storyConcept: () => void;
     prepend: () => void;
     setReadPosition: () => void;
     clearReadPosition: () => void;
@@ -165,6 +166,11 @@ export function buildCtxMenuItems(ctx: CtxMenuContext): CtxMenuItem[] {
     roleItems.push({
       label: ctx.t('node.ctxChapterDescriptions'),
       action: () => ctx.actions.chapterDescriptions(),
+      disabled: ctx.loading
+    });
+    roleItems.push({
+      label: ctx.t('node.ctxStoryConcept'),
+      action: () => ctx.actions.storyConcept(),
       disabled: ctx.loading
     });
     if (!ctx.isUnsentQuestion) {

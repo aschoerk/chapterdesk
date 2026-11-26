@@ -9,6 +9,7 @@ import { ToastService } from '../../core/toast/toast.service';
 import { PrependDialogService } from '../../core/dialogs/prepend-dialog.service';
 import { NodeVersionDiffDialogService } from '../../core/dialogs/node-version-diff-dialog.service';
 import { ChapterDescriptionsDialogService } from '../../core/dialogs/chapter-descriptions-dialog.service';
+import { StoryConceptDialogService } from '../../core/dialogs/story-concept-dialog.service';
 import { NodeEditSession } from '../../core/chat/node-edit-session';
 import {
   estimateContentTokens,
@@ -46,8 +47,8 @@ export interface DialogActionsHost {
   onActivated(nodeId: string): void;
   /** Structural flows stay on the card (shared with regenerate/rewrite). */
   runFlow(
-    usecase: 'send-prepend' | 'send-chapter-descriptions',
-    pending: 'prepend' | 'chapterDescriptions',
+    usecase: 'send-prepend' | 'send-chapter-descriptions' | 'send-story-concept',
+    pending: 'prepend' | 'chapterDescriptions' | 'storyConcept',
     builder?: (build: { vars: Record<string, unknown> }) => void,
   ): Promise<boolean>;
   /** Prepend state — the template binds these signals directly. */
@@ -86,6 +87,7 @@ export class DialogActionsController {
   private readonly prependDialog = inject(PrependDialogService);
   private readonly versionDiffDialog = inject(NodeVersionDiffDialogService);
   private readonly chapterDescriptionsDialog = inject(ChapterDescriptionsDialogService);
+  private readonly storyConceptDialog = inject(StoryConceptDialogService);
   private readonly i18n = inject(I18nService);
   private readonly toast = inject(ToastService);
 
@@ -433,6 +435,48 @@ export class DialogActionsController {
       build.vars['goal'] = result.goal;
       // The model chosen in the dialog wins — the new branch must use the
       // freshly chosen model, not the node's (its draft is left untouched).
+      build.vars['modelId'] = result.modelId;
+      build.vars['providerId'] = result.providerId;
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Story concept
+  // ------------------------------------------------------------------
+
+  /**
+   * Open the "Design a story concept" dialog. On confirm the concept (ending
+   * in a chapter description list) is generated as another branch: a free-form
+   * concept prompt, the selected personas as characters, an optional chapter
+   * count (0 = let the model decide) and an optional target story length. The
+   * chapter list is stored as the same `chapter-plan.json` record a later
+   * Elaborate run consumes.
+   */
+  async openStoryConceptDialog(): Promise<void> {
+    const host = this.host;
+    if (!host) return;
+    const node = host.node();
+    if (node.role !== 'user' || !host.actions.idle) return;
+    const chatId = this.chatService.currentChatId();
+    if (!chatId) return;
+    const chat = this.chatService.chats().find(c => c.id === chatId) ?? null;
+
+    const defaultModelId = node.modelId || host.resolvePreferredModelId(node);
+    const result = await this.storyConceptDialog.open({
+      chatId,
+      chat,
+      node,
+      defaultModelId,
+      defaultProviderId: node.providerId ?? '',
+    });
+    if (result == null) return; // cancelled
+
+    await host.runFlow('send-story-concept', 'storyConcept', build => {
+      build.vars['conceptPrompt'] = result.prompt;
+      build.vars['conceptPersonas'] = result.personas;
+      build.vars['chapterCount'] = result.chapterCount ?? 0;
+      build.vars['firstChapter'] = 1;
+      build.vars['targetWords'] = result.targetWords ?? 0;
       build.vars['modelId'] = result.modelId;
       build.vars['providerId'] = result.providerId;
     });

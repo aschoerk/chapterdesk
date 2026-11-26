@@ -169,6 +169,20 @@ Each description says in a few plain sentences what happens in that chapter — 
 Change the story as little as possible: keep established facts, and let every chapter follow from the previous one.`
   },
   {
+    id: 'structure.storyConcept',
+    category: 'structure',
+    label: 'Story concept design',
+    description: 'Heads the "Design a story concept" request. The concept prompt, the selected personas, the chapter/word constraints AND the output format contract are appended by the flow — this template only describes WHAT to design.',
+    default:
+      `Design a complete story concept from the idea below and turn it into a chapter plan.
+
+The concept and its chapter descriptions are the blueprint for writing the story later, chapter by chapter. Every chapter description must say concretely what happens in that chapter: the places, the people involved, the conflict, the turn, and how it leads into the next chapter.
+
+Treat the story content above as established canon — never contradict it. When it is empty, invent a fresh concept.
+
+Respect the constraints that follow: the characters (personas) that must appear, the number of chapters, and the target length of the finished story.`
+  },
+  {
     id: 'structure.rewriteInPlace',
     category: 'structure',
     label: 'Rewrite in place (chapter / answer)',

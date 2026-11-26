@@ -104,6 +104,13 @@ import { ModelEntry, ProviderConfig } from '../../../models/chat-config';
  *                      `vars` (chapterCount, sentencesPerChapter,
  *                      firstChapter, goal + modelId/providerId), then stream
  *                      the answer under it.
+ *  send-story-concept — design a STORY CONCEPT as another branch: the request
+ *                      starts from a free-form `conceptPrompt`, optionally
+ *                      includes `conceptPersonas` as characters and a
+ *                      `targetWords` length, and ends in a chapter list
+ *                      (`chapterCount` may be 0 = let the model decide). The
+ *                      streamed answer carries the same `chapter-plan.json`
+ *                      record, so a later elaboration can consume it.
  */
 export type UsecaseKind =
   | 'storyboard-direct'
@@ -129,7 +136,8 @@ export type UsecaseKind =
   | 'send-rewrite'
   | 'send-prepend'
   | 'send-elaborate'
-  | 'send-chapter-descriptions';
+  | 'send-chapter-descriptions'
+  | 'send-story-concept';
 
 /** Which provider endpoint a request intent targets. */
 export type LlmEndpoint = 'completion' | 'images';
@@ -359,6 +367,22 @@ export interface UsecaseVars {
   firstChapter?: number;
   /** `send-chapter-descriptions`: what the chapters are meant to achieve. */
   goal?: string;
+  /**
+   * `send-story-concept`: the free-form story idea from the dialog. Sent above
+   * the parameters so the model designs the concept from it.
+   */
+  conceptPrompt?: string;
+  /**
+   * `send-story-concept`: personas the concept must include as characters.
+   * The dialog resolves them from the PersonaService; only name + description
+   * reach the model.
+   */
+  conceptPersonas?: Array<{ id?: string; name: string; shortName?: string; description?: string }>;
+  /**
+   * `send-story-concept`: target length of the finished story in words
+   * (0 / undefined = no target).
+   */
+  targetWords?: number;
   /** Image use cases: explicit rendering model chosen in a dialog. */
   modelId?: string;
   /** Image use cases: provider of the chosen rendering model. */

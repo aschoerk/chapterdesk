@@ -94,6 +94,58 @@ Shape example for 3 chapters starting at chapter 7 (content is yours):
 8. The Road — They leave before dawn and lose the track in the rain. By noon the bridge is gone.
 9. The Ledger — The second ledger names a creditor Mara has never heard of. She decides to find him alone.`;
 
+/**
+ * Marker line that separates the story-concept prose from the chapter list in
+ * a "design a story concept" answer. The concept itself is written above the
+ * marker; the chapter list (what an elaboration consumes) below it.
+ */
+export const CHAPTER_LIST_MARKER = 'CHAPTER LIST';
+
+const CHAPTER_LIST_MARKER_LINE =
+  /^[ \t>]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?[ \t]*chapter[ \t]+list[ \t]*[:.]?[ \t]*(?:\*\*|__)?[ \t]*$/im;
+
+const STORY_CONCEPT_SHAPE = `OUTPUT SHAPE — follow it exactly:
+- First write the story concept as a few short paragraphs: premise, setting, main characters, central conflict and tone.
+- Then write one line that contains only: ${CHAPTER_LIST_MARKER}
+- Then one blank line, followed by the chapter list.
+- Never use numbered lists anywhere before the ${CHAPTER_LIST_MARKER} line.
+- Output no text after the chapter list — no closing remark, no notes, no code fence.
+- One chapter per paragraph; separate paragraphs with exactly one blank line.
+- Every chapter paragraph begins at column 1 with the chapter number in digits, a period and one space: "1. "
+- Then the heading (short, no trailing period), then " — " (space, em dash, space), then the description.
+- The description stays in that same paragraph. Never start a new line or a new paragraph inside a chapter.
+- Plain text only: no markdown (#, **, *, _), no bullets, no sub-lists, no quotes, no tables.
+- Number the chapters consecutively, starting at the given first chapter number. Never restart at 1.`;
+
+/**
+ * Output contract for a story-concept request with an EXPLICIT chapter count:
+ * concept prose, the marker line, then exactly that many chapter descriptions.
+ */
+export const STORY_CONCEPT_FORMAT_CONTRACT = `${STORY_CONCEPT_SHAPE}
+- Emit exactly the requested number of chapters.`;
+
+/**
+ * Output contract for a story-concept request with NO chapter count ("let the
+ * story decide"): same shape, but the model picks the number of chapters.
+ */
+export const STORY_CONCEPT_FORMAT_CONTRACT_OPEN = `${STORY_CONCEPT_SHAPE}
+- Emit as many chapters as the story needs — use the target length as guidance.`;
+
+/**
+ * The chapter-list part of a generated answer: everything AFTER the LAST
+ * `CHAPTER LIST` marker line, or the whole text when no marker is present (a
+ * pure chapter-description list). Used by the plan-record sync so the concept
+ * prose above the list is never parsed as chapter entries.
+ */
+export function chapterListSection(text: string | null | undefined): string {
+  const source = (text ?? '').replace(/\r\n?/g, '\n');
+  const re = new RegExp(CHAPTER_LIST_MARKER_LINE.source, 'gim');
+  let from = -1;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(source))) from = match.index + match[0].length;
+  return from < 0 ? source : source.slice(from).trim();
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------

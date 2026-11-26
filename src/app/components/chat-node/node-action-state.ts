@@ -15,7 +15,8 @@ export type NodeActionKind =
   | 'structure'
   | 'prepend'
   | 'image'
-  | 'chapterDescriptions';
+  | 'chapterDescriptions'
+  | 'storyConcept';
 
 /**
  * "One action at a time" for a single chat-node card.

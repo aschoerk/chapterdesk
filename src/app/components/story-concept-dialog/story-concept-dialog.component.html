@@ -1,0 +1,105 @@
+@if (dialog.current(); as d) {
+  <div
+    class="sc-backdrop"
+    (click)="onBackdrop($event)"
+    (mousedown)="onBackdropMousedown($event)"
+    (keydown)="onKey($event)"
+    tabindex="0"
+  >
+    <div
+      class="sc-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sc-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h3 id="sc-title">{{ i18n.t('storyConceptDialog.title') }}</h3>
+      <p class="sc-hint">{{ i18n.t('storyConceptDialog.hint') }}</p>
+
+      <label class="sc-field">
+        <span class="sc-label">{{ i18n.t('storyConceptDialog.promptLabel') }}</span>
+        <textarea rows="5"
+                  [ngModel]="prompt()"
+                  (ngModelChange)="prompt.set($event)"
+                  [placeholder]="i18n.t('storyConceptDialog.promptPh')"></textarea>
+      </label>
+
+      <div class="sc-field">
+        <span class="sc-label">
+          {{ i18n.t('storyConceptDialog.personasLabel') }}
+          @if (selectedCount() > 0) {
+            <span class="sc-selected-count">{{ i18n.t('storyConceptDialog.selectedCount', { count: selectedCount() }) }}</span>
+          }
+        </span>
+        @if (personas().length === 0) {
+          <p class="sc-personas-empty">{{ i18n.t('storyConceptDialog.noPersonas') }}</p>
+        } @else {
+          <div class="sc-personas" role="group" aria-label="Personas">
+            @for (persona of personas(); track persona.id) {
+              <label
+                class="sc-persona"
+                [class.selected]="isPersonaSelected(persona.id)"
+                [title]="persona.description || persona.name + ' @' + persona.shortName"
+              >
+                <input
+                  type="checkbox"
+                  class="sc-sr-only"
+                  [checked]="isPersonaSelected(persona.id)"
+                  (change)="togglePersona(persona.id)"
+                />
+                <app-avatar-view
+                  class="sc-avatar"
+                  [value]="persona.avatar"
+                  [alt]="persona.name"
+                  [fallback]="persona.shortName.charAt(0).toUpperCase()"
+                />
+                <span class="sc-persona-text">
+                  <strong>{{ persona.name }}</strong>
+                  <span class="sc-persona-short">&#64;{{ persona.shortName }}</span>
+                </span>
+              </label>
+            }
+          </div>
+        }
+        <p class="sc-field-hint">{{ i18n.t('storyConceptDialog.personasHint') }}</p>
+      </div>
+
+      <div class="sc-params">
+        <label class="sc-field sc-compact">
+          <span class="sc-label">{{ i18n.t('storyConceptDialog.chaptersLabel') }}</span>
+          <input type="number" min="1" step="1"
+                 [ngModel]="chapterCount() ?? ''"
+                 (ngModelChange)="chapterCount.set(optionalNumber($event))"
+                 [placeholder]="i18n.t('storyConceptDialog.chaptersAuto')"
+                 [title]="i18n.t('storyConceptDialog.chaptersTitle')" />
+        </label>
+
+        <label class="sc-field sc-compact">
+          <span class="sc-label">{{ i18n.t('storyConceptDialog.wordsLabel') }}</span>
+          <input type="number" min="0" step="500"
+                 [ngModel]="targetWords() ?? ''"
+                 (ngModelChange)="targetWords.set(optionalNumber($event))"
+                 [placeholder]="i18n.t('storyConceptDialog.wordsAuto')"
+                 [title]="i18n.t('storyConceptDialog.wordsTitle')" />
+        </label>
+      </div>
+
+      <label class="sc-field">
+        <span class="sc-label">{{ i18n.t('storyConceptDialog.modelLabel') }}</span>
+        <app-model-select [models]="enabledModels()"
+                          [value]="modelId()"
+                          (valueChange)="onModelChange($event)"
+                          [title]="i18n.t('storyConceptDialog.modelTitle')" />
+      </label>
+
+      <div class="sc-actions">
+        <button class="btn" type="button" (click)="dialog.cancel()">
+          {{ i18n.t('common.cancel') }}
+        </button>
+        <button class="btn primary" type="button" (click)="submit()">
+          {{ i18n.t('storyConceptDialog.send') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
