@@ -47,7 +47,7 @@
           <input
             type="checkbox"
             [ngModel]="includeContent()"
-            (ngModelChange)="includeContent.set($event)"
+            (ngModelChange)="setIncludeContent($event)"
           />
           <span class="rip-include-text">
             <span class="rip-include-name">{{ i18n.t('node.rewriteIncludeContent') }}</span>

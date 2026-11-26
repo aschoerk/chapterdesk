@@ -16,7 +16,7 @@ describe('RewriteInPlaceDialogComponent', () => {
     makeModel({ id: 'm-2', displayName: 'Beta', modelId: 'beta/model', providerId: 'prov-2' }),
   ];
 
-  function open(followingCount = 0): Promise<unknown> {
+  function open(followingCount = 0, originalPrompt = ''): Promise<unknown> {
     return dialog.open({
       node: makeNode({ id: 'a1', role: 'assistant', content: 'Answer' }),
       chat: null,
@@ -24,6 +24,7 @@ describe('RewriteInPlaceDialogComponent', () => {
       modelId: 'alpha/model',
       providerId: 'prov-1',
       followingCount,
+      originalPrompt,
     });
   }
 
@@ -108,6 +109,67 @@ describe('RewriteInPlaceDialogComponent', () => {
       modelId: 'alpha/model',
       providerId: 'prov-1',
     });
+  });
+
+  it('pre-fills the specification with the original prompt when the current text is not sent', async () => {
+    const promise = open(0, 'Write a scene about a lighthouse keeper');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // While the answer's own text is sent, the box stays empty…
+    expect(component.specification()).toBe('');
+
+    // …turning that off switches to "write from scratch" and offers the
+    // original prompt for adaptation in the edit box.
+    component.setIncludeContent(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(component.includeContent()).toBe(false);
+    expect(component.specification()).toBe('Write a scene about a lighthouse keeper');
+    const textarea = fixture.nativeElement.querySelector('.rip-field textarea');
+    expect(textarea.value).toBe('Write a scene about a lighthouse keeper');
+
+    // The adapted prompt travels as the specification.
+    component.specification.set('Write a scene about a lighthouse keeper and a storm.');
+    component.submit();
+    expect(await promise).toEqual({
+      specification: 'Write a scene about a lighthouse keeper and a storm.',
+      includeHistory: true,
+      includeContent: false,
+      includeFollowing: false,
+      modelId: 'alpha/model',
+      providerId: 'prov-1',
+    });
+  });
+
+  it('clears the auto-filled prompt again when the current text is sent', async () => {
+    open(0, 'Original direction');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.setIncludeContent(false);
+    expect(component.specification()).toBe('Original direction');
+
+    component.setIncludeContent(true);
+    expect(component.includeContent()).toBe(true);
+    expect(component.specification()).toBe('');
+  });
+
+  it('keeps a user-edited specification when the current text is sent again', async () => {
+    open(0, 'Original direction');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    component.setIncludeContent(false);
+    component.specification.set('Something else entirely');
+    component.setIncludeContent(true);
+
+    expect(component.specification()).toBe('Something else entirely');
   });
 
   it('uses the provider of a model picked in the dialog', async () => {

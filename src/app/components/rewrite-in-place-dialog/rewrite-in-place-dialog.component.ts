@@ -45,6 +45,9 @@ export class RewriteInPlaceDialogComponent {
   /** How many following text(s) this answer has. */
   readonly followingCount = computed(() => this.dialog.current()?.followingCount ?? 0);
 
+  /** The original prompt that produced this answer (may be empty). */
+  readonly originalPrompt = computed(() => this.dialog.current()?.originalPrompt ?? '');
+
   constructor() {
     effect(() => {
       const state = this.dialog.current();
@@ -65,6 +68,24 @@ export class RewriteInPlaceDialogComponent {
     return count > 0
       ? this.i18n.t('node.regenerateInPlaceMsgExtra', { count })
       : this.i18n.t('node.regenerateInPlaceMsg');
+  }
+
+  /**
+   * Toggle "send the current text of this answer". Turning it OFF means the
+   * answer is written from scratch — the specification box is then pre-filled
+   * with the ORIGINAL PROMPT that produced this answer so it can be adapted.
+   * Turning it back ON clears that auto-fill again (unless the user edited it).
+   */
+  setIncludeContent(value: boolean): void {
+    const was = this.includeContent();
+    this.includeContent.set(value);
+    if (was === value) return;
+    const prompt = this.originalPrompt();
+    if (!value) {
+      if (!this.specification().trim()) this.specification.set(prompt);
+    } else if (this.specification() === prompt) {
+      this.specification.set('');
+    }
   }
 
   /** Set model + provider from a picked model id (falling back to the first). */

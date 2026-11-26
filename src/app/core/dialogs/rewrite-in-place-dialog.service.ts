@@ -24,6 +24,8 @@ export interface RewriteInPlaceDialogState {
   providerId: string;
   /** How many following text(s) (children) the answer has. */
   followingCount: number;
+  /** Text of the original prompt (user message) that produced this answer. */
+  originalPrompt: string;
 }
 
 /** What the dialog resolves with on confirm. */
@@ -71,6 +73,7 @@ export class RewriteInPlaceDialogService {
     modelId?: string;
     providerId?: string;
     followingCount?: number;
+    originalPrompt?: string;
   }): Promise<RewriteInPlaceResult | null> {
     return this.modal.open({
       node: opts.node,
@@ -79,6 +82,7 @@ export class RewriteInPlaceDialogService {
       modelId: opts.modelId ?? '',
       providerId: opts.providerId ?? '',
       followingCount: opts.followingCount ?? 0,
+      originalPrompt: opts.originalPrompt ?? '',
     });
   }
 

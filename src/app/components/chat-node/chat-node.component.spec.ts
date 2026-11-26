@@ -3351,6 +3351,9 @@ describe('ChatNodeComponent', () => {
       // that wrote the answer.
       expect(req.models.length).toBeGreaterThan(0);
       expect(req.modelId).toBe('alpha/model');
+      // The original prompt is carried along for the "write from scratch"
+      // prefill of the specification box.
+      expect(req.originalPrompt).toBe('Original direction');
       // Cancel → nothing runs, the answer stays.
       expect(runner.run).not.toHaveBeenCalled();
       expect(chatService.nodes().find((n) => n.id === 'a1')).toBeDefined();
