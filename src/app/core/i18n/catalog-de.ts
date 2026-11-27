@@ -1041,6 +1041,7 @@ export const DE: typeof EN = {
       tasks: 'Generierungsaufgaben',
       prompts: 'Prompt-Vorgaben',
       shortcuts: 'Tastaturkürzel',
+      translator: 'Übersetzer (Deutsch → Englisch)',
     },
     shortcuts: {
       title: 'Tastaturkürzel',
@@ -1192,6 +1193,7 @@ export const DE: typeof EN = {
         'image-create': 'Bilderzeugung',
         'image-interpret': 'Bildinterpretation',
         'language-check': 'Sprachkorrektur',
+        translate: 'Übersetzung',
       },
       hints: {
         default:
@@ -1208,6 +1210,8 @@ export const DE: typeof EN = {
           'Wird zur Beschreibung/Interpretation von Bildern verwendet. Das Modell muss Bildeingabe unterstützen.',
         'language-check':
           'Wird zur Prüfung der Grammatik/Orthografie von Schreibanweisungen verwendet und bietet eindeutige Umschreibungen. Das Modell muss ein JSON-Array mit 3 Zeichenketten ausgeben.',
+        translate:
+          'Standardmodell für die Seite „Deutsch → Englisch übersetzen“ (nur Google-Cloud- und Docker-Version). Leer lassen, um das Standardmodell zu verwenden.',
       },
     },
   },

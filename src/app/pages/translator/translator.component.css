@@ -1,0 +1,127 @@
+.translator-page {
+  display: flex;
+  justify-content: center;
+  padding: 4vh 4vw;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.translator-dialog {
+  width: min(720px, 100%);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border, #e5e5e5);
+  background: var(--panel, #fff);
+  color: var(--text, #111);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  box-sizing: border-box;
+  font-family: system-ui, sans-serif;
+}
+
+.translator-dialog h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+
+.tr-hint {
+  margin: 0 0 1.1rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-muted, #666);
+}
+
+.tr-field {
+  display: block;
+  margin-bottom: 0.9rem;
+}
+
+.tr-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted, #666);
+}
+
+.translator-dialog textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--bg-input, #fff);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-family: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.translator-dialog textarea:disabled {
+  opacity: 0.6;
+}
+
+.tr-result {
+  background: var(--bg-hover, #f7f7f7);
+}
+
+.tr-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin: 0.4rem 0 0.9rem;
+}
+
+.tr-shortcut {
+  font-size: 0.78rem;
+  color: var(--text-muted, #888);
+}
+
+.tr-error {
+  margin: 0.2rem 0 0.8rem;
+  font-size: 0.85rem;
+  color: #b91c1c;
+}
+
+.btn {
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--color-input-border, #ccc);
+  border-radius: 8px;
+  background: var(--panel, #fff);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.btn.small {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f0f0f0);
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.btn.primary {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.tr-copy {
+  margin-left: auto;
+}

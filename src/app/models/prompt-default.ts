@@ -407,6 +407,19 @@ No markdown fences, no text before or after the JSON.`
 
   // ---------------------------------------------------------------- language
   {
+    id: 'language.translate',
+    category: 'language',
+    label: 'Translate German → English',
+    description: 'Instruction of the translator page (Google Cloud / Docker deployments only). The German text is sent as the user message.',
+    default: `Translate the German text from the user message into natural, idiomatic English.
+
+Rules:
+- Preserve the meaning, tone, register and intent exactly.
+- Keep the formatting: paragraphs, line breaks, lists, quotes and emphasis stay where they are.
+- Do not explain, summarize, prettify or add anything.
+- Output ONLY the translation — no preface, no notes, no markdown fences.`
+  },
+  {
     id: 'language.check',
     category: 'language',
     label: 'Language / grammar check',

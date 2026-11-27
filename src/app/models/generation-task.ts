@@ -15,7 +15,8 @@ export type GenerationTaskKind =
   | 'overview'        // summaries / overviews
   | 'image-create'    // text  -> image
   | 'image-interpret' // image -> text (describing what the image shows)
-  | 'language-check'; // direction / language correction (grammar + clarity)
+  | 'language-check' // direction / language correction (grammar + clarity)
+  | 'translate';      // German -> English translator page (hosted builds only)
 
 export interface GenerationTaskConfig {
   kind: GenerationTaskKind;
@@ -34,7 +35,8 @@ export const GENERATION_TASK_KINDS: GenerationTaskKind[] = [
   'overview',
   'image-create',
   'image-interpret',
-  'language-check'
+  'language-check',
+  'translate'
 ];
 
 export function emptyGenerationTaskConfig(kind: GenerationTaskKind): GenerationTaskConfig {

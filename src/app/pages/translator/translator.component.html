@@ -1,0 +1,54 @@
+<div class="translator-page">
+  <div class="translator-dialog" role="dialog" aria-labelledby="tr-title">
+    <h1 id="tr-title">{{ i18n.t('translator.title') }}</h1>
+    <p class="tr-hint">{{ i18n.t('translator.hint') }}</p>
+
+    <label class="tr-field">
+      <span class="tr-label">{{ i18n.t('translator.modelLabel') }}</span>
+      <app-model-select [models]="models()"
+                        [value]="modelId()"
+                        [disabled]="loading()"
+                        selectClass="tr-model-select"
+                        (valueChange)="onModelChange($event)"
+                        [title]="i18n.t('translator.modelTitle')" />
+    </label>
+
+    <label class="tr-field">
+      <span class="tr-label">{{ i18n.t('translator.sourceLabel') }}</span>
+      <textarea class="tr-source"
+                rows="8"
+                [ngModel]="source()"
+                (ngModelChange)="source.set($event)"
+                [disabled]="loading()"
+                [placeholder]="i18n.t('translator.sourcePh')"></textarea>
+    </label>
+
+    <div class="tr-actions">
+      <span class="tr-shortcut">{{ i18n.t('translator.shortcutHint') }}</span>
+      <button class="btn primary" type="button"
+              [disabled]="!canTranslate()"
+              (click)="translate()"
+              [title]="i18n.t('translator.translateTitle')">
+        {{ loading() ? i18n.t('translator.translating') : i18n.t('translator.translate') }}
+      </button>
+    </div>
+
+    @if (error()) {
+      <p class="tr-error">{{ error() }}</p>
+    }
+
+    @if (result()) {
+      <div class="tr-field">
+        <span class="tr-label">
+          {{ i18n.t('translator.resultLabel') }}
+          <button class="btn small tr-copy" type="button"
+                  (click)="copyResult()"
+                  [title]="i18n.t('translator.copyTitle')">
+            {{ i18n.t('translator.copy') }}
+          </button>
+        </span>
+        <textarea class="tr-result" rows="8" readonly [ngModel]="result()"></textarea>
+      </div>
+    }
+  </div>
+</div>

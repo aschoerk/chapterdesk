@@ -10,6 +10,15 @@
           {{ i18n.t(tab.labelKey) }}
         </a>
       }
+      @if (tools.length > 0) {
+        <hr class="config-nav-divider" />
+        @for (tool of tools; track tool.path) {
+          <a class="config-nav-item config-nav-tool" [routerLink]="tool.path">
+            {{ i18n.t(tool.labelKey) }}
+            <span class="config-nav-tool-mark" aria-hidden="true">↗</span>
+          </a>
+        }
+      }
     </nav>
   </aside>
   <main class="config-content">

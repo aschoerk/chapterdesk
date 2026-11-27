@@ -30,7 +30,9 @@ describe('ConfigShellComponent', () => {
   });
 
   it('renders the five sidebar nav entries', () => {
-    const links = (fixture.nativeElement as HTMLElement).querySelectorAll('.config-nav-item');
+    // The tool links reuse the item styling, so exclude them here.
+    const links = (fixture.nativeElement as HTMLElement)
+      .querySelectorAll('.config-nav-item:not(.config-nav-tool)');
     expect(links.length).toBe(5);
     expect(component.tabs.map(t => t.path)).toEqual([
       '/config/appearance',
@@ -48,5 +50,16 @@ describe('ConfigShellComponent', () => {
     expect(text).toContain('Generation Tasks');
     expect(text).toContain('Prompt defaults');
     expect(text).toContain('Keyboard shortcuts');
+  });
+
+  it('offers the translator as a tool link below the settings entries', () => {
+    const el = fixture.nativeElement as HTMLElement;
+    const tools = el.querySelectorAll('.config-nav-tool');
+    expect(tools.length).toBe(1);
+    expect(tools[0].textContent).toContain('Translator');
+    expect(tools[0].getAttribute('href')).toBe('/translate');
+    expect(component.tools).toEqual([{ path: '/translate', labelKey: 'config.nav.translator' }]);
+    // The tool sits AFTER the settings entries, separated by a divider.
+    expect(el.querySelectorAll('.config-nav-divider').length).toBe(1);
   });
 });

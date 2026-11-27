@@ -1036,6 +1036,7 @@ export const EN = {
       tasks: 'Generation Tasks',
       prompts: 'Prompt defaults',
       shortcuts: 'Keyboard shortcuts',
+      translator: 'Translator (German → English)',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',
@@ -1182,6 +1183,7 @@ export const EN = {
         'image-create': 'Image creation',
         'image-interpret': 'Image interpretation',
         'language-check': 'Language correction',
+        translate: 'Translation',
       },
       hints: {
         default:
@@ -1194,6 +1196,8 @@ export const EN = {
         'image-interpret': 'Used to describe / interpret images. Model must accept image input.',
         'language-check':
           'Used to check the grammar / orthography of writing directions and offer unambiguous rewrites. Model must output a JSON array of 3 strings.',
+        translate:
+          'Default model for the German → English translator page (Google Cloud / Docker deployments only). Leave empty to use the default model.',
       },
     },
   },

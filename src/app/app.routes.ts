@@ -14,6 +14,7 @@ import { TopicsComponent } from './pages/topics/topics.component';
 import { ChatReaderComponent } from './pages/chat-reader/chat-reader.component';
 import { LoginComponent } from './pages/login/login.component';
 import { ClaimsComponent } from './pages/claims/claims.component';
+import { TranslatorComponent } from './pages/translator/translator.component';
 
 export const routes: Routes = [
   // { path: 'login', component: LoginComponent },
@@ -37,5 +38,9 @@ export const routes: Routes = [
   { path: 'topics', component: TopicsComponent},
   { path: 'import', component: ImportComponent},
   { path: 'projects', component: ProjectsComponent},
+  // German → English translator — a tool page, linked from the settings sidebar
+  // ("Translator"). It is not part of the story workflow, so nothing else links
+  // to it.
+  { path: 'translate', component: TranslatorComponent },
   { path: '', redirectTo: 'chat', pathMatch: 'full' }
 ];
